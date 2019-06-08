@@ -1,4 +1,4 @@
-package jabba
+package jobpostings
 
 import "testing"
 import "context"
