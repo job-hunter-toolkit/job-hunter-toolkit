@@ -4,7 +4,7 @@ The job hunter's toolkit.
 
 ## Work In Progress
 
-But, contributions, issues and questions are welcome!
+But contributions, issues and questions are welcome!
 
 ## Install
 
