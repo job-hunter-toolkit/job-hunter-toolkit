@@ -1,8 +1,10 @@
 package jobpostings
 
-import "testing"
-import "context"
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"testing"
+)
 
 func TestGetCloudreachJobPostings(t *testing.T) {
 	jobPostings, err := GetCloudreachJobPostings(context.Background())

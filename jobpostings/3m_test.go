@@ -1,8 +1,10 @@
 package jobpostings
 
-import "testing"
-import "context"
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"testing"
+)
 
 func TestGet3MJobPostings(t *testing.T) {
 	jobPostings, err := Get3MJobPostings(context.Background())

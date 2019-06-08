@@ -1,8 +1,10 @@
 package jobpostings
 
-import "testing"
-import "context"
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"testing"
+)
 
 func TestGetVenmoJobPostings(t *testing.T) {
 	jobPostings, err := GetVenmoJobPostings(context.Background())

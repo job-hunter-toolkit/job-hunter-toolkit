@@ -1,9 +1,11 @@
 
 package jobpostings
 
-import "testing"
-import "context"
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"testing"
+)
 
 func TestGetERMJobPostings(t *testing.T) {
 	jobPostings, err := GetERMJobPostings(context.Background())

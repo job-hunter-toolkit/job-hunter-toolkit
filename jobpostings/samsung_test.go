@@ -1,8 +1,10 @@
 package jobpostings
 
-import "testing"
-import "context"
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"testing"
+)
 
 func TestGetSamsungJobPostings(t *testing.T) {
 	jobPostings, err := GetSamsungJobPostings(context.Background())

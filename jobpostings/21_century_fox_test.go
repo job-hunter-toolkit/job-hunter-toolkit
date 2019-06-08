@@ -1,8 +1,10 @@
 package jobpostings
 
-import "testing"
-import "context"
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"testing"
+)
 
 func TestGet21stCenturyFoxJobPostings(t *testing.T) {
 	jobPostings, err := Get21stCenturyFoxJobPostings(context.Background())

@@ -1,8 +1,10 @@
 package jobpostings
 
-import "testing"
-import "context"
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"testing"
+)
 
 func TestWorkdayJobPostings(t *testing.T) {
 	//jobPostings, err := getWorkdayJobPostings(context.Background(), "https://carbonblack.wd1.myworkdayjobs.com/Life_at_Cb")
