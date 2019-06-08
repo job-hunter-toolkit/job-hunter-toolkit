@@ -9,7 +9,7 @@ But, contributions, issues and questions are welcome!
 ## Install
 
 ```console
-$ go get -u "github.com/job-hunter-toolkit/job-hunter-toolkit"
+$ go get -u github.com/job-hunter-toolkit/job-hunter-toolkit
 ```
 
 ## Help
