@@ -38,3 +38,23 @@ title: ... location: ... url: ...
 title: ... location: ... url: ...
 ...
 ```
+
+Output as newline separated JSON:
+
+```console
+$ job-hunter-toolkit job-postings --json
+{"title":"...","location":"...","url":"..."}
+{"title":"...","location":"...","url":"..."}
+{"title":"...","location":"...","url":"..."}
+...
+```
+
+Output as CSV (with no headers):
+
+```console
+$ job-hunter-toolkit job-postings --csv
+title,location,url
+title,location,url
+title,location,url
+...
+```
