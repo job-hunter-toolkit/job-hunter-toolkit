@@ -65,8 +65,8 @@ func main() {
 			}
 		},
 	}
-	cmdJobPostings.Flags().BoolVar(&cmdJobPostingsPrintJSON, "json", false, "out as newline separated JSON")
-	cmdJobPostings.Flags().BoolVar(&cmdJobPostingsPrintCSV, "csv", false, "out as CSV with no header (title, location, url)")
+	cmdJobPostings.Flags().BoolVar(&cmdJobPostingsPrintJSON, "json", false, "output as newline separated JSON")
+	cmdJobPostings.Flags().BoolVar(&cmdJobPostingsPrintCSV, "csv", false, "output as CSV with no header (title, location, url)")
 
 	var rootCmd = &cobra.Command{Use: "job-hunter-toolkit"}
 	rootCmd.AddCommand(cmdJobPostings)
