@@ -22,6 +22,7 @@ Usage:
 Available Commands:
   help         Help about any command
   job-postings Find job postings from various companies
+  job-sources  List the various companies available from job-postings
 
 Flags:
   -h, --help   help for job-hunter-toolkit
