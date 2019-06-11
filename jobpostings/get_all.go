@@ -7,7 +7,7 @@ import (
 
 // GetAllJobPostings finds all of the JobPostings using every source.
 func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
-	// cat *.go | grep "\bGet" | grep "ctx" | awk '{print $2}' | awk -F '(' '{print $1","}' | pbcopy
+	// cat *.go | grep "\bGet" | grep "ctx" | awk '{print $2}' | awk -F '(' '{print $1","}' | grep "Get" | grep -v "GetAllJob" | pbcopy
 	all := []func(ctx context.Context) (<-chan *JobPosting, error){
 		Get21stCenturyFoxJobPostings,
 		Get3MJobPostings,
@@ -48,6 +48,7 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetMajorLeagueBaseballPostings,
 		GetMastercardJobPostings,
 		GetNationwideJobPostings,
+		GetNetlifyJobPostings,
 		GetNewYorkTimesJobPostings,
 		GetNvidiaJobPostings,
 		GetOktaJobPostings,
