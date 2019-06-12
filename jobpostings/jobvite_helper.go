@@ -22,7 +22,7 @@ func getJobviteJobsFor(ctx context.Context, company string) (<-chan *JobPosting,
 				for _, a := range n.Attr {
 					if a.Key == "href" {
 						if strings.Contains(a.Val, "/job/") {
-							url := fmt.Sprintf("https://jobs.jobvite.com%s",a.Val)
+							url := fmt.Sprintf("https://jobs.jobvite.com%s", a.Val)
 							titleStr := strings.TrimSpace(n.FirstChild.Data)
 							locationStr := strings.Join(strings.Fields(strings.TrimSpace(n.Parent.Parent.FirstChild.NextSibling.NextSibling.NextSibling.FirstChild.Data)), " ")
 
@@ -50,13 +50,30 @@ func getJobviteJobsFor(ctx context.Context, company string) (<-chan *JobPosting,
 			}
 		}
 
+		var noMoreResults func(*html.Node) bool
+
+		noMoreResults = func(n *html.Node) bool {
+			if n.Type == html.ElementNode && n.Data == "p" {
+				for _, a := range n.Attr {
+					if a.Key == "ng-non-bindable" {
+						return true
+					}
+				}
+			}
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				if noMoreResults(c) {
+					return true
+				}
+			}
+			return false
+		}
+
+		page := 1
 
 		for {
-			page := 1
-
 			// To include job description, simply add
 			// ?content=true as a URL param to the request
-			req, err := http.NewRequest("GET", fmt.Sprintf("https://jobs.jobvite.com/%s/search?l=&c=&q=&p=%d", company, page), nil)
+			req, err := http.NewRequest("GET", fmt.Sprintf("https://jobs.jobvite.com/%s/search?l=&c=&q=&nl=1&p=%d", company, page), nil)
 
 			// "https://jobs.jobvite.com/%s/search?l=&c=&q=&nl=1&p=%d"
 			if err != nil {
@@ -77,7 +94,13 @@ func getJobviteJobsFor(ctx context.Context, company string) (<-chan *JobPosting,
 				break
 			}
 
+			if noMoreResults(doc) {
+				break
+			}
+
 			findJobs(doc)
+
+			page++
 		}
 	}()
 
