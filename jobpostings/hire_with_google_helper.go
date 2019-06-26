@@ -72,7 +72,7 @@ func getHireWithGoogleJobPostingsFor(ctx context.Context, company string) (<-cha
 			url := strings.TrimSpace(strings.Replace(item.URL, "http://", "https://", -1))
 			titleStr := strings.TrimSpace(item.Title)
 			locationStr := "unknown"
-			if item.JobLocation.Type == "@Place" {
+			if item.JobLocation.Type == "@Place" || item.JobLocation.Type == "Place" {
 				locationStr = strings.Join([]string{item.JobLocation.Address.AddressLocality, item.JobLocation.Address.AddressCountry}, ",")
 			}
 			jobPostings <- &JobPosting{
