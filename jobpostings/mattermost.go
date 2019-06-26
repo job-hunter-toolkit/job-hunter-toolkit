@@ -6,5 +6,5 @@ import (
 
 // GetMattermostJobPostings finds JobPostings found at https:/lever.co
 func GetMattermostJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "mattermost")
+	return getLeverJobsFor(ctx, "mattermost")
 }

@@ -6,5 +6,5 @@ import (
 
 // GetCatalyticJobPostings finds JobPostings found at https://catalyticds.bamboohr.com/jobs/
 func GetCatalyticJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "catalyticds")
+	return getBambooHRJobsFor(ctx, "catalyticds")
 }

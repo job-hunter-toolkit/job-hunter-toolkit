@@ -6,5 +6,5 @@ import (
 
 // GetRelativityJobPostings finds JobPostings found at https:/lever.co
 func GetRelativityJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "relativityspace")
+	return getLeverJobsFor(ctx, "relativityspace")
 }

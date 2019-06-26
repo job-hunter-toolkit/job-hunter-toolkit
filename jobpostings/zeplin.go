@@ -6,5 +6,5 @@ import (
 
 // GetZeplinJobPostings finds JobPostings found at https:/lever.co
 func GetZeplinJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "zeplin")
+	return getLeverJobsFor(ctx, "zeplin")
 }

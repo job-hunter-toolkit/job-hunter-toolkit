@@ -6,5 +6,5 @@ import (
 
 // GetEssentialJobPostings finds JobPostings found at https:/lever.co
 func GetEssentialJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "essential")
+	return getLeverJobsFor(ctx, "essential")
 }

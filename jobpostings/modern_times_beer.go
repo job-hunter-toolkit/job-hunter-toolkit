@@ -6,5 +6,5 @@ import (
 
 // GetModernTimesBeerJobPostings finds JobPostings found at https:/lever.co
 func GetModernTimesBeerJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "moderntimesbeer")
+	return getLeverJobsFor(ctx, "moderntimesbeer")
 }

@@ -6,5 +6,5 @@ import (
 
 // GetPaloAltoNetworksJobPostings finds JobPostings found at https://jobvite.com
 func GetPaloAltoNetworksJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getJobviteJobsFor(context.Background(), "paloaltonetworks")
+	return getJobviteJobsFor(ctx, "paloaltonetworks")
 }

@@ -6,5 +6,5 @@ import (
 
 // GetThunderTokenJobPostings finds JobPostings found at https:/lever.co
 func GetThunderTokenJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "thundertoken")
+	return getLeverJobsFor(ctx, "thundertoken")
 }

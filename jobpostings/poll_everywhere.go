@@ -6,5 +6,5 @@ import (
 
 // GetPollEverywhereJobPostings finds JobPostings found at https:/lever.co
 func GetPollEverywhereJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "polleverywhere")
+	return getLeverJobsFor(ctx, "polleverywhere")
 }

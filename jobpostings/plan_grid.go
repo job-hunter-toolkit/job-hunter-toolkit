@@ -6,5 +6,5 @@ import (
 
 // GetPlanGridJobPostings finds JobPostings found at https:/lever.co
 func GetPlanGridJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "plangrid")
+	return getLeverJobsFor(ctx, "plangrid")
 }

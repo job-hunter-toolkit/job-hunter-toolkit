@@ -6,5 +6,5 @@ import (
 
 // GetBoxLunchJobPostings finds JobPostings found at https:/lever.co
 func GetBoxLunchJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "boxlunch")
+	return getLeverJobsFor(ctx, "boxlunch")
 }

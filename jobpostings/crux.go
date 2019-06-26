@@ -6,5 +6,5 @@ import (
 
 // GetCruxJobPostings finds JobPostings found at https:/lever.co
 func GetCruxJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "cruxinformatics")
+	return getLeverJobsFor(ctx, "cruxinformatics")
 }

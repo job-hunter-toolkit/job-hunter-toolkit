@@ -6,5 +6,5 @@ import (
 
 // GetScribdJobPostings finds JobPostings found at https:/lever.co
 func GetScribdJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "scribd")
+	return getLeverJobsFor(ctx, "scribd")
 }

@@ -6,5 +6,5 @@ import (
 
 // GetRelayrJobPostings finds JobPostings found at https://relayr.bamboohr.com/jobs/
 func GetRelayrJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "relayr")
+	return getBambooHRJobsFor(ctx, "relayr")
 }

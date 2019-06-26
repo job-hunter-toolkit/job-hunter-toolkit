@@ -6,5 +6,5 @@ import (
 
 // GetSparkswapJobPostings finds JobPostings found at https:/lever.co
 func GetSparkswapJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "sparkswap")
+	return getLeverJobsFor(ctx, "sparkswap")
 }

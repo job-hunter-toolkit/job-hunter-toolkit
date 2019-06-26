@@ -6,5 +6,5 @@ import (
 
 // GetNexTravelobPostings finds JobPostings found at https:/lever.co
 func GetNexTravelobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "nextravel")
+	return getLeverJobsFor(ctx, "nextravel")
 }

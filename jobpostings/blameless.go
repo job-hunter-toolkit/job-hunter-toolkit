@@ -6,5 +6,5 @@ import (
 
 // GetBlamelessJobPostings finds JobPostings found at https:/lever.co
 func GetBlamelessJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "blameless")
+	return getLeverJobsFor(ctx, "blameless")
 }

@@ -6,5 +6,5 @@ import (
 
 // GetFictivJobPostings finds JobPostings found at https:/lever.co
 func GetFictivJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "fictiv")
+	return getLeverJobsFor(ctx, "fictiv")
 }

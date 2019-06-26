@@ -6,5 +6,5 @@ import (
 
 // GetVoxterJobPostings finds JobPostings found at https://voxter.bamboohr.com/jobs/
 func GetVoxterJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "voxter")
+	return getBambooHRJobsFor(ctx, "voxter")
 }

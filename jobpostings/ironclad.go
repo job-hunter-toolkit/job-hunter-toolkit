@@ -6,5 +6,5 @@ import (
 
 // GetIroncladJobPostings finds JobPostings found at https:/lever.co
 func GetIroncladJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "ironcladapp")
+	return getLeverJobsFor(ctx, "ironcladapp")
 }

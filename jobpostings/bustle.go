@@ -6,5 +6,5 @@ import (
 
 // GetBustleJobPostings finds JobPostings found at https:/lever.co
 func GetBustleJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "bustle")
+	return getLeverJobsFor(ctx, "bustle")
 }

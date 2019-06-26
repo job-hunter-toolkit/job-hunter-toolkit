@@ -6,5 +6,5 @@ import (
 
 // GetAptibleJobPostings finds JobPostings found at https:/lever.co
 func GetAptibleJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "aptible")
+	return getLeverJobsFor(ctx, "aptible")
 }

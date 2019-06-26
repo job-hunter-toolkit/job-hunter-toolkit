@@ -6,5 +6,5 @@ import (
 
 // GetEvercommerceJobPostings finds JobPostings found at https://evercommerce.bamboohr.com/jobs/
 func GetEvercommerceJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "evercommerce")
+	return getBambooHRJobsFor(ctx, "evercommerce")
 }

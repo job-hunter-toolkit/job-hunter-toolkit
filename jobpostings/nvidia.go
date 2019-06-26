@@ -6,5 +6,5 @@ import (
 
 // GetNvidiaJobPostings finds JobPostings using https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
 func GetNvidiaJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getWorkdayJobPostings(context.Background(), "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite")
+	return getWorkdayJobPostings(ctx, "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite")
 }

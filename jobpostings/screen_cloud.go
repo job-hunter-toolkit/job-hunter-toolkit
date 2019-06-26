@@ -6,5 +6,5 @@ import (
 
 // GetScreenCloudJobPostings finds JobPostings found at https://screencloud.bamboohr.com/jobs/
 func GetScreenCloudJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "screencloud")
+	return getBambooHRJobsFor(ctx, "screencloud")
 }

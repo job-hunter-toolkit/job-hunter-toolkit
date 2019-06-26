@@ -6,5 +6,5 @@ import (
 
 // GetFatLlamaJobPostings finds JobPostings found at https:/lever.co
 func GetFatLlamaJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "fatllama")
+	return getLeverJobsFor(ctx, "fatllama")
 }

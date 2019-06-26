@@ -6,5 +6,5 @@ import (
 
 // GetChimpJobPostings finds JobPostings found at https://chimp.bamboohr.com/jobs/
 func GetChimpJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "chimp")
+	return getBambooHRJobsFor(ctx, "chimp")
 }

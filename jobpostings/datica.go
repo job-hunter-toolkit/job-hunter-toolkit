@@ -6,5 +6,5 @@ import (
 
 // GetDaticaJobPostings finds JobPostings found at https://datica.bamboohr.com/jobs/
 func GetDaticaJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "datica")
+	return getBambooHRJobsFor(ctx, "datica")
 }

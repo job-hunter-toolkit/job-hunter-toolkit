@@ -6,5 +6,5 @@ import (
 
 // GetSkydioJobPostings finds JobPostings found at https:/lever.co
 func GetSkydioJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "skydio")
+	return getLeverJobsFor(ctx, "skydio")
 }

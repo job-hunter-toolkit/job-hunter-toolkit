@@ -6,5 +6,5 @@ import (
 
 // GetIronOxJobPostings finds JobPostings found at https:/lever.co
 func GetIronOxJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "ironox")
+	return getLeverJobsFor(ctx, "ironox")
 }

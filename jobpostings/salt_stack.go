@@ -6,5 +6,5 @@ import (
 
 // GetSaltStackJobPostings finds JobPostings found at https://saltstack.bamboohr.com/jobs/
 func GetSaltStackJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "saltstack")
+	return getBambooHRJobsFor(ctx, "saltstack")
 }

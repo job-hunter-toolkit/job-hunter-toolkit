@@ -6,5 +6,5 @@ import (
 
 // GetDarkstoreJobPostings finds JobPostings found at https:/lever.co
 func GetDarkstoreJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "darkstore")
+	return getLeverJobsFor(ctx, "darkstore")
 }

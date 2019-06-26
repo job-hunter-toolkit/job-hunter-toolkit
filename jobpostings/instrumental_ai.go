@@ -6,5 +6,5 @@ import (
 
 // GetInstrumentalAIJobPostings finds JobPostings found at https://hire.withgoogle.com/
 func GetInstrumentalAIJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getHireWithGoogleJobPostingsFor(context.Background(), "instrumentalai")
+	return getHireWithGoogleJobPostingsFor(ctx, "instrumentalai")
 }

@@ -6,5 +6,5 @@ import (
 
 // GetNeuralinkJobPostings finds JobPostings found at https:/lever.co
 func GetNeuralinkJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "neuralink")
+	return getLeverJobsFor(ctx, "neuralink")
 }

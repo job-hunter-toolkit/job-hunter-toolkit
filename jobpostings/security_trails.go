@@ -6,5 +6,5 @@ import (
 
 // GetSecurityTrailsJobPostings finds JobPostings found at https://sthr.bamboohr.com/jobs/
 func GetSecurityTrailsJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getBambooHRJobsFor(context.Background(), "sthr")
+	return getBambooHRJobsFor(ctx, "sthr")
 }

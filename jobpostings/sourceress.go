@@ -6,5 +6,5 @@ import (
 
 // GetSourceressJobPostings finds JobPostings found at https:/lever.co
 func GetSourceressJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "sourceress")
+	return getLeverJobsFor(ctx, "sourceress")
 }

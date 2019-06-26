@@ -6,5 +6,5 @@ import (
 
 // GetHazelAnalyticsJobPostings finds JobPostings found at https:/lever.co
 func GetHazelAnalyticsJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "hazelanalytics")
+	return getLeverJobsFor(ctx, "hazelanalytics")
 }

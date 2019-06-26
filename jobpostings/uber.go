@@ -64,6 +64,8 @@ func GetUberJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 	req.Header.Set("X-Csrf-Token", "hire me: https://picatz.github.io/") // lol
 	req.Header.Set("Content-Type", "application/json")
 
+	req = req.WithContext(ctx)
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err

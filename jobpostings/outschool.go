@@ -6,5 +6,5 @@ import (
 
 // GetOutschoolJobPostings finds JobPostings found at https:/lever.co
 func GetOutschoolJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "outschool")
+	return getLeverJobsFor(ctx, "outschool")
 }

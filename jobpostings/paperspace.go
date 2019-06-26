@@ -6,5 +6,5 @@ import (
 
 // GetPaperspaceJobPostings finds JobPostings found at https:/lever.co
 func GetPaperspaceJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "paperspace")
+	return getLeverJobsFor(ctx, "paperspace")
 }

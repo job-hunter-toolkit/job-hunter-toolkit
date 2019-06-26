@@ -6,5 +6,5 @@ import (
 
 // GetJellyfishJobPostings finds JobPostings found at https:/lever.co
 func GetJellyfishJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "jellyfish")
+	return getLeverJobsFor(ctx, "jellyfish")
 }

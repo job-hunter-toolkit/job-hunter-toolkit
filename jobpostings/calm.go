@@ -6,5 +6,5 @@ import (
 
 // GetCalmJobPostings finds JobPostings found at https:/lever.co
 func GetCalmJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "calm")
+	return getLeverJobsFor(ctx, "calm")
 }

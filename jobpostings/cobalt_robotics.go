@@ -6,5 +6,5 @@ import (
 
 // GetCobaltRoboticsJobPostings finds JobPostings found at https:/lever.co
 func GetCobaltRoboticsJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "cobaltrobotics")
+	return getLeverJobsFor(ctx, "cobaltrobotics")
 }

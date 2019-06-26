@@ -6,5 +6,5 @@ import (
 
 // GetRainforestQAJobPostings finds JobPostings found at https:/lever.co
 func GetRainforestQAJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "rainforest")
+	return getLeverJobsFor(ctx, "rainforest")
 }

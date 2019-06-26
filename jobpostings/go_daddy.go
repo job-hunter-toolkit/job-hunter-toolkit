@@ -6,5 +6,5 @@ import (
 
 // GetGoDaddyJobPostings finds JobPostings found at https://godaddy.wd1.myworkdayjobs.com/GoDaddy_careers
 func GetGoDaddyJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getWorkdayJobPostings(context.Background(), "https://godaddy.wd1.myworkdayjobs.com/GoDaddy_careers")
+	return getWorkdayJobPostings(ctx, "https://godaddy.wd1.myworkdayjobs.com/GoDaddy_careers")
 }

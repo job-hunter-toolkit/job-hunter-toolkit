@@ -6,5 +6,5 @@ import (
 
 // GetSignalJobPostings finds JobPostings found at https:/lever.co
 func GetSignalJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "signal")
+	return getLeverJobsFor(ctx, "signal")
 }

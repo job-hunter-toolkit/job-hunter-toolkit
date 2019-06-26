@@ -6,5 +6,5 @@ import (
 
 // GetVerifoneJobPostings finds JobPostings found at https://jobvite.com
 func GetVerifoneJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getJobviteJobsFor(context.Background(), "verifone")
+	return getJobviteJobsFor(ctx, "verifone")
 }

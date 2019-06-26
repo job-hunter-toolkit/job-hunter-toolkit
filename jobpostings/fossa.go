@@ -6,5 +6,5 @@ import (
 
 // GetFossaJobPostings finds JobPostings found at https:/lever.co
 func GetFossaJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "fossa")
+	return getLeverJobsFor(ctx, "fossa")
 }

@@ -6,5 +6,5 @@ import (
 
 // GetChartioJobPostings finds JobPostings found at https:/lever.co
 func GetChartioJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "chartio")
+	return getLeverJobsFor(ctx, "chartio")
 }

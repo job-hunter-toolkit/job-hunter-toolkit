@@ -6,5 +6,5 @@ import (
 
 // GetAuth0JobPostings finds JobPostings found at https:/lever.co
 func GetAuth0JobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "auth0")
+	return getLeverJobsFor(ctx, "auth0")
 }

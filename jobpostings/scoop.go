@@ -6,5 +6,5 @@ import (
 
 // GetScoopJobPostings finds JobPostings found at https:/lever.co
 func GetScoopJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getLeverJobsFor(context.Background(), "takescoop")
+	return getLeverJobsFor(ctx, "takescoop")
 }
