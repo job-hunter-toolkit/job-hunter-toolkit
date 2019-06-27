@@ -5,7 +5,6 @@ jobs:
       - image: circleci/golang:1.12
     steps:
       - checkout
-      - run: whereami
       - run: ls
 workflows:
   version: 2
