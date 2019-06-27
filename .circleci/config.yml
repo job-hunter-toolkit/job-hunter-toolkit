@@ -6,9 +6,9 @@ jobs:
     steps:
       - checkout
       - run: cd jobpostings
-      - run: go mod download
-      - run: go mod tidy
-      - run: go mod verify
+      - run: GO111MODULE=on go mod download
+      - run: GO111MODULE=on go mod verify
+      - run: GO111MODULE=on go test -run HashiCorp
 workflows:
   version: 2
   build_example:
