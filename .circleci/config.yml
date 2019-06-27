@@ -6,6 +6,7 @@ jobs:
     working_directory: /go/src/github.com/job-hunter-toolkit/jobpostings
     steps:
       - checkout
+      - run: export GO111MODULE=on
       - run: go mod download
       - run: go mod tidy
       - run: go mod verify
