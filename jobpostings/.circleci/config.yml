@@ -1,0 +1,17 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/golang:1.12
+    working_directory: /go/src/github.com/job-hunter-toolkit/jobpostings
+    steps:
+      - checkout
+      - run: go mod download
+      - run: go mod tidy
+      - run: go mod verify
+      - run: go mod graph
+workflows:
+  version: 2
+  build_example:
+    jobs:
+      - build
