@@ -5,7 +5,11 @@ jobs:
       - image: circleci/golang:1.12
     steps:
       - checkout
-      - run: ls
+      - run: export GO111MODULE=on
+      - run: cd jobpostings
+      - run: go mod download
+      - run: go mod tidy
+      - run: go mod verify
 workflows:
   version: 2
   build_example:
