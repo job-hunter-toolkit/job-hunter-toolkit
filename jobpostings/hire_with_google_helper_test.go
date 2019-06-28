@@ -7,6 +7,8 @@ import (
 )
 
 func TestHireWithGoogleJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := getHireWithGoogleJobPostingsFor(context.Background(), "duolingocom")
 	if err != nil {
 		t.Fatal(err)

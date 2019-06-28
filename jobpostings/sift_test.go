@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSiftJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSiftJobPostings(context.Background())
 
 	if err != nil {

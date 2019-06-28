@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCheddarJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCheddarJobPostings(context.Background())
 
 	if err != nil {

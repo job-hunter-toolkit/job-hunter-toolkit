@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRemarkablyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRemarkablyJobPostings(context.Background())
 
 	if err != nil {

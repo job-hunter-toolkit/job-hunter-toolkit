@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRainforestQAJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRainforestQAJobPostings(context.Background())
 
 	if err != nil {

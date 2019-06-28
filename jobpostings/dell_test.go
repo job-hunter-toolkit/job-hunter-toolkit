@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDellJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDellJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSamsaraJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSamsaraJobPostings(context.Background())
 
 	if err != nil {

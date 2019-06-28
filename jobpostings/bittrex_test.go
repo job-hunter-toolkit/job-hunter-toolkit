@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBittrexJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBittrexJobPostings(context.Background())
 
 	if err != nil {

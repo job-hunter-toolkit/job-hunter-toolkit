@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetProtocolJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetProtocolJobPostings(context.Background())
 
 	if err != nil {

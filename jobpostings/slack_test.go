@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSlackJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSlackJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetQuartzyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetQuartzyJobPostings(context.Background())
 
 	if err != nil {

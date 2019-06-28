@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetKiteJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetKiteJobPostings(context.Background())
 
 	if err != nil {

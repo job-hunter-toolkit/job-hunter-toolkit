@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPersistIQJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPersistIQJobPostings(context.Background())
 
 	if err != nil {

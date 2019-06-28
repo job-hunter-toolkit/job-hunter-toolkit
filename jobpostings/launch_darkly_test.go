@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetLaunchDarklyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetLaunchDarklyJobPostings(context.Background())
 
 	if err != nil {

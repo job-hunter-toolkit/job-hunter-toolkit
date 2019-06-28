@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetArborJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetArborJobPostings(context.Background())
 
 	if err != nil {

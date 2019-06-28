@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGitLabJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGitLabJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetOmadaHealthJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetOmadaHealthJobPostings(context.Background())
 
 	if err != nil {

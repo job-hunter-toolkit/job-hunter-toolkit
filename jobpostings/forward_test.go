@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetForwardJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetForwardJobPostings(context.Background())
 
 	if err != nil {

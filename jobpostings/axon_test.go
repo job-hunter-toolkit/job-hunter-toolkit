@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAxonJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAxonJobPostings(context.Background())
 
 	if err != nil {

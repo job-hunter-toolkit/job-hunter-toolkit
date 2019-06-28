@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBirdJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBirdJobPostings(context.Background())
 
 	if err != nil {

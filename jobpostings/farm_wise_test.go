@@ -7,9 +7,13 @@ import (
 )
 
 func TestGetFarmWiseJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetFarmWiseJobPostings(context.Background())
 
 	if err != nil {
+		t.Parallel()
+
 		t.Fatal(err)
 	}
 

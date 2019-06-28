@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCruxJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCruxJobPostings(context.Background())
 
 	if err != nil {

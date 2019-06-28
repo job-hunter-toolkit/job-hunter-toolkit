@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMagicLeapJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMagicLeapJobPostings(context.Background())
 
 	if err != nil {

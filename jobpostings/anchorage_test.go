@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAnchorageJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAnchorageJobPostings(context.Background())
 
 	if err != nil {

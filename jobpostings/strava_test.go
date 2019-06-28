@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetStravaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetStravaJobPostings(context.Background())
 
 	if err != nil {

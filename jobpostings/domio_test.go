@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDominoJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDominoJobPostings(context.Background())
 
 	if err != nil {

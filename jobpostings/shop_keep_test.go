@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetShopKeepJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetShopKeepJobPostings(context.Background())
 
 	if err != nil {

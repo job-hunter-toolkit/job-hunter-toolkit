@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBoomSupersonicJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBoomSupersonicJobPostings(context.Background())
 
 	if err != nil {

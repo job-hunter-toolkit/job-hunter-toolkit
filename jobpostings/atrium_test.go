@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAtriumJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAtriumJobPostings(context.Background())
 
 	if err != nil {

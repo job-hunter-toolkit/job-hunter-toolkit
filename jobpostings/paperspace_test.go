@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPaperspaceJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPaperspaceJobPostings(context.Background())
 
 	if err != nil {

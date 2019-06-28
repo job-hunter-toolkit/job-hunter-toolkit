@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTelariaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTelariaJobPostings(context.Background())
 
 	if err != nil {

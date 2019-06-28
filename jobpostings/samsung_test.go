@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSamsungJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSamsungJobPostings(context.Background())
 
 	if err != nil {

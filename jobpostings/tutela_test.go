@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTutelaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTutelaJobPostings(context.Background())
 
 	if err != nil {

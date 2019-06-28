@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCloudBeesJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCloudBeesJobPostings(context.Background())
 
 	if err != nil {

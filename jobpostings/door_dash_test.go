@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDoorDashJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDoorDashJobPostings(context.Background())
 
 	if err != nil {

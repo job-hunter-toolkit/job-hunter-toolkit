@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetReturntocorpJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetReturntocorpJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPioneerSquareLabsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPioneerSquareLabsJobPostings(context.Background())
 
 	if err != nil {

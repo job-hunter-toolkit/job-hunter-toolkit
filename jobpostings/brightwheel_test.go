@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBrightwheelJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBrightwheelJobPostings(context.Background())
 
 	if err != nil {

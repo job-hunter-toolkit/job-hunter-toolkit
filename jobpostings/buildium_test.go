@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBuildiumJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBuildiumJobPostings(context.Background())
 
 	if err != nil {

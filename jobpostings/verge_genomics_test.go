@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVergeGenomicsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVergeGenomicsJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPlatformshJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPlatformshJobPostings(context.Background())
 
 	if err != nil {

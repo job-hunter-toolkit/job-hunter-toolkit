@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCalmJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCalmJobPostings(context.Background())
 
 	if err != nil {

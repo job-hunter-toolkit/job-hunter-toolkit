@@ -7,6 +7,8 @@ import (
 )
 
 func TestGet21stCenturyFoxJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := Get21stCenturyFoxJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetLightStepJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetLightStepJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCatalyticJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCatalyticJobPostings(context.Background())
 
 	if err != nil {

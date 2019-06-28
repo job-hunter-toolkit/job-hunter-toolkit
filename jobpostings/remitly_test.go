@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRemitlyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRemitlyJobPostings(context.Background())
 
 	if err != nil {

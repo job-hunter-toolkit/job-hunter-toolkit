@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetOpenCosmosJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetOpenCosmosJobPostings(context.Background())
 
 	if err != nil {

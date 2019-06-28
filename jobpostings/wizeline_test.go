@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetWizelineJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetWizelineJobPostings(context.Background())
 
 	if err != nil {

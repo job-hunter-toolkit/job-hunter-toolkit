@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetOpenFinJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetOpenFinJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDaznJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDaznJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetIronOxJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetIronOxJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetUniregistryJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetUniregistryJobPostings(context.Background())
 
 	if err != nil {

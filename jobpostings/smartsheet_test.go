@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSmartsheetJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSmartsheetJobPostings(context.Background())
 
 	if err != nil {

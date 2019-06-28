@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSumoLogicJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSumoLogicJobPostings(context.Background())
 
 	if err != nil {

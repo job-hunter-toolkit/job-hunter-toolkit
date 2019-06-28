@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetChimpJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetChimpJobPostings(context.Background())
 
 	if err != nil {

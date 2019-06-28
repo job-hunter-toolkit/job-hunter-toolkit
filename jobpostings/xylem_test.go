@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetXylemJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetXylemJobPostings(context.Background())
 
 	if err != nil {

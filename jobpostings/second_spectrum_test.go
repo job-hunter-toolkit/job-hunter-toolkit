@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSecondSpectrumJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSecondSpectrumJobPostings(context.Background())
 
 	if err != nil {

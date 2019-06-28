@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetUberEtherJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetUberEtherJobPostings(context.Background())
 
 	if err != nil {

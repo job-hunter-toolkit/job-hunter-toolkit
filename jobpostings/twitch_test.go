@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTwitchJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTwitchJobPostings(context.Background())
 
 	if err != nil {

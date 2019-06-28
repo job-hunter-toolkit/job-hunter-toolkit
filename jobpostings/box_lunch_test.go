@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBoxLunchJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBoxLunchJobPostings(context.Background())
 
 	if err != nil {

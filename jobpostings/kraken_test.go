@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetKrakenJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetKrakenJobPostings(context.Background())
 
 	if err != nil {

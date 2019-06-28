@@ -7,9 +7,13 @@ import (
 )
 
 func TestGetFatLlamaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetFatLlamaJobPostings(context.Background())
 
 	if err != nil {
+		t.Parallel()
+
 		t.Fatal(err)
 	}
 

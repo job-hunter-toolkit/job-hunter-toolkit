@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetEburyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetEburyJobPostings(context.Background())
 
 	if err != nil {

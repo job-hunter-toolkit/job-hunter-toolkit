@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetJellyfishJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetJellyfishJobPostings(context.Background())
 
 	if err != nil {

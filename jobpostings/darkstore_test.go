@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDarkstoreJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDarkstoreJobPostings(context.Background())
 
 	if err != nil {

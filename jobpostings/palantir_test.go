@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPalantirJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPalantirJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBraintreeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBraintreeJobPostings(context.Background())
 
 	if err != nil {

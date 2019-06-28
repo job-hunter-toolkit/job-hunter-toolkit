@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetUdacityJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetUdacityJobPostings(context.Background())
 
 	if err != nil {

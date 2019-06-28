@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCuralateJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCuralateJobPostings(context.Background())
 
 	if err != nil {

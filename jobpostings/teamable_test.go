@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTeamableJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTeamableJobPostings(context.Background())
 
 	if err != nil {

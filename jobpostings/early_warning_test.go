@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetEarlyWarningJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetEarlyWarningJobPostings(context.Background())
 
 	if err != nil {

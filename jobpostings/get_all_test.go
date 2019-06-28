@@ -1,13 +1,15 @@
 package jobpostings
 
 import (
-	"time"
 	"context"
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestGetAllJobPostings(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

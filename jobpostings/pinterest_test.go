@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPinterestJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPinterestJobPostings(context.Background())
 
 	if err != nil {

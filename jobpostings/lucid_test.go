@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetLucidJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetLucidJobPostings(context.Background())
 
 	if err != nil {

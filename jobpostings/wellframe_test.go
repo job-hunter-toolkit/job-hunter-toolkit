@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetWellframeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetWellframeJobPostings(context.Background())
 
 	if err != nil {

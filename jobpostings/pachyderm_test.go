@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPachydermJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPachydermJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRobinhoodJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRobinhoodJobPostings(context.Background())
 
 	if err != nil {

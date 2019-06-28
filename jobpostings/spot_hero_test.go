@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSpotHeroJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSpotHeroJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAdobeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAdobeJobPostings(context.Background())
 
 	if err != nil {

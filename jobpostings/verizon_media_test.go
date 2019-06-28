@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVerizonMediaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVerizonMediaJobPostings(context.Background())
 
 	if err != nil {

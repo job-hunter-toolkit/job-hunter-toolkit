@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetLiveNationJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetLiveNationJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVenmoJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVenmoJobPostings(context.Background())
 
 	if err != nil {

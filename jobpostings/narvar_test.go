@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetNarvarJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetNarvarJobPostings(context.Background())
 
 	if err != nil {

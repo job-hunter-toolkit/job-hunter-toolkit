@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAESJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAESJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVeritasJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVeritasJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCarousellJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCarousellJobPostings(context.Background())
 
 	if err != nil {

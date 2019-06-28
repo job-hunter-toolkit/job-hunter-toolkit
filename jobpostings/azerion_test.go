@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAzerionJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAzerionJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetFictivJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetFictivJobPostings(context.Background())
 
 	if err != nil {

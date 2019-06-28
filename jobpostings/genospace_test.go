@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGenospaceJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGenospaceJobPostings(context.Background())
 
 	if err != nil {

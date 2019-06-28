@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetNvidiaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetNvidiaJobPostings(context.Background())
 
 	if err != nil {

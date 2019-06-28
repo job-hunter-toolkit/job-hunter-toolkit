@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetScaleAIJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetScaleAIJobPostings(context.Background())
 
 	if err != nil {

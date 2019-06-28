@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetModernizeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetModernizeJobPostings(context.Background())
 
 	if err != nil {

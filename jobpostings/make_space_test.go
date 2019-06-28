@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMakeSpaceJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMakeSpaceJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetLyricJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetLyricJobPostings(context.Background())
 
 	if err != nil {

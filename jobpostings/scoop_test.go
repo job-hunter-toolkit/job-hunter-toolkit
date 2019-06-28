@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetScoopJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetScoopJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCamblyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCamblyJobPostings(context.Background())
 
 	if err != nil {

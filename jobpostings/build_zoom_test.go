@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBuildZoomJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBuildZoomJobPostings(context.Background())
 
 	if err != nil {

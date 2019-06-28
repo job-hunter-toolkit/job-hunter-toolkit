@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetZeroCraterJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetZeroCraterJobPostings(context.Background())
 
 	if err != nil {

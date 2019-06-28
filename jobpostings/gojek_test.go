@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGojekJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGojekJobPostings(context.Background())
 
 	if err != nil {

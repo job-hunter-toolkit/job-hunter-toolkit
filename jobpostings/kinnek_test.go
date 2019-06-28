@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetKinnekJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetKinnekJobPostings(context.Background())
 
 	if err != nil {

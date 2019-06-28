@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSourceressJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSourceressJobPostings(context.Background())
 
 	if err != nil {

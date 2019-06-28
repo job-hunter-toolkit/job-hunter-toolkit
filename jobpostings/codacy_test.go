@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCodacyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCodacyJobPostings(context.Background())
 
 	if err != nil {

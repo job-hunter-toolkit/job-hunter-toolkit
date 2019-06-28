@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBlackfynnJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBlackfynnJobPostings(context.Background())
 
 	if err != nil {

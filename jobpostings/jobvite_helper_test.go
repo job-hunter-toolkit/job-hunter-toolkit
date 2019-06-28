@@ -7,6 +7,8 @@ import (
 )
 
 func TestJobviteJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := getJobviteJobsFor(context.Background(), "spotify")
 
 	if err != nil {

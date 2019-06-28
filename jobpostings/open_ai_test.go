@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetOpenAIJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetOpenAIJobPostings(context.Background())
 
 	if err != nil {

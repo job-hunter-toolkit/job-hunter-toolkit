@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetQuoraJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetQuoraJobPostings(context.Background())
 
 	if err != nil {

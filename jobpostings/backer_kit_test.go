@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBackerKitJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBackerKitJobPostings(context.Background())
 
 	if err != nil {

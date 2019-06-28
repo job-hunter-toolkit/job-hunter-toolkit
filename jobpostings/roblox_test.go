@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRobloxJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRobloxJobPostings(context.Background())
 
 	if err != nil {

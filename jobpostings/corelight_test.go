@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCorelightJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCorelightJobPostings(context.Background())
 
 	if err != nil {

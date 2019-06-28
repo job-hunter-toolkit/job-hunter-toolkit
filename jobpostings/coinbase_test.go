@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCoinbaseJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCoinbaseJobPostings(context.Background())
 
 	if err != nil {

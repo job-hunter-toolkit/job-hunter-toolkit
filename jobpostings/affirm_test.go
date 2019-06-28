@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAffirmJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAffirmJobPostings(context.Background())
 
 	if err != nil {

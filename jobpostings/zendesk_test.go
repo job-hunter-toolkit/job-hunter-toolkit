@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetZendeskJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetZendeskJobPostings(context.Background())
 
 	if err != nil {

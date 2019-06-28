@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetNPMJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetNPMJobPostings(context.Background())
 
 	if err != nil {

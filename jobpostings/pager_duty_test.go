@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPagerDutyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPagerDutyJobPostings(context.Background())
 
 	if err != nil {

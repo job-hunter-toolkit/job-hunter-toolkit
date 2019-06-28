@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGatesFoundationJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGatesFoundationJobPostings(context.Background())
 
 	if err != nil {

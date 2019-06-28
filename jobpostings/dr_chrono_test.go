@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDrChronoJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDrChronoJobPostings(context.Background())
 
 	if err != nil {

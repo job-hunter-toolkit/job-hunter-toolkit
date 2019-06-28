@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBeamlyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBeamlyJobPostings(context.Background())
 
 	if err != nil {

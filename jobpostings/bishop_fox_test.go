@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBishopFoxJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBishopFoxJobPostings(context.Background())
 
 	if err != nil {

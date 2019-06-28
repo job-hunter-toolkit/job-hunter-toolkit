@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSkipJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSkipJobPostings(context.Background())
 
 	if err != nil {

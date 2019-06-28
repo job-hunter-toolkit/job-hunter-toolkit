@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSysdigJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSysdigJobPostings(context.Background())
 
 	if err != nil {

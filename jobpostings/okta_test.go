@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetOktaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetOktaJobPostings(context.Background())
 
 	if err != nil {

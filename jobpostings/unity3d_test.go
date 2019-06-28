@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetUnity3DJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetUnity3DJobPostings(context.Background())
 
 	if err != nil {

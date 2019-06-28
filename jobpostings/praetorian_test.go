@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPraetorianJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPraetorianJobPostings(context.Background())
 
 	if err != nil {

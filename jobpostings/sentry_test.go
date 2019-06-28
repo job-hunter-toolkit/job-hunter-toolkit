@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSentryJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSentryJobPostings(context.Background())
 
 	if err != nil {

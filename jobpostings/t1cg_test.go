@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetT1CGJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetT1CGJobPostings(context.Background())
 
 	if err != nil {

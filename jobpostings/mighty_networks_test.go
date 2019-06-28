@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMightyNetworksJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMightyNetworksJobPostings(context.Background())
 
 	if err != nil {

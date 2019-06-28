@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMongoDBJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMongoDBJobPostings(context.Background())
 
 	if err != nil {

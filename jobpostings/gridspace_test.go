@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGridspaceJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGridspaceJobPostings(context.Background())
 
 	if err != nil {

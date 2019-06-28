@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBrightBytesJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBrightBytesJobPostings(context.Background())
 
 	if err != nil {

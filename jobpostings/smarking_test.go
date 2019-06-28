@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSmarkingJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSmarkingJobPostings(context.Background())
 
 	if err != nil {

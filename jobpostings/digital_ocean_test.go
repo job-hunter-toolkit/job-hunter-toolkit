@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDigitalOceanJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDigitalOceanJobPostings(context.Background())
 
 	if err != nil {

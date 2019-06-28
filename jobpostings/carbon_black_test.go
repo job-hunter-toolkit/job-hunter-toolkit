@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCarbonBlackJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCarbonBlackJobPostings(context.Background())
 
 	if err != nil {

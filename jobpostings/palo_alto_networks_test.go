@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPaloAltoNetworksJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPaloAltoNetworksJobPostings(context.Background())
 
 	if err != nil {

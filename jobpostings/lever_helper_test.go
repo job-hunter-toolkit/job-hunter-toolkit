@@ -7,6 +7,8 @@ import (
 )
 
 func TestLeverJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := getLeverJobsFor(context.Background(), "npm")
 	//jobPostings, err := getLeverJobsFor(context.Background(), "twitch")
 

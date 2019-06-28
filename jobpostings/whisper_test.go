@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetWhisperJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetWhisperJobPostings(context.Background())
 
 	if err != nil {

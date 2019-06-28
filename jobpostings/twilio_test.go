@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTwilioJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTwilioJobPostings(context.Background())
 
 	if err != nil {

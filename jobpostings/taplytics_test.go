@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTaplyticsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTaplyticsJobPostings(context.Background())
 
 	if err != nil {

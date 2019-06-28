@@ -7,6 +7,8 @@ import (
 )
 
 func TestBambooHRJobPostings(t *testing.T) {
+	t.Parallel()
+
 	//broken : //jobPostings, err := getBambooHRJobsFor(context.Background(), "assembly")
 	jobPostings, err := getBambooHRJobsFor(context.Background(), "azerion")
 	//jobPostings, err := getBambooHRJobsFor(context.Background(), "zerofox")

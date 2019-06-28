@@ -7,6 +7,8 @@ import (
 )
 
 func TestGet0xJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := Get0xJobPostings(context.Background())
 
 	if err != nil {

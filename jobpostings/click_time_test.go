@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetClickTimeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetClickTimeJobPostings(context.Background())
 
 	if err != nil {

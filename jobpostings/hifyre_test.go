@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetHifyreJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetHifyreJobPostings(context.Background())
 
 	if err != nil {

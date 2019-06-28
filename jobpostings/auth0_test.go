@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAuth0JobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAuth0JobPostings(context.Background())
 
 	if err != nil {

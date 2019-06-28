@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSecondMeasureJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSecondMeasureJobPostings(context.Background())
 
 	if err != nil {

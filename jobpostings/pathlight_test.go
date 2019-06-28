@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPathlightJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPathlightJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAmyrisJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAmyrisJobPostings(context.Background())
 
 	if err != nil {

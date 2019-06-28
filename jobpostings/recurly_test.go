@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRecurlyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRecurlyJobPostings(context.Background())
 
 	if err != nil {

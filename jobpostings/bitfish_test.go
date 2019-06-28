@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBitfishJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBitfishJobPostings(context.Background())
 
 	if err != nil {

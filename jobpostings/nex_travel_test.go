@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetNexTravelobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetNexTravelobPostings(context.Background())
 
 	if err != nil {

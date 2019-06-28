@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVoleonJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVoleonJobPostings(context.Background())
 
 	if err != nil {

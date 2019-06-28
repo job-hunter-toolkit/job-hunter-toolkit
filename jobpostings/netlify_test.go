@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetNetlifyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetNetlifyJobPostings(context.Background())
 
 	if err != nil {

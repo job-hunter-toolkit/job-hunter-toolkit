@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetLogDNAJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetLogDNAJobPostings(context.Background())
 
 	if err != nil {

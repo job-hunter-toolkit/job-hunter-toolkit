@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetLookerJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetLookerJobPostings(context.Background())
 
 	if err != nil {

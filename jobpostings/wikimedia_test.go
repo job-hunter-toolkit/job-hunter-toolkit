@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetWikimediaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetWikimediaJobPostings(context.Background())
 
 	if err != nil {

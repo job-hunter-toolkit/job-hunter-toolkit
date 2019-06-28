@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCreditSesameJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCreditSesameJobPostings(context.Background())
 
 	if err != nil {

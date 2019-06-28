@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetZeusJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetZeusJobPostings(context.Background())
 
 	if err != nil {

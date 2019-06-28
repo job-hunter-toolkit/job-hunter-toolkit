@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMeasurablJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMeasurablJobPostings(context.Background())
 
 	if err != nil {

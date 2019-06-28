@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVoodooJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVoodooJobPostings(context.Background())
 
 	if err != nil {

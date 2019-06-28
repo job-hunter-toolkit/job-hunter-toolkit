@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPatreonJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPatreonJobPostings(context.Background())
 
 	if err != nil {

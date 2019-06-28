@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPollEverywhereJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPollEverywhereJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetZeplinJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetZeplinJobPostings(context.Background())
 
 	if err != nil {

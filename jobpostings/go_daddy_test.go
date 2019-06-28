@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGoDaddyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGoDaddyJobPostings(context.Background())
 
 	if err != nil {

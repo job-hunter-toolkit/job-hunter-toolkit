@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVoxterJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVoxterJobPostings(context.Background())
 
 	if err != nil {

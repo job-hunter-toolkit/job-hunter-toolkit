@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSproutSocialobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSproutSocialobPostings(context.Background())
 
 	if err != nil {

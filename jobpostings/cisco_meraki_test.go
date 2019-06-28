@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCiscoMerakiJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCiscoMerakiJobPostings(context.Background())
 
 	if err != nil {

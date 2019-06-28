@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGrimmJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGrimmJobPostings(context.Background())
 
 	if err != nil {

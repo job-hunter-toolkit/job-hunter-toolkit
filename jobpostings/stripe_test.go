@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetStripeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetStripeJobPostings(context.Background())
 
 	if err != nil {

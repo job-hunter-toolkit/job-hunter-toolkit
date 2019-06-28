@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGlowJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGlowJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetChartioJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetChartioJobPostings(context.Background())
 
 	if err != nil {

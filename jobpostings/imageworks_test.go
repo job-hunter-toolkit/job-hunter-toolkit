@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetImageworksJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetImageworksJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetHelloSignJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetHelloSignJobPostings(context.Background())
 
 	if err != nil {

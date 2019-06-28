@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetReifyHealthJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetReifyHealthJobPostings(context.Background())
 
 	if err != nil {

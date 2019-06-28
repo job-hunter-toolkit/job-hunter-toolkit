@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetNexientJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetNexientJobPostings(context.Background())
 
 	if err != nil {

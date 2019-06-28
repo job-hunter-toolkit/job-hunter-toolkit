@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPlanGridJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPlanGridJobPostings(context.Background())
 
 	if err != nil {

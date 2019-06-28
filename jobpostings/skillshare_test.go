@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSkillshareJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSkillshareJobPostings(context.Background())
 
 	if err != nil {

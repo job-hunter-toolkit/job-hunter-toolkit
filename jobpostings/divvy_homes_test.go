@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDivvyHomesJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDivvyHomesJobPostings(context.Background())
 
 	if err != nil {

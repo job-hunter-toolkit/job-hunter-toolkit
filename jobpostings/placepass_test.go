@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPlacepassJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPlacepassJobPostings(context.Background())
 
 	if err != nil {

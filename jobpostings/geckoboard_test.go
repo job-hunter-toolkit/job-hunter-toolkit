@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGeckoboardJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGeckoboardJobPostings(context.Background())
 
 	if err != nil {

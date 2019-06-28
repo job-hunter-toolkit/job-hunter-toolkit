@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSymantecJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSymantecJobPostings(context.Background())
 
 	if err != nil {

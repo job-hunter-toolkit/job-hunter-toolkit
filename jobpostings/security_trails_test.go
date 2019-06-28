@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSecurityTrailsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSecurityTrailsJobPostings(context.Background())
 
 	if err != nil {

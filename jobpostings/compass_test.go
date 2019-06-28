@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCompassJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCompassJobPostings(context.Background())
 
 	if err != nil {

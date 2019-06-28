@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTripleByteJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTripleByteJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetUpworkJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetUpworkJobPostings(context.Background())
 
 	if err != nil {

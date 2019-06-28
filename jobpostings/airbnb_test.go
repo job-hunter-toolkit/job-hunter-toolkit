@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAirbnbJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAirbnbJobPostings(context.Background())
 
 	if err != nil {

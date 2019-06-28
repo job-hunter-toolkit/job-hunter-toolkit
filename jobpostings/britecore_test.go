@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBritecoreJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBritecoreJobPostings(context.Background())
 
 	if err != nil {

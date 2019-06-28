@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMovableInkJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMovableInkJobPostings(context.Background())
 
 	if err != nil {

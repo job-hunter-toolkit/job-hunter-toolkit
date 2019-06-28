@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDaticaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDaticaJobPostings(context.Background())
 
 	if err != nil {

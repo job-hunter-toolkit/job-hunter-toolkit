@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSnapTravelJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSnapTravelJobPostings(context.Background())
 
 	if err != nil {

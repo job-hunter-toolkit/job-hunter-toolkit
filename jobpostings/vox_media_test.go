@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVoxMediaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVoxMediaJobPostings(context.Background())
 
 	if err != nil {

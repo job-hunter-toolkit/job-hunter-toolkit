@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPredictiveIndexJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPredictiveIndexJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetChewyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetChewyJobPostings(context.Background())
 
 	if err != nil {

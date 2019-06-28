@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBetterUpJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBetterUpJobPostings(context.Background())
 
 	if err != nil {

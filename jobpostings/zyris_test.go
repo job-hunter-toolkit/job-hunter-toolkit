@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetZyrisJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetZyrisJobPostings(context.Background())
 
 	if err != nil {

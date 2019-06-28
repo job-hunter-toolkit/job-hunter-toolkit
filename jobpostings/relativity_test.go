@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRelativityJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRelativityJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPetalJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPetalJobPostings(context.Background())
 
 	if err != nil {

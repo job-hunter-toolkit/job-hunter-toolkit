@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetShopifyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetShopifyJobPostings(context.Background())
 
 	if err != nil {

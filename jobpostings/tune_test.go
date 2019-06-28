@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTuneJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTuneJobPostings(context.Background())
 
 	if err != nil {

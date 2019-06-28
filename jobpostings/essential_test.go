@@ -7,9 +7,13 @@ import (
 )
 
 func TestGetEssentialJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetEssentialJobPostings(context.Background())
 
 	if err != nil {
+		t.Parallel()
+
 		t.Fatal(err)
 	}
 

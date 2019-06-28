@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetIssuuJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetIssuuJobPostings(context.Background())
 
 	if err != nil {

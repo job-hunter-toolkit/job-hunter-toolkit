@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetIrisAutomationJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetIrisAutomationJobPostings(context.Background())
 
 	if err != nil {

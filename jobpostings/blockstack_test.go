@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBlockstackJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBlockstackJobPostings(context.Background())
 
 	if err != nil {

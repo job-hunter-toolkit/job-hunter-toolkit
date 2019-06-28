@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetNeuralinkJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetNeuralinkJobPostings(context.Background())
 
 	if err != nil {

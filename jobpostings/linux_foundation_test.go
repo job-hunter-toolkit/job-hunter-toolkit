@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetLinuxFoundationJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetLinuxFoundationJobPostings(context.Background())
 
 	if err != nil {

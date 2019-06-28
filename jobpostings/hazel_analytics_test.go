@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetHazelAnalyticsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetHazelAnalyticsJobPostings(context.Background())
 
 	if err != nil {

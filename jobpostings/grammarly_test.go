@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetGrammarlyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetGrammarlyJobPostings(context.Background())
 
 	if err != nil {

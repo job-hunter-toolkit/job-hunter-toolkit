@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSensorTowerJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSensorTowerJobPostings(context.Background())
 
 	if err != nil {

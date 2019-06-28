@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPopdogJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPopdogJobPostings(context.Background())
 
 	if err != nil {

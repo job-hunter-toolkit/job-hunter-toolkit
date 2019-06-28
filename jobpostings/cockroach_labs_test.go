@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCockroachLabsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCockroachLabsJobPostings(context.Background())
 
 	if err != nil {

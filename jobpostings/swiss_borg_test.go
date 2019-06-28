@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSwissBorgJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSwissBorgJobPostings(context.Background())
 
 	if err != nil {

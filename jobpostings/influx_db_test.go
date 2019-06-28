@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetInfluxDBJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetInfluxDBJobPostings(context.Background())
 
 	if err != nil {

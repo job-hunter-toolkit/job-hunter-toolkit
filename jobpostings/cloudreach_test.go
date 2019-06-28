@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCloudreachJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCloudreachJobPostings(context.Background())
 
 	if err != nil {

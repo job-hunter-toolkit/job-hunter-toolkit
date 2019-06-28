@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTacoBellJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTacoBellJobPostings(context.Background())
 
 	if err != nil {

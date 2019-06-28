@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSauceLabsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSauceLabsJobPostings(context.Background())
 
 	if err != nil {

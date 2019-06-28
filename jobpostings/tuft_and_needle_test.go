@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTuftAndNeedleJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTuftAndNeedleJobPostings(context.Background())
 
 	if err != nil {

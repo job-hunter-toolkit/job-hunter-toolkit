@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBitnamiJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBitnamiJobPostings(context.Background())
 
 	if err != nil {

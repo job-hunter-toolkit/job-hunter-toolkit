@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSonyPlayStationJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSonyPlayStationJobPostings(context.Background())
 
 	if err != nil {

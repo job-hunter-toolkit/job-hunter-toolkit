@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetScreenCloudJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetScreenCloudJobPostings(context.Background())
 
 	if err != nil {

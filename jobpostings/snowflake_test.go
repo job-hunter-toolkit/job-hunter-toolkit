@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSnowflakeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSnowflakeJobPostings(context.Background())
 
 	if err != nil {

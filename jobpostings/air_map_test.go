@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAirMapJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAirMapJobPostings(context.Background())
 
 	if err != nil {

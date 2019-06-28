@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSemaphoreSolutionsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSemaphoreSolutionsJobPostings(context.Background())
 
 	if err != nil {

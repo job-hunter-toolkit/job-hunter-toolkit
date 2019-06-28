@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSurveyGizmoJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSurveyGizmoJobPostings(context.Background())
 
 	if err != nil {

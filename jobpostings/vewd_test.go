@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVewdJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVewdJobPostings(context.Background())
 
 	if err != nil {

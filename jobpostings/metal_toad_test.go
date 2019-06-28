@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMetalToadJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMetalToadJobPostings(context.Background())
 
 	if err != nil {

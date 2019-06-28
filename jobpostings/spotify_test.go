@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSpotifyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSpotifyJobPostings(context.Background())
 
 	if err != nil {

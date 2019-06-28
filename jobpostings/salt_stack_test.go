@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSaltStackJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSaltStackJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPaytmJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPaytmJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetModsyJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetModsyJobPostings(context.Background())
 
 	if err != nil {

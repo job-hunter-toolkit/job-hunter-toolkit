@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBigscreenJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBigscreenJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetReplateJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetReplateJobPostings(context.Background())
 
 	if err != nil {

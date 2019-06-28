@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetImpossibleFoodsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetImpossibleFoodsJobPostings(context.Background())
 
 	if err != nil {

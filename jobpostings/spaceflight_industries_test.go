@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSpaceflightIndustriesJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSpaceflightIndustriesJobPostings(context.Background())
 
 	if err != nil {

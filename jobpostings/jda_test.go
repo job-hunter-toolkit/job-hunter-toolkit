@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetJDAJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetJDAJobPostings(context.Background())
 
 	if err != nil {

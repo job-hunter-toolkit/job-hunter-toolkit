@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMavensJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMavensJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDnBJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDnBJobPostings(context.Background())
 
 	if err != nil {

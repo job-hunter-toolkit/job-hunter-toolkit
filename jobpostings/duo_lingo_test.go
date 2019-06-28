@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDuoLingoJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDuoLingoJobPostings(context.Background())
 
 	if err != nil {

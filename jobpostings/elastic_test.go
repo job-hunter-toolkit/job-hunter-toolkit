@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetElasticJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetElasticJobPostings(context.Background())
 
 	if err != nil {

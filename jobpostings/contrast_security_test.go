@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetContrastSecurityJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetContrastSecurityJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetOutschoolJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetOutschoolJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetStackAdaptJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetStackAdaptJobPostings(context.Background())
 
 	if err != nil {

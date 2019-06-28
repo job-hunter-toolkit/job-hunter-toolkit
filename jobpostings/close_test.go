@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCloseJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCloseJobPostings(context.Background())
 
 	if err != nil {

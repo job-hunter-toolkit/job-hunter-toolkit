@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTransparentSystemsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTransparentSystemsJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetThunderTokenJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetThunderTokenJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetKlarnaJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetKlarnaJobPostings(context.Background())
 
 	if err != nil {

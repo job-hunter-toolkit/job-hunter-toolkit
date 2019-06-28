@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVerishopJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVerishopJobPostings(context.Background())
 
 	if err != nil {

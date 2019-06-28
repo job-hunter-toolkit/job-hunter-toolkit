@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetInstabaseJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetInstabaseJobPostings(context.Background())
 
 	if err != nil {

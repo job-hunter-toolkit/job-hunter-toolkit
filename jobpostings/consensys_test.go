@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetConsensysJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetConsensysJobPostings(context.Background())
 
 	if err != nil {

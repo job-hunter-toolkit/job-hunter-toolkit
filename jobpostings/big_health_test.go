@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBigHealthJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBigHealthJobPostings(context.Background())
 
 	if err != nil {

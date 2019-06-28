@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCityAndCountyOfDenverJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCityAndCountyOfDenverJobPostings(context.Background())
 
 	if err != nil {

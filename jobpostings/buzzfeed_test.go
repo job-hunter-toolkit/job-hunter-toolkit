@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBuzzFeedJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBuzzFeedJobPostings(context.Background())
 
 	if err != nil {

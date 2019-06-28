@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetVenafiJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetVenafiJobPostings(context.Background())
 
 	if err != nil {

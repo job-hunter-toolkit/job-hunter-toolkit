@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetConductorTechnologiesJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetConductorTechnologiesJobPostings(context.Background())
 
 	if err != nil {

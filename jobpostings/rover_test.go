@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRoverJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRoverJobPostings(context.Background())
 
 	if err != nil {

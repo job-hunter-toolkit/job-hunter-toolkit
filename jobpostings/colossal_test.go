@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetColossalJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetColossalJobPostings(context.Background())
 
 	if err != nil {

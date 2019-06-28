@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPushpayJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPushpayJobPostings(context.Background())
 
 	if err != nil {

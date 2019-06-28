@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCAEJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCAEJobPostings(context.Background())
 
 	if err != nil {

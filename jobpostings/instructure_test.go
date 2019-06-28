@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetInstructureJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetInstructureJobPostings(context.Background())
 
 	if err != nil {

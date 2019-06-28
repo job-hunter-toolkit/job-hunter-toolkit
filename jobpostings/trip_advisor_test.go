@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTripAdvisorJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTripAdvisorJobPostings(context.Background())
 
 	if err != nil {

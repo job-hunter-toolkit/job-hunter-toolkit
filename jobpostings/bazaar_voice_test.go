@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetBazaarVoiceJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetBazaarVoiceJobPostings(context.Background())
 
 	if err != nil {

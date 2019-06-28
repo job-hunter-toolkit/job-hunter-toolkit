@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMapboxJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMapboxJobPostings(context.Background())
 
 	if err != nil {

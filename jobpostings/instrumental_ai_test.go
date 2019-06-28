@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetInstrumentalAIJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetInstrumentalAIJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCasperJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCasperJobPostings(context.Background())
 
 	if err != nil {

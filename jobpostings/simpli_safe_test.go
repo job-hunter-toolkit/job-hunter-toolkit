@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSimpliSafeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSimpliSafeJobPostings(context.Background())
 
 	if err != nil {

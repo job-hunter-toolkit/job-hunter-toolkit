@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetShapeScaleCraterJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetShapeScaleCraterJobPostings(context.Background())
 
 	if err != nil {

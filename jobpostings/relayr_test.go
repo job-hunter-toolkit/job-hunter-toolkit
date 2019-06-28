@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRelayrJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRelayrJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAmenityAnalyticsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAmenityAnalyticsJobPostings(context.Background())
 
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMediumJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMediumJobPostings(context.Background())
 
 	if err != nil {

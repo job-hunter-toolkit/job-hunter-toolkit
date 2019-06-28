@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTiltingPointJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTiltingPointJobPostings(context.Background())
 
 	if err != nil {

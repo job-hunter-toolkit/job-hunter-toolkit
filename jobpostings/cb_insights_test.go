@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCBInsightsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCBInsightsJobPostings(context.Background())
 
 	if err != nil {

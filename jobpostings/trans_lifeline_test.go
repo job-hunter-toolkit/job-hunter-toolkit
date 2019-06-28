@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTransLifelineJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTransLifelineJobPostings(context.Background())
 
 	if err != nil {

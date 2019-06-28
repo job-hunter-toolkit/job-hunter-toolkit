@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetMuxJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetMuxJobPostings(context.Background())
 
 	if err != nil {

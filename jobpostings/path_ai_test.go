@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetPathAIJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetPathAIJobPostings(context.Background())
 
 	if err != nil {

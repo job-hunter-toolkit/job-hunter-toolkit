@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetSecuronixJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetSecuronixJobPostings(context.Background())
 
 	if err != nil {

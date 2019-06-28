@@ -7,6 +7,8 @@ import (
 )
 
 func TestSmartRecruitersJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := getSmartRecruitersJobsPostingsFor(context.Background(), "optiv")
 	if err != nil {
 		t.Fatal(err)

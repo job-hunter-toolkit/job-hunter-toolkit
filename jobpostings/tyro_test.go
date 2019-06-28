@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetTyroJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetTyroJobPostings(context.Background())
 
 	if err != nil {

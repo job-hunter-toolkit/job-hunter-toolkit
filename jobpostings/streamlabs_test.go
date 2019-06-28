@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetStreamlabsJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetStreamlabsJobPostings(context.Background())
 
 	if err != nil {

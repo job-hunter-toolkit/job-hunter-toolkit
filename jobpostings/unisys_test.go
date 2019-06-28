@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetUnisysJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetUnisysJobPostings(context.Background())
 
 	if err != nil {

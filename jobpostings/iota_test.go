@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetIOTAJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetIOTAJobPostings(context.Background())
 
 	if err != nil {

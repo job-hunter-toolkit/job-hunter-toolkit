@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetRemixJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetRemixJobPostings(context.Background())
 
 	if err != nil {

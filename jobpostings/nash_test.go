@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetNashJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetNashJobPostings(context.Background())
 
 	if err != nil {

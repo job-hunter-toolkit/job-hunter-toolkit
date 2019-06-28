@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetDockerJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetDockerJobPostings(context.Background())
 
 	if err != nil {

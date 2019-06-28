@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAmazeeJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAmazeeJobPostings(context.Background())
 
 	if err != nil {

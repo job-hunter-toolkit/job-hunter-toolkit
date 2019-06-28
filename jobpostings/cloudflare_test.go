@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetCloudflareJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetCloudflareJobPostings(context.Background())
 
 	if err != nil {

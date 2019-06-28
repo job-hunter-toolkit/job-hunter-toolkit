@@ -7,6 +7,8 @@ import (
 )
 
 func TestGetAquabyteJobPostings(t *testing.T) {
+	t.Parallel()
+
 	jobPostings, err := GetAquabyteJobPostings(context.Background())
 
 	if err != nil {
