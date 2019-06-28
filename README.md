@@ -2,6 +2,7 @@
 
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/blob/master/LICENSE)
 [![CircleCI Status](https://circleci.com/gh/job-hunter-toolkit/job-hunter-toolkit.svg?style=shield&circle-token=:circle-token)](https://circleci.com/gh/job-hunter-toolkit/job-hunter-toolkit)
+[![go report](https://goreportcard.com/badge/github.com/job-hunter-toolkit/job-hunter-toolkit)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/pulls)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/pulls)
 
 The job hunter's toolkit. Helps search job postings for hundreds of companies.
