@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build:
+  test:
     docker:
       - image: circleci/golang:1.12
         environment:
@@ -12,6 +12,6 @@ jobs:
           working_directory: ~/project/jobpostings
 workflows:
   version: 2
-  build_example:
+  test_code:
     jobs:
-      - build
+      - test
