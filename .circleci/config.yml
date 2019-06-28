@@ -3,12 +3,13 @@ jobs:
   build:
     docker:
       - image: circleci/golang:1.12
+        environment:
+          GO111MODULE: "on"
     steps:
-      - run: git clone https://github.com/job-hunter-toolkit/job-hunter-toolkit.git
-      - run: cd job-hunter-toolkit/jobpostings
-      - run: go mod download
-      - run: go mod verify
-      - run: go test -run HashiCorp
+      - checkout
+      - run:
+          command: go test -parallel 4
+          working_directory: ~/project/jobpostings
 workflows:
   version: 2
   build_example:
