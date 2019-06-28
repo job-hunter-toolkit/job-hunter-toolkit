@@ -1,10 +1,10 @@
-# JHT
+# Job Hunter Toolkit
 
-The job hunter's toolkit.
+[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/blob/master/LICENSE)
+[![CircleCI Status](https://circleci.com/gh/job-hunter-toolkit/job-hunter-toolkit.svg?style=shield&circle-token=:circle-token)](https://circleci.com/gh/job-hunter-toolkit/job-hunter-toolkit)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/pulls)
 
-## Work In Progress
-
-But contributions, issues and questions are welcome!
+The job hunter's toolkit. Helps search job postings for hundreds of companies.
 
 ## Install
 
