@@ -7,6 +7,8 @@
 
 The job hunter's toolkit. Helps search job postings for hundreds of companies.
 
+> 👩🏽‍💻 To get started, [check out the interactive tutorial](https://www.katacoda.com/picat/scenarios/job-hunter-toolkit).
+
 ## Install
 
 ```console
