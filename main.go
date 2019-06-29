@@ -321,6 +321,7 @@ var sourcesList = []string{
 	"predictive_index",
 	"procore",
 	"projekt202",
+	"proofpoint",
 	"protocol",
 	"psi_kick",
 	"pushpay",

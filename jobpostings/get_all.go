@@ -313,6 +313,7 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetPredictiveIndexJobPostings,
 		GetProcoreJobPostings,
 		GetProjekt202JobPostings,
+		GetProofpointJobPostings,
 		GetProtocolJobPostings,
 		GetPsiKickJobPostings,
 		GetPushpayJobPostings,
