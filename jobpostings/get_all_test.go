@@ -8,8 +8,7 @@ import (
 )
 
 func TestGetAllJobPostings(t *testing.T) {
-	t.Parallel()
-
+	// this test is probably the only that shouldn't be running in parallel
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
