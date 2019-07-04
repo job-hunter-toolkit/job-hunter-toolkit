@@ -9,7 +9,7 @@ import (
 func TestHireWithGoogleJobPostings(t *testing.T) {
 	t.Parallel()
 
-	jobPostings, err := getHireWithGoogleJobPostingsFor(context.Background(), "duolingocom")
+	jobPostings, err := getHireWithGoogleJobPostingsFor(context.Background(), "grimmcocom")
 	if err != nil {
 		t.Fatal(err)
 	}

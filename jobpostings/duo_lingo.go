@@ -6,5 +6,5 @@ import (
 
 // GetDuoLingoJobPostings finds JobPostings found at https://hire.withgoogle.com/
 func GetDuoLingoJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getHireWithGoogleJobPostingsFor(ctx, "duolingocom")
+	return getGreenHouseJobsFor(ctx, "duolingo")
 }
