@@ -32,11 +32,11 @@ type hireWithGoogleJobs []struct {
 			Type            string `json:"@type"`
 			AddressLocality string `json:"addressLocality"`
 			//AddressRegion   string `json:"addressRegion"`
-			AddressCountry  string `json:"addressCountry"`
+			AddressCountry string `json:"addressCountry"`
 		} `json:"address"`
 	} `json:"jobLocation"`
-	Title          string `json:"title"`
-	URL            string `json:"url"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
 	//EmploymentType string `json:"employmentType"`
 }
 
@@ -76,6 +76,7 @@ func getHireWithGoogleJobPostingsFor(ctx context.Context, company string) (<-cha
 				locationStr = strings.Join([]string{item.JobLocation.Address.AddressLocality, item.JobLocation.Address.AddressCountry}, ",")
 			}
 			jobPostings <- &JobPosting{
+				Company:  company,
 				URL:      url,
 				Title:    titleStr,
 				Location: locationStr,

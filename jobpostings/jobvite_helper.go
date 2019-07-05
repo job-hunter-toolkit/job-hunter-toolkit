@@ -35,6 +35,7 @@ func getJobviteJobsFor(ctx context.Context, company string) (<-chan *JobPosting,
 							}
 
 							jobPostings <- &JobPosting{
+								Company:  company,
 								URL:      url,
 								Title:    titleStr,
 								Location: locationStr,

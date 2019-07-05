@@ -47,6 +47,7 @@ func getBambooHRJobsFor(ctx context.Context, company string) (<-chan *JobPosting
 								}
 								jobURL := fmt.Sprintf("%sview.php?id=%s", url, key)
 								jobPostings <- &JobPosting{
+									Company:  company,
 									URL:      jobURL,
 									Title:    titleStr,
 									Location: locationStr,

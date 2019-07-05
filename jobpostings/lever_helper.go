@@ -10,11 +10,11 @@ import (
 type leverJobs []struct {
 	//AdditionalPlain string `json:"additionalPlain"`
 	//Additional      string `json:"additional"`
-	Categories      struct {
+	Categories struct {
 		//Commitment string `json:"commitment"`
 		//Department string `json:"department"`
 		//Level      string `json:"level"`
-		Location   string `json:"location"`
+		Location string `json:"location"`
 		//Team       string `json:"team"`
 	} `json:"categories,omitempty"`
 	//CreatedAt        int64  `json:"createdAt"`
@@ -25,8 +25,8 @@ type leverJobs []struct {
 	//	Text    string `json:"text"`
 	//	Content string `json:"content"`
 	//} `json:"lists"`
-	Text       string `json:"text"`
-	HostedURL  string `json:"hostedUrl"`
+	Text      string `json:"text"`
+	HostedURL string `json:"hostedUrl"`
 	//ApplyURL   string `json:"applyUrl"`
 }
 
@@ -64,6 +64,7 @@ func getLeverJobsFor(ctx context.Context, company string) (<-chan *JobPosting, e
 			locationStr := strings.TrimSpace(item.Categories.Location)
 
 			jobPostings <- &JobPosting{
+				Company:  company,
 				URL:      url,
 				Title:    titleStr,
 				Location: locationStr,
