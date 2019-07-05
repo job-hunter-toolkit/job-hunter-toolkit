@@ -1,26 +1,26 @@
 package jobpostings
 
 import (
-	"fmt"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
 
 type uberInfo struct {
 	//Status string `json:"status"`
-	Data   struct {
+	Data struct {
 		Results []struct {
-			ID                  int    `json:"id"`
-			Title               string `json:"title"`
+			ID    int    `json:"id"`
+			Title string `json:"title"`
 			//Description         string `json:"description"`
 			//InternalDescription string `json:"internalDescription"`
 			//ManagerID           int    `json:"managerID"`
 			//Department          string `json:"department"`
 			//Type                string `json:"type"`
 			//ProgramAndPlatform  string `json:"programAndPlatform"`
-			Location            struct {
+			Location struct {
 				Country string `json:"country"`
 				Region  string `json:"region"`
 				City    string `json:"city"`
@@ -79,6 +79,8 @@ func GetUberJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 		return nil, err
 	}
 
+	company := "uber"
+
 	jobPostings := make(chan *JobPosting)
 
 	go func() {
@@ -90,6 +92,7 @@ func GetUberJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 			locationStr := strings.TrimSpace(fmt.Sprintf("%s, %s, %s", item.Location.Country, item.Location.Region, item.Location.City))
 
 			jobPostings <- &JobPosting{
+				Company:  company,
 				URL:      url,
 				Title:    titleStr,
 				Location: locationStr,

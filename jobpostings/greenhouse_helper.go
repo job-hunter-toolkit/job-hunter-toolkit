@@ -70,6 +70,7 @@ func getGreenHouseJobsFor(ctx context.Context, company string) (<-chan *JobPosti
 			locationStr := strings.TrimSpace(item.Location.Name)
 
 			jobPostings <- &JobPosting{
+				Company:  company,
 				URL:      url,
 				Title:    titleStr,
 				Location: locationStr,

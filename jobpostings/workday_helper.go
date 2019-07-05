@@ -1,27 +1,28 @@
 package jobpostings
 
 import (
-	"fmt"
 	"context"
-	"net/url"
-	"net/http"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
 )
 
 type workdayInfo struct {
-	Body   struct {
+	Body struct {
 		Children []struct {
 			Children []struct {
 				ListItems []struct {
-					Title  struct {
-						Instances    []struct {
-							Text   string `json:"text"`
+					Title struct {
+						Instances []struct {
+							Text string `json:"text"`
 						} `json:"instances"`
 						CommandLink string `json:"commandLink"`
 					} `json:"title"`
 					Subtitles []struct {
 						Instances []struct {
-							Text   string `json:"text"`
+							Text string `json:"text"`
 						} `json:"instances"`
 					} `json:"subtitles"`
 				} `json:"listItems"`
@@ -37,6 +38,8 @@ func getWorkdayJobPostings(ctx context.Context, rawURL string) (<-chan *JobPosti
 		fmt.Println("parse:", err)
 		return nil, err
 	}
+
+	company := strings.Split(parsedURL.Hostname(), ".")[0]
 
 	baseURL := "https://" + parsedURL.Host
 
@@ -83,6 +86,7 @@ func getWorkdayJobPostings(ctx context.Context, rawURL string) (<-chan *JobPosti
 				locationStr := item.Subtitles[0].Instances[0].Text
 
 				jobPostings <- &JobPosting{
+					Company:  company,
 					URL:      url,
 					Title:    titleStr,
 					Location: locationStr,

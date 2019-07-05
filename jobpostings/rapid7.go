@@ -2,18 +2,19 @@ package jobpostings
 
 import (
 	"context"
-	"net/http"
 	"encoding/json"
+	"net/http"
 )
 
 type rapid7Info []struct {
-	Title       string `json:"title"`
-	Location    string `json:"location"`
-	Applyurl    string `json:"applyurl"`
+	Title    string `json:"title"`
+	Location string `json:"location"`
+	Applyurl string `json:"applyurl"`
 }
 
 // GetRapid7JobPostings finds JobPostings found at https://www.rapid7.com/api/careers/jobs
 func GetRapid7JobPostings(ctx context.Context) (<-chan *JobPosting, error) {
+
 	req, err := http.NewRequest("GET", "https://www.rapid7.com/api/careers/jobs", nil)
 	if err != nil {
 		return nil, err
@@ -35,6 +36,8 @@ func GetRapid7JobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 		return nil, err
 	}
 
+	company := "rapid7"
+
 	jobPostings := make(chan *JobPosting)
 
 	go func() {
@@ -46,6 +49,7 @@ func GetRapid7JobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 			locationStr := item.Location
 
 			jobPostings <- &JobPosting{
+				Company:  company,
 				URL:      url,
 				Title:    titleStr,
 				Location: locationStr,

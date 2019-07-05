@@ -97,6 +97,7 @@ func getSmartRecruitersJobsPostingsFor(ctx context.Context, company string) (<-c
 				locationStr := strings.Join([]string{item.Location.City, item.Location.Region, item.Location.Country}, ",")
 
 				jobPostings <- &JobPosting{
+					Company:  company,
 					URL:      url,
 					Title:    titleStr,
 					Location: locationStr,
