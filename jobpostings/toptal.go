@@ -41,7 +41,7 @@ func GetToptalJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 							locationStr := strings.TrimSpace(n.Parent.Parent.Parent.FirstChild.NextSibling.LastChild.FirstChild.Data)
 
 							jobPostings <- &JobPosting{
-								Company:  "toptal",
+								Company:  company,
 								URL:      url,
 								Title:    titleStr,
 								Location: locationStr,
