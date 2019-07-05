@@ -544,7 +544,7 @@ func main() {
 					w := csv.NewWriter(os.Stdout)
 
 					return func(j *jobpostings.JobPosting) {
-						record := []string{j.Title, j.Location, j.URL}
+						record := []string{j.Company, j.Title, j.Location, j.URL}
 						if err := w.Write(record); err != nil {
 							panic(err)
 						}
@@ -553,7 +553,7 @@ func main() {
 				printer = printerWrapper()
 			} else {
 				printer = func(j *jobpostings.JobPosting) {
-					fmt.Println("title:", j.Title, "location:", j.Location, "url:", j.URL)
+					fmt.Println("company:", j.Company, "title:", j.Title, "location:", j.Location, "url:", j.URL)
 				}
 			}
 
