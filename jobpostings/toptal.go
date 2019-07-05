@@ -24,6 +24,8 @@ func GetToptalJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 
 	jobPostings := make(chan *JobPosting)
 
+	company := "toptal"
+
 	go func() {
 		defer close(jobPostings)
 
@@ -39,6 +41,7 @@ func GetToptalJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 							locationStr := strings.TrimSpace(n.Parent.Parent.Parent.FirstChild.NextSibling.LastChild.FirstChild.Data)
 
 							jobPostings <- &JobPosting{
+								Company:  "toptal",
 								URL:      url,
 								Title:    titleStr,
 								Location: locationStr,
