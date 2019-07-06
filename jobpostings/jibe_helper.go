@@ -87,11 +87,11 @@ type jibeJobs struct {
 			//ShortLocation string   `json:"short_location"`
 		} `json:"data,omitempty"`
 	} `json:"jobs,omitempty"`
-	MetaData struct {
-		ResponseMetadata struct {
-			RequestID string `json:"requestId"`
-		} `json:"ResponseMetadata"`
-	} `json:"meta_data"`
+	//MetaData struct {
+	//	ResponseMetadata struct {
+	//		RequestID string `json:"requestId"`
+	//	} `json:"ResponseMetadata"`
+	//} `json:"meta_data"`
 	TotalCount int  `json:"totalCount"`
 	Locations  bool `json:"locations"`
 }
