@@ -129,7 +129,6 @@ func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, er
 		q.Set("page", fmt.Sprintf("%d", page))
 		req.URL.RawQuery = q.Encode()
 
-		fmt.Println(req)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return err
