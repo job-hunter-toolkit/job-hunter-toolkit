@@ -8,7 +8,7 @@ jobs:
     steps:
       - checkout
       - run:
-          command: go test -parallel 4
+          command: lscpu
           working_directory: ~/project/jobpostings
 workflows:
   version: 2
