@@ -61,7 +61,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetBinanceJobPostings,
 		GetBirdJobPostings,
 		GetBishopFoxJobPostings,
-		GetBitfishJobPostings,
 		GetBitnamiJobPostings,
 		GetBittrexJobPostings,
 		GetBJCJobPostings,

@@ -67,7 +67,6 @@ var sourcesList = []string{
 	"binance",
 	"bird",
 	"bishop_fox",
-	"bitfish",
 	"bitnami",
 	"bittrex",
 	"bjc",
