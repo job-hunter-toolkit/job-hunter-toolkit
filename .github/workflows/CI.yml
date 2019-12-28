@@ -16,10 +16,11 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Test
+      working-directory: ./jobpostings
       run: go test -parallel 4 .
-  build:
+  install:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
-    - name: Build
-      run: go build -o job-hunter-toolkit -v .
+    - name: Install
+      run: go get -u github.com/job-hunter-toolkit/job-hunter-toolkit
