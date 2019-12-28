@@ -173,7 +173,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetEvernoteJobPostings,
 		GetExpediaJobPostings,
 		GetExpensifyJobPostings,
-		GetFarmWiseJobPostings,
 		GetFarmersBusinessNetworkJobPostings,
 		GetFarmersInsuranceJobPostings,
 		GetFastlyJobPostings,
