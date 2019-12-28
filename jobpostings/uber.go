@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"io/ioutil"
 )
 
 type uberInfo struct {
@@ -56,7 +57,7 @@ type uberInfo struct {
 
 // GetUberJobPostings finds JobPostings found at https://www.uber.com/api/loadSearchJobsResults
 func GetUberJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	body := strings.NewReader("{\"limit\":5000,\"page\":0,\"params\":{}}")
+	body := strings.NewReader("{\"limit\":10,\"page\":0,\"params\":{}}")
 	req, err := http.NewRequest("POST", "https://www.uber.com/api/loadSearchJobsResults", body)
 	if err != nil {
 		return nil, err
@@ -73,6 +74,9 @@ func GetUberJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 	defer resp.Body.Close()
 
 	doc := uberInfo{}
+
+	b, _ := ioutil.ReadAll(resp.Body)
+	fmt.Println(string(b))
 
 	err = json.NewDecoder(resp.Body).Decode(&doc)
 	if err != nil {
