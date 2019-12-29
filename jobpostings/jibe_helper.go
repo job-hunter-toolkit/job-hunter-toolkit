@@ -92,8 +92,8 @@ type jibeJobs struct {
 	//		RequestID string `json:"requestId"`
 	//	} `json:"ResponseMetadata"`
 	//} `json:"meta_data"`
-	TotalCount int  `json:"totalCount"`
-	Locations  bool `json:"locations"`
+	TotalCount int `json:"totalCount"`
+	//Locations  bool `json:"locations"`
 }
 
 func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, error) {
