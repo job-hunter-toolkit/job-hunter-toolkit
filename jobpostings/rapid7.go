@@ -23,7 +23,7 @@ func GetRapid7JobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 
 	req = req.WithContext(ctx)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

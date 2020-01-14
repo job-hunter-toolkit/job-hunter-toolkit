@@ -50,7 +50,7 @@ func getHireWithGoogleJobPostingsFor(ctx context.Context, company string) (<-cha
 
 	req = req.WithContext(ctx)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -83,7 +83,7 @@ func getJobviteJobsFor(ctx context.Context, company string) (<-chan *JobPosting,
 
 			req = req.WithContext(ctx)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := HTTPClient.Do(req)
 			if err != nil {
 				break
 			}

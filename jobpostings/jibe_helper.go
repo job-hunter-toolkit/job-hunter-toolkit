@@ -110,7 +110,7 @@ func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, er
 	q.Add("page", "1")
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, er
 		q.Set("page", fmt.Sprintf("%d", page))
 		req.URL.RawQuery = q.Encode()
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := HTTPClient.Do(req)
 		if err != nil {
 			return err
 		}

@@ -63,7 +63,7 @@ func getWorkdayJobPostings(ctx context.Context, rawURL string) (<-chan *JobPosti
 
 			req.Header.Set("Accept", "application/json")
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := HTTPClient.Do(req)
 			if err != nil {
 				break
 			}
