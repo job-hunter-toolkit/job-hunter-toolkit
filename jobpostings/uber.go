@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"strings"
 )
@@ -74,9 +73,6 @@ func GetUberJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 	defer resp.Body.Close()
 
 	doc := uberInfo{}
-
-	b, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println(string(b))
 
 	err = json.NewDecoder(resp.Body).Decode(&doc)
 	if err != nil {
