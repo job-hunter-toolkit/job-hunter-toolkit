@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// HTTPClient is the shared HTTP client used by the various sources.
 var HTTPClient = &http.Client{
 	Transport: &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
