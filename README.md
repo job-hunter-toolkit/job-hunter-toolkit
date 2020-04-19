@@ -12,7 +12,8 @@ The job hunter's toolkit. Helps search job postings for hundreds of companies.
 ## Install
 
 ```console
-$ go get -u github.com/job-hunter-toolkit/job-hunter-toolkit
+$ go get -u -v github.com/job-hunter-toolkit/job-hunter-toolkit
+...
 ```
 
 ## Help
