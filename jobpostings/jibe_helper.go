@@ -154,12 +154,15 @@ func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, er
 			titleStr := strings.TrimSpace(item.Data.Title)
 			locationStr := strings.TrimSpace(item.Data.FullLocation)
 
-			jobPostings <- &JobPosting{
-				Company:  company,
-				URL:      url,
-				Title:    titleStr,
-				Location: locationStr,
+			if url != "" && titleStr != "" && locationStr != "" {
+				jobPostings <- &JobPosting{
+					Company:  company,
+					URL:      url,
+					Title:    titleStr,
+					Location: locationStr,
+				}
 			}
+
 		}
 
 		found := len(doc.Jobs)
@@ -173,11 +176,13 @@ func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, er
 				titleStr := strings.TrimSpace(item.Data.Title)
 				locationStr := strings.TrimSpace(item.Data.FullLocation)
 
-				jobPostings <- &JobPosting{
-					Company:  company,
-					URL:      url,
-					Title:    titleStr,
-					Location: locationStr,
+				if url != "" && titleStr != "" && locationStr != "" {
+					jobPostings <- &JobPosting{
+						Company:  company,
+						URL:      url,
+						Title:    titleStr,
+						Location: locationStr,
+					}
 				}
 			}
 
