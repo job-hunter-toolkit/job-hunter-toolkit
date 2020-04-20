@@ -316,7 +316,6 @@ var sourcesList = []string{
 	"new_engen",
 	"new_york_times",
 	"newfront_insurance",
-	"nex_travel",
 	"nexient",
 	"nextdoor",
 	"niantic",
