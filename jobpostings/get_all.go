@@ -2,8 +2,11 @@ package jobpostings
 
 import (
 	"context"
+	"log"
 	"sync"
 	"syscall"
+
+	"golang.org/x/sync/semaphore"
 )
 
 func maxNumberOfOpenFiles() int64 {
@@ -559,7 +562,9 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetZyrisJobPostings,
 	}
 
-	allJobPostings := make(chan *JobPosting)
+	sem := semaphore.NewWeighted(maxNumberOfOpenFiles())
+
+	allJobPostings := make(chan *JobPosting, 10000)
 
 	go func() {
 		defer close(allJobPostings)
@@ -567,11 +572,22 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		wg := sync.WaitGroup{}
 
 		for _, jobPostingSource := range all {
+			err := sem.Acquire(ctx, 1)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			// funcName := runtime.FuncForPC(reflect.ValueOf(jobPostingSource).Pointer()).Name()
+
+			// log.Printf("Start %v", funcName)
+
 			jobPostingChannel, err := jobPostingSource(ctx)
 
 			if err == nil {
 				wg.Add(1)
 				go func() {
+					defer sem.Release(1)
 					defer wg.Done()
 					for singlePosting := range jobPostingChannel {
 						select {
@@ -580,6 +596,8 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 							return
 						}
 					}
+
+					// log.Printf("Stop %v", funcName)
 				}()
 			}
 		}
