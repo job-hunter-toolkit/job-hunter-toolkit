@@ -85,6 +85,14 @@ func getWorkdayJobPostings(ctx context.Context, rawURL string) (<-chan *JobPosti
 				titleStr := item.Title.Instances[0].Text
 				locationStr := item.Subtitles[0].Instances[0].Text
 
+				if locationStr == "" {
+					locationStr = "unknown/remote"
+				}
+
+				if titleStr == "" {
+					continue
+				}
+
 				jobPostings <- &JobPosting{
 					Company:  company,
 					URL:      url,

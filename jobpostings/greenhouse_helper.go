@@ -69,6 +69,10 @@ func getGreenHouseJobsFor(ctx context.Context, company string) (<-chan *JobPosti
 			titleStr := strings.TrimSpace(item.Title)
 			locationStr := strings.TrimSpace(item.Location.Name)
 
+			if locationStr == "" {
+				locationStr = "unknown/remote"
+			}
+
 			jobPostings <- &JobPosting{
 				Company:  company,
 				URL:      url,

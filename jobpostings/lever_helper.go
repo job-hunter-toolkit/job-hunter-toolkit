@@ -63,6 +63,10 @@ func getLeverJobsFor(ctx context.Context, company string) (<-chan *JobPosting, e
 			titleStr := strings.TrimSpace(item.Text)
 			locationStr := strings.TrimSpace(item.Categories.Location)
 
+			if locationStr == "" {
+				locationStr = "unknown/remote"
+			}
+
 			jobPostings <- &JobPosting{
 				Company:  company,
 				URL:      url,

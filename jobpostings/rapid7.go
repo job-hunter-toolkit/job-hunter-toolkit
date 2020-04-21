@@ -48,6 +48,10 @@ func GetRapid7JobPostings(ctx context.Context) (<-chan *JobPosting, error) {
 			titleStr := item.Title
 			locationStr := item.Location
 
+			if locationStr == "" {
+				locationStr = "unknown/remote"
+			}
+
 			jobPostings <- &JobPosting{
 				Company:  company,
 				URL:      url,

@@ -2,8 +2,25 @@ package jobpostings
 
 import (
 	"context"
+	"log"
 	"sync"
+	"syscall"
+
+	"golang.org/x/sync/semaphore"
 )
+
+func maxNumberOfOpenFiles() int64 {
+	var rLimit syscall.Rlimit
+
+	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+
+	if err != nil {
+		// if error, default to 256
+		return 256
+	}
+
+	return int64(rLimit.Max)
+}
 
 // GetAllJobPostings finds all of the JobPostings using every source.
 func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
@@ -16,7 +33,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		Get3MJobPostings,
 		GetAbacusJobPostings,
 		GetAccionSystemsJobPostings,
-		GetAcelityJobPostings,
 		GetAdjustJobPostings,
 		GetAdobeJobPostings,
 		GetAdvancedDisposalJobPostings,
@@ -255,7 +271,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetKoddiJobPostings,
 		GetKohlsJobPostings,
 		GetKrakenJobPostings,
-		GetLairdJobPostings,
 		GetLaunchDarklyJobPostings,
 		GetLendingTreeJobPostings,
 		GetLeverJobPostings,
@@ -291,7 +306,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetMessageBirdJobPostings,
 		GetMetalToadJobPostings,
 		GetMightyNetworksJobPostings,
-		GetModernTimesBeerJobPostings,
 		GetModernizeJobPostings,
 		GetModsyJobPostings,
 		GetMongoDBJobPostings,
@@ -307,7 +321,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetNewEngenJobPostings,
 		GetNewYorkTimesJobPostings,
 		GetNewfrontInsuranceJobPostings,
-		GetNexTravelobPostings,
 		GetNexientJobPostings,
 		GetNextdoorJobPostings,
 		GetNianticJobPostings,
@@ -443,7 +456,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetSparkswapJobPostings,
 		GetSpotHeroJobPostings,
 		GetSpotfrontJobPostings,
-		GetSpotifyJobPostings,
 		GetSpringboardJobPostings,
 		GetSproutSocialobPostings,
 		GetSquarespaceJobPostings,
@@ -453,7 +465,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetStarskyRoboticsJobPostings,
 		GetStateStreetJobPostings,
 		GetStauerJobPostings,
-		GetStericycleJobPostings,
 		GetStravaJobPostings,
 		GetStreamlabsJobPostings,
 		GetStripeJobPostings,
@@ -526,7 +537,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetVoodooJobPostings,
 		GetVoxMediaJobPostings,
 		GetVoxterJobPostings,
-		GetWayfairJobPostings,
 		GetWealthsimpleJobPostings,
 		GetWeb3JobPostings,
 		GetWellframeJobPostings,
@@ -552,7 +562,9 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetZyrisJobPostings,
 	}
 
-	allJobPostings := make(chan *JobPosting)
+	sem := semaphore.NewWeighted(maxNumberOfOpenFiles())
+
+	allJobPostings := make(chan *JobPosting, 10000)
 
 	go func() {
 		defer close(allJobPostings)
@@ -560,11 +572,22 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		wg := sync.WaitGroup{}
 
 		for _, jobPostingSource := range all {
+			err := sem.Acquire(ctx, 1)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			// funcName := runtime.FuncForPC(reflect.ValueOf(jobPostingSource).Pointer()).Name()
+
+			// log.Printf("Start %v", funcName)
+
 			jobPostingChannel, err := jobPostingSource(ctx)
 
 			if err == nil {
 				wg.Add(1)
 				go func() {
+					defer sem.Release(1)
 					defer wg.Done()
 					for singlePosting := range jobPostingChannel {
 						select {
@@ -573,6 +596,8 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 							return
 						}
 					}
+
+					// log.Printf("Stop %v", funcName)
 				}()
 			}
 		}
