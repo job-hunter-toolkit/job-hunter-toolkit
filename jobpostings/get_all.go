@@ -520,7 +520,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetVoodooJobPostings,
 		GetVoxMediaJobPostings,
 		GetVoxterJobPostings,
-		GetWayfairJobPostings,
 		GetWealthsimpleJobPostings,
 		GetWeb3JobPostings,
 		GetWellframeJobPostings,

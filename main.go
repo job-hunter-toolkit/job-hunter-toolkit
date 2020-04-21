@@ -529,7 +529,6 @@ var sourcesList = []string{
 	"voodoo",
 	"vox_media",
 	"voxter",
-	"wayfair",
 	"wealthsimple",
 	"web3",
 	"wellframe",
