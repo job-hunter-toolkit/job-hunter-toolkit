@@ -298,7 +298,6 @@ var sourcesList = []string{
 	"message_bird",
 	"metal_toad",
 	"mighty_networks",
-	"modern_times_beer",
 	"modernize",
 	"modsy",
 	"mongodb",

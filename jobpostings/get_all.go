@@ -289,7 +289,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetMessageBirdJobPostings,
 		GetMetalToadJobPostings,
 		GetMightyNetworksJobPostings,
-		GetModernTimesBeerJobPostings,
 		GetModernizeJobPostings,
 		GetModsyJobPostings,
 		GetMongoDBJobPostings,
