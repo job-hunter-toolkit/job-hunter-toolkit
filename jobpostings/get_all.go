@@ -254,7 +254,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetKoddiJobPostings,
 		GetKohlsJobPostings,
 		GetKrakenJobPostings,
-		GetLairdJobPostings,
 		GetLaunchDarklyJobPostings,
 		GetLendingTreeJobPostings,
 		GetLeverJobPostings,

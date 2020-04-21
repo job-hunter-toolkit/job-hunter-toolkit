@@ -263,7 +263,6 @@ var sourcesList = []string{
 	"koddi",
 	"kohls",
 	"kraken",
-	"laird",
 	"launch_darkly",
 	"lending_tree",
 	"lever",
