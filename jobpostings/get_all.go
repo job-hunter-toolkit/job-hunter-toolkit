@@ -3,7 +3,21 @@ package jobpostings
 import (
 	"context"
 	"sync"
+	"syscall"
 )
+
+func maxNumberOfOpenFiles() int64 {
+	var rLimit syscall.Rlimit
+
+	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+
+	if err != nil {
+		// if error, default to 256
+		return 256
+	}
+
+	return int64(rLimit.Max)
+}
 
 // GetAllJobPostings finds all of the JobPostings using every source.
 func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
