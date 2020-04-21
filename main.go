@@ -457,7 +457,6 @@ var sourcesList = []string{
 	"starsky_robotics",
 	"state_steet",
 	"stauer",
-	"stericycle",
 	"strava",
 	"streamlabs",
 	"stripe",

@@ -448,7 +448,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetStarskyRoboticsJobPostings,
 		GetStateStreetJobPostings,
 		GetStauerJobPostings,
-		GetStericycleJobPostings,
 		GetStravaJobPostings,
 		GetStreamlabsJobPostings,
 		GetStripeJobPostings,
