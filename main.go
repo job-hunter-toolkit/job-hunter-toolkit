@@ -448,7 +448,6 @@ var sourcesList = []string{
 	"sparkswap",
 	"spot_hero",
 	"spotfront",
-	"spotify",
 	"springboard",
 	"sprout_social",
 	"squarespace",

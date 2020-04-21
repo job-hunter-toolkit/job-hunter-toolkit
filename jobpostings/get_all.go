@@ -439,7 +439,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetSparkswapJobPostings,
 		GetSpotHeroJobPostings,
 		GetSpotfrontJobPostings,
-		GetSpotifyJobPostings,
 		GetSpringboardJobPostings,
 		GetSproutSocialobPostings,
 		GetSquarespaceJobPostings,
