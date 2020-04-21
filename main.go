@@ -22,7 +22,6 @@ var sourcesList = []string{
 	"3m",
 	"abacus",
 	"accion_systems",
-	"acelity",
 	"adjust",
 	"adobe",
 	"advanced_disposal",
