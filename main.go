@@ -178,7 +178,6 @@ var sourcesList = []string{
 	"evernote",
 	"expedia",
 	"expensify",
-	"farm_wise",
 	"farmers_buisness_network",
 	"farmers_insurance",
 	"fastly",
