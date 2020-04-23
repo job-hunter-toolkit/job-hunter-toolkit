@@ -439,6 +439,7 @@ var sourcesList = []string{
 	"snap_travel",
 	"snapdocs",
 	"snowflake",
+	"sonatype",
 	"sony_play_station",
 	"source_d",
 	"sourceress",

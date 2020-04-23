@@ -448,6 +448,7 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 		GetSnapTravelJobPostings,
 		GetSnapdocsJobPostings,
 		GetSnowflakeJobPostings,
+		GetSonatypeJobPostings,
 		GetSonyPlayStationJobPostings,
 		GetSourceDJobPostings,
 		GetSourceressJobPostings,
