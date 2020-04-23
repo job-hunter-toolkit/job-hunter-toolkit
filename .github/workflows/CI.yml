@@ -21,11 +21,16 @@ jobs:
       name: Test
       working-directory: ./jobpostings
       run: |
-        TOTAL_JOBS=$(go test -timeout 1h github.com/job-hunter-toolkit/job-hunter-toolkit/jobpostings -run TestGetAllJobPostings -v | grep "Total job posings" | awk -F ': ' '{print $4}')
+        go test -timeout 1h github.com/job-hunter-toolkit/job-hunter-toolkit/jobpostings -run TestGetAllJobPostings -v | tee test.txt
+        TOTAL_JOBS=$(cat test.txt | grep "Total job posings" | awk -F ': ' '{print $4}')
         echo "::set-output name=total_jobs::$TOTAL_JOBS"
+  report_total_jobs:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Report Total Jobs
+      run: echo ${{needs.test.outputs.total_jobs}}
   install:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
     - name: Install
-      run: go get -u github.com/job-hunter-toolkit/job-hunter-toolkit
+      run: go get -u -v github.com/job-hunter-toolkit/job-hunter-toolkit
