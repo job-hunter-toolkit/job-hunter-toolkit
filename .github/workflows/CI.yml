@@ -42,6 +42,7 @@ jobs:
 
         # if the number wasn't reported for the day, add it to the record
         if ! grep --silent $DATE jobs_record.txt; then
+          sudo apt-get install -y gnuplot
           git config user.name "Job Hunter Toolkit Bot"
           git config user.email "job-hunter-toolkit@users.noreply.github.com"
           git remote set-url origin "https://$GITHUB_ACTOR:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY"
