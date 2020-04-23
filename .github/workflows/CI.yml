@@ -26,6 +26,7 @@ jobs:
         echo "::set-output name=total_jobs::$TOTAL_JOBS"
   report_total_jobs:
     runs-on: ubuntu-latest
+    needs: test
     steps:
     - name: Report Total Jobs
       run: echo ${{needs.test.outputs.total_jobs}}
