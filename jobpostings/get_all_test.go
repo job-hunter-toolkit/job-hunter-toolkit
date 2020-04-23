@@ -2,7 +2,6 @@ package jobpostings
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 )
@@ -14,7 +13,11 @@ func TestGetAllJobPostings(t *testing.T) {
 
 	jobPostings := GetAllJobPostings(ctx)
 
+	counter := int64(0)
+
 	for jobPosting := range jobPostings {
+		// keep track of the total number of job postings
+		counter++
 		// spot check during testing
 		if jobPosting.URL == "" {
 			t.Fatalf("URL is empty for: %#+v", jobPosting)
@@ -25,6 +28,8 @@ func TestGetAllJobPostings(t *testing.T) {
 		if jobPosting.Title == "" {
 			t.Fatalf("Title is empty for: %#+v", jobPosting)
 		}
-		fmt.Println("title:", jobPosting.Title, "location:", jobPosting.Location, "url:", jobPosting.URL)
+		// fmt.Println("title:", jobPosting.Title, "location:", jobPosting.Location, "url:", jobPosting.URL)
 	}
+
+	t.Logf("Total job posings: %d", counter)
 }
