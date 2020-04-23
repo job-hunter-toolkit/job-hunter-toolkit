@@ -13,11 +13,16 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    outputs:
+      total_jobs: ${{ steps.test.outputs.total_jobs }}
     steps:
     - uses: actions/checkout@v1
-    - name: Test
+    - id: test
+      name: Test
       working-directory: ./jobpostings
-      run: go test -timeout 1h -run TestGetAllJobPostings -v
+      run: |
+        TOTAL_JOBS=$(go test -timeout 1h github.com/job-hunter-toolkit/job-hunter-toolkit/jobpostings -run TestGetAllJobPostings -v | grep "Total job posings" | awk -F ': ' '{print $4}')
+        echo "::set-output name=total_jobs::$TOTAL_JOBS"
   install:
     runs-on: ubuntu-latest
     steps:
