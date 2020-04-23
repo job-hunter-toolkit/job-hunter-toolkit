@@ -61,3 +61,7 @@ company,title,location,url
 company,title,location,url
 ...
 ```
+
+## Total Job Postings Over Time
+
+<img alt="Total Job Postings Over Time" src="https://raw.githubusercontent.com/job-hunter-toolkit/job-hunter-toolkit/master/jobs_record.png" height="500" />
