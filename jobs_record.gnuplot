@@ -1,5 +1,5 @@
 set output "jobs_record.png"
-set terminal png size 800,500
+set terminal png size 1000, 500
 set timefmt "%m/%d/%y"
 set title "Total Job Postings Over Time"
 set xlabel "Time"
@@ -8,6 +8,7 @@ set format x "%m/%d/%y"
 set ylabel "Job Postings"
 set y2label "Job Sources"
 set y2tics nomirror
+set xtics autofreq
 set autoscale y
 set autoscale y2
 set autoscale x
