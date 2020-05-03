@@ -1,5 +1,5 @@
 set output "jobs_record.png"
-set terminal png size 800,500
+set terminal png size 1000, 500
 set timefmt "%m/%d/%y"
 set title "Total Job Postings Over Time"
 set xlabel "Time"
