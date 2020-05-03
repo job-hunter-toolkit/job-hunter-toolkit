@@ -8,6 +8,7 @@ set format x "%m/%d/%y"
 set ylabel "Job Postings"
 set y2label "Job Sources"
 set y2tics nomirror
+set xtics autofreq
 set autoscale y
 set autoscale y2
 set autoscale x
