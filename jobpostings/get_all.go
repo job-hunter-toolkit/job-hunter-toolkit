@@ -19,7 +19,9 @@ func maxNumberOfOpenFiles() int64 {
 		return 256
 	}
 
-	return int64(rLimit.Max)
+	limit := int64(rLimit.Max)
+
+	return limit
 }
 
 // GetAllJobPostings finds all of the JobPostings using every source.
