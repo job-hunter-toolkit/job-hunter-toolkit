@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// GetVerifoneJobPostings finds JobPostings found at https://jobvite.com
+// GetVerifoneJobPostings finds JobPostings found at https://greenhouse.io
 func GetVerifoneJobPostings(ctx context.Context) (<-chan *JobPosting, error) {
-	return getJobviteJobsFor(ctx, "verifone")
+	return getGreenHouseJobsFor(ctx, "verifone")
 }
