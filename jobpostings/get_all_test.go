@@ -18,6 +18,7 @@ func TestGetAllJobPostings(t *testing.T) {
 	for jobPosting := range jobPostings {
 		// keep track of the total number of job postings
 		counter++
+		// t.Logf("%d jobs found", counter)
 		// spot check during testing
 		if jobPosting.URL == "" {
 			t.Fatalf("URL is empty for: %#+v", jobPosting)
