@@ -19,7 +19,9 @@ func maxNumberOfOpenFiles() int64 {
 		return 256
 	}
 
-	return int64(rLimit.Max)
+	limit := int64(rLimit.Max)
+
+	return limit
 }
 
 // GetAllJobPostings finds all of the JobPostings using every source.
@@ -565,7 +567,39 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 
 	sem := semaphore.NewWeighted(maxNumberOfOpenFiles())
 
-	allJobPostings := make(chan *JobPosting, 10000)
+	allJobPostings := make(chan *JobPosting)
+
+	// var (
+	// 	running      = map[string]struct{}{}
+	// 	runningMutex = sync.Mutex{}
+	// 	addRunning   = func(s string) {
+	// 		runningMutex.Lock()
+	// 		defer runningMutex.Unlock()
+	// 		running[s] = struct{}{}
+	// 	}
+	// 	removeRunning = func(s string) {
+	// 		runningMutex.Lock()
+	// 		defer runningMutex.Unlock()
+	// 		delete(running, s)
+	// 	}
+	// 	checkRunning = func() []string {
+	// 		runningMutex.Lock()
+	// 		defer runningMutex.Unlock()
+	// 		var all = []string{}
+	// 		for key := range running {
+	// 			all = append(all, key)
+	// 		}
+	// 		return all
+	// 	}
+	// )
+
+	// go func() {
+	// 	for ctx.Err() == nil {
+	// 		time.Sleep(5 * time.Second)
+	// 		r := checkRunning()
+	// 		log.Printf("%d running funcs %v", len(r), r)
+	// 	}
+	// }()
 
 	go func() {
 		defer close(allJobPostings)
@@ -581,13 +615,13 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 
 			// funcName := runtime.FuncForPC(reflect.ValueOf(jobPostingSource).Pointer()).Name()
 
-			// log.Printf("Start %v", funcName)
-
 			jobPostingChannel, err := jobPostingSource(ctx)
 
 			if err == nil {
 				wg.Add(1)
+				// addRunning(funcName)
 				go func() {
+					// defer removeRunning(funcName)
 					defer sem.Release(1)
 					defer wg.Done()
 					for singlePosting := range jobPostingChannel {
@@ -597,8 +631,6 @@ func GetAllJobPostings(ctx context.Context) <-chan *JobPosting {
 							return
 						}
 					}
-
-					// log.Printf("Stop %v", funcName)
 				}()
 			}
 		}
