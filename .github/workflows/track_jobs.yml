@@ -27,7 +27,7 @@ jobs:
       working-directory: ./jobpostings
       run: |
         go test -timeout 5h github.com/job-hunter-toolkit/job-hunter-toolkit/jobpostings -run TestGetAllJobPostings -v | tee test.txt
-        TOTAL_JOBS=$(cat test.txt | grep "Total job posings" | awk -F ': ' '{print $4}')
+        TOTAL_JOBS=$(cat test.txt | grep "Total job posings" | awk -F ': ' '{print $3}')
         echo "::set-output name=total_jobs::$TOTAL_JOBS"
   report_total_jobs:
     runs-on: ubuntu-latest
