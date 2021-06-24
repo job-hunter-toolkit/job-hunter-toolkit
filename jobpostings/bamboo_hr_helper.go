@@ -62,7 +62,6 @@ func getBambooHRJobsFor(ctx context.Context, company string) (<-chan *JobPosting
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				findJobs(url, c)
 			}
-			return
 		}
 
 		url := fmt.Sprintf("https://%s.bamboohr.com/jobs/", company)
