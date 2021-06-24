@@ -98,6 +98,9 @@ type jibeJobs struct {
 
 func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, error) {
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://%s.jibeapply.com/api/jobs", company), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new HTTP request: %w", err)
+	}
 
 	req = req.WithContext(ctx)
 
