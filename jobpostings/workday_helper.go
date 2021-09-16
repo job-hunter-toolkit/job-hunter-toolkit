@@ -76,6 +76,14 @@ func getWorkdayJobPostings(ctx context.Context, rawURL string) (<-chan *JobPosti
 			}
 			resp.Body.Close()
 
+			if len(doc.Body.Children) == 0 {
+				break
+			}
+
+			if len(doc.Body.Children[0].Children) == 0 {
+				break
+			}
+
 			if len(doc.Body.Children[0].Children[0].ListItems) == 0 {
 				break
 			}
