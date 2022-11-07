@@ -29,6 +29,7 @@ func TestGetAllJobPostings(t *testing.T) {
 		if jobPosting.Title == "" {
 			t.Fatalf("Title is empty for: %#+v", jobPosting)
 		}
+		// fmt.Printf("%v\r", counter)
 		// fmt.Println("title:", jobPosting.Title, "location:", jobPosting.Location, "url:", jobPosting.URL)
 	}
 

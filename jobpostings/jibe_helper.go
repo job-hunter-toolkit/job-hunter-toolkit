@@ -96,7 +96,13 @@ type jibeJobs struct {
 	//Locations  bool `json:"locations"`
 }
 
+// This will only somewhat work. Often blocked?
 func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, error) {
+	// Temporarily disable
+	jobPostings := make(chan *JobPosting)
+	defer close(jobPostings)
+	return jobPostings, nil
+
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://%s.jibeapply.com/api/jobs", company), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new HTTP request: %w", err)
@@ -109,7 +115,7 @@ func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, er
 
 	// add limit
 	q := req.URL.Query()
-	q.Add("limit", "100")
+	// q.Add("limit", "100") no longer respected
 	q.Add("page", "1")
 	req.URL.RawQuery = q.Encode()
 
@@ -147,7 +153,7 @@ func getJibeJobsFor(ctx context.Context, company string) (<-chan *JobPosting, er
 		return nil
 	}
 
-	jobPostings := make(chan *JobPosting)
+	jobPostings = make(chan *JobPosting)
 
 	go func() {
 		defer close(jobPostings)
