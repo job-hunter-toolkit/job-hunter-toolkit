@@ -4,6 +4,6 @@ go 1.14
 
 require (
 	github.com/spf13/cobra v1.0.0
-	golang.org/x/net v0.0.0-20190522155817-f3200d17e092
-	golang.org/x/sync v0.0.0-20181221193216-37e7f081c4d4
+	golang.org/x/net v0.7.0
+	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 )
