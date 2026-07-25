@@ -256,6 +256,10 @@ $ go build ./...
 $ go test ./...
 ```
 
+The staged direction for observable crawl sharding, historical storage, TUI,
+MCP, and optional service operation is documented in
+[docs/architecture-roadmap.md](docs/architecture-roadmap.md).
+
 ### How a crawl behaves
 
 Each company is an independently scheduled source, fetched concurrently up to
