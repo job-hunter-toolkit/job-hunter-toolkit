@@ -1,0 +1,98 @@
+name: Source Health
+
+# Job boards are retired constantly. Without a regular check, a crawl quietly
+# stops covering the companies it claims to, which is how this project's
+# posting count fell by two thirds between 2020 and 2025 without anyone noticing.
+on:
+  schedule:
+  - cron: "0 12 * * 1"
+  workflow_dispatch:
+    inputs:
+      failed_only:
+        description: "Only report sources that failed"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: Check every job source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        check-latest: true
+
+    - name: Build
+      run: go build -o job-hunter-toolkit .
+
+    - name: Check source health
+      id: health
+      run: |
+        set -uo pipefail
+
+        ./job-hunter-toolkit health --json --timeout=45m > health.json 2> health-summary.txt
+
+        cat health-summary.txt
+
+        python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+        import json
+
+        with open("health.json") as f:
+            results = json.load(f)
+
+        counts = {}
+        for r in results:
+            counts[r["status"]] = counts.get(r["status"], 0) + 1
+
+        total = len(results)
+        failed = counts.get("failed", 0)
+
+        print("## Source health\n")
+        print(f"| status | count |\n| --- | --- |")
+        for status in ("ok", "empty", "failed"):
+            print(f"| {status} | {counts.get(status, 0)} |")
+        print(f"\n{total} sources checked.\n")
+
+        if failed:
+            print("### Failed sources\n")
+            print("| company | error |\n| --- | --- |")
+            for r in sorted(results, key=lambda r: r["company"]):
+                if r["status"] == "failed":
+                    error = r.get("error", "").replace("|", "\\|")[:180]
+                    print(f"| `{r['company']}` | {error} |")
+
+        # Surface the failure rate as the job's headline signal.
+        rate = (failed / total * 100) if total else 0
+        print(f"\nFailure rate: {rate:.1f}%")
+        PY
+
+        # Fail the run only on a broad breakage, which usually means an adapter
+        # broke rather than individual companies retiring their boards.
+        TOTAL=$(python3 -c 'import json;print(len(json.load(open("health.json"))))')
+        FAILED=$(python3 -c 'import json;print(sum(1 for r in json.load(open("health.json")) if r["status"]=="failed"))')
+
+        echo "failed=$FAILED of $TOTAL"
+
+        if [ "$TOTAL" -gt 0 ] && [ $((FAILED * 100 / TOTAL)) -gt 35 ]; then
+          echo "::error::${FAILED}/${TOTAL} sources failed, which suggests an adapter is broken rather than boards being retired"
+          exit 1
+        fi
+
+    - name: Upload health report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: source-health
+        path: |
+          health.json
+          health-summary.txt
+        retention-days: 90

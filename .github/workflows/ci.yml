@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref, so a busy branch does not queue up
+# redundant work.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        check-latest: true
+
+    - name: Verify formatting
+      run: |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "These files are not gofmt-clean:"
+          echo "$unformatted"
+          exit 1
+        fi
+
+    - name: Verify go.mod is tidy
+      run: |
+        go mod tidy
+        git diff --exit-code -- go.mod go.sum
+
+    - name: Build
+      run: go build ./...
+
+    - name: Vet
+      run: go vet ./...
+
+    # Tests are hermetic: adapter behaviour is checked against fixture
+    # responses. The live-network source checks are opt-in via JHT_NETWORK_TESTS
+    # and run in the scheduled source-health workflow instead, because they fail
+    # whenever a company stops using its ATS, a fact about the world, not a
+    # regression here.
+    - name: Test
+      run: go test -race -shuffle=on ./...
+
+  staticcheck:
+    name: Staticcheck
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        check-latest: true
+
+    - name: Run staticcheck
+      run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+
+  govulncheck:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        check-latest: true
+
+    - name: Run govulncheck
+      run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
