@@ -7,6 +7,12 @@ on:
   # repository activity, and this job silently stopped running for months once
   # that happened. Keep a manual trigger so it can always be kicked off again.
   workflow_dispatch:
+    inputs:
+      preview:
+        description: Render the current crawl as tomorrow's point without changing history
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -40,17 +46,29 @@ jobs:
 
     - name: Count job postings
       id: count
+      env:
+        PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.preview }}
       run: |
         set -euo pipefail
 
         DATE=$(date "+%m/%d/%y")
-        echo "date=$DATE" >> "$GITHUB_OUTPUT"
+        RECORD_DATE="$DATE"
+        ARTIFACT_DATE=$(date "+%Y-%m-%d")
+
+        if [ "$PREVIEW" = "true" ]; then
+          RECORD_DATE=$(date -d tomorrow "+%m/%d/%y")
+          ARTIFACT_DATE=$(date -d tomorrow "+%Y-%m-%d")
+        fi
+
+        echo "date=$RECORD_DATE" >> "$GITHUB_OUTPUT"
+        echo "artifact_date=$ARTIFACT_DATE" >> "$GITHUB_OUTPUT"
 
         # Skip if this date is already recorded, so a re-run or a manual
         # dispatch cannot double-count a day.
-        if grep -q "^$DATE " jobs_record.txt; then
-          echo "already recorded for $DATE"
+        if [ "$PREVIEW" != "true" ] && grep -q "^$RECORD_DATE " jobs_record.txt; then
+          echo "already recorded for $RECORD_DATE"
           echo "recorded=false" >> "$GITHUB_OUTPUT"
+          echo "preview=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
@@ -79,15 +97,44 @@ jobs:
           exit 1
         fi
 
-        cat total.txt >> jobs_record.txt
+        if [ "$PREVIEW" = "true" ]; then
+          # Never mutate the historical series for a preview. Replace any
+          # existing row for tomorrow only in a temporary copy so rerunning the
+          # preview remains deterministic.
+          awk -v date="$RECORD_DATE" '$1 != date' jobs_record.txt > jobs_record-preview.txt
+          printf '%s %s %s\n' "$RECORD_DATE" "$POSTINGS" "$SOURCES" >> jobs_record-preview.txt
+          echo "preview=true" >> "$GITHUB_OUTPUT"
+          echo "recorded=false" >> "$GITHUB_OUTPUT"
+        else
+          cat total.txt >> jobs_record.txt
+          echo "preview=false" >> "$GITHUB_OUTPUT"
+          echo "recorded=true" >> "$GITHUB_OUTPUT"
+        fi
 
         echo "postings=$POSTINGS" >> "$GITHUB_OUTPUT"
         echo "sources=$SOURCES" >> "$GITHUB_OUTPUT"
-        echo "recorded=true" >> "$GITHUB_OUTPUT"
 
-    - name: Regenerate plot
+    - name: Regenerate historical plot
       if: steps.count.outputs.recorded == 'true'
       run: gnuplot jobs_record.gnuplot
+
+    - name: Render preview plot
+      if: steps.count.outputs.preview == 'true'
+      run: |
+        gnuplot \
+          -e "datafile='jobs_record-preview.txt'; outputfile='jobs_record-preview.png'" \
+          jobs_record.gnuplot
+
+    - name: Upload preview
+      if: steps.count.outputs.preview == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: jobs-record-preview-${{ steps.count.outputs.artifact_date }}
+        path: |
+          jobs_record-preview.png
+          total.txt
+        if-no-files-found: error
+        retention-days: 7
 
     - name: Commit and push
       if: steps.count.outputs.recorded == 'true'
