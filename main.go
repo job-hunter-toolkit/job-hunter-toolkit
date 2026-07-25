@@ -1,675 +1,672 @@
+// Command job-hunter-toolkit searches job postings across many companies.
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
-	"github.com/job-hunter-toolkit/job-hunter-toolkit/jobpostings"
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/httpx"
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/services"
 	"github.com/spf13/cobra"
 )
 
-// ls *.go | grep -v 'helper' | grep -v '_test' | awk -F '.' '{print "\""$1"\""","}'
-var sourcesList = []string{
-	"0x",
-	"15five",
-	"21st_century_fox",
-	"2u",
-	"3m",
-	"abacus",
-	"accion_systems",
-	"adjust",
-	"adobe",
-	"advanced_disposal",
-	"aes",
-	"affirm",
-	"afresh",
-	"air_map",
-	"airbnb",
-	"airtame",
-	"akron_childrens_hospital",
-	"alterian",
-	"alto",
-	"amazee",
-	"amenity_analytics",
-	"amex",
-	"amyris",
-	"anchor_free",
-	"anchorage",
-	"apptio",
-	"aptible",
-	"aquabyte",
-	"arena_net",
-	"astranis",
-	"atlassian",
-	"atrium",
-	"auth0",
-	"auto_zone",
-	"aware3",
-	"axon",
-	"azerion",
-	"backer_kit",
-	"ball_metalpack",
-	"bank_of_america",
-	"bazaar_voice",
-	"beamly",
-	"belle_tire",
-	"bench",
-	"better_lesson",
-	"better_up",
-	"big_health",
-	"bigscreen",
-	"binance",
-	"bird",
-	"bishop_fox",
-	"bitnami",
-	"bitrise",
-	"bittrex",
-	"bjc",
-	"blackfynn",
-	"blameless",
-	"blockstack",
-	"blue_owl",
-	"bny_mellon",
-	"bombas",
-	"boom_supersonic",
-	"borg_warner",
-	"bose",
-	"box_lunch",
-	"braintree",
-	"brave",
-	"bright_bytes",
-	"brightwheel",
-	"britecore",
-	"build_zoom",
-	"buildium",
-	"bustle",
-	"buzzfeed",
-	"cae",
-	"caliber_collision",
-	"calm",
-	"cambly",
-	"canonical",
-	"canva",
-	"capital_one",
-	"carbon_black",
-	"carousell",
-	"carta",
-	"casper",
-	"catalytic",
-	"cb_insights",
-	"celgene",
-	"change",
-	"chartio",
-	"cheddar",
-	"chewy",
-	"chimp",
-	"chronicled",
-	"cigna",
-	"cisco_meraki",
-	"citrix",
-	"city_and_county_of_denver",
-	"clerky",
-	"click_time",
-	"close",
-	"cloud_bees",
-	"cloudflare",
-	"cloudreach",
-	"cobalt_robotics",
-	"coca_cola",
-	"cockroach_labs",
-	"codacy",
-	"codecademy",
-	"coffee_meets_bagel",
-	"cohere",
-	"coinbase",
-	"colossal",
-	"comcast",
-	"common",
-	"compass",
-	"compass_group",
-	"conductor_technologies",
-	"conrell_university",
-	"consensys",
-	"contrast_security",
-	"convoy",
-	"core_scientific",
-	"corelight",
-	"coupa",
-	"coursera",
-	"credit_sesame",
-	"crowd_strike",
-	"cruise",
-	"crux",
-	"curalate",
-	"dahmakan",
-	"darkstore",
-	"datica",
-	"datto",
-	"dazn",
-	"degreed",
-	"deliveroo",
-	"dell",
-	"digital_ocean",
-	"divvy_homes",
-	"dnb",
-	"docker",
-	"domio",
-	"door_dash",
-	"dots",
-	"dr_chrono",
-	"dragos",
-	"drop",
-	"duo_lingo",
-	"duo_security",
-	"early_warning",
-	"eaton",
-	"ebury",
-	"eden",
-	"elastic",
-	"embark",
-	"emeritus",
-	"entrata",
-	"epic_games",
-	"ericsson",
-	"erm",
-	"essential",
-	"eventbrite",
-	"evercommerce",
-	"evergrow",
-	"evernote",
-	"expedia",
-	"expensify",
-	"fanatics",
-	"farmers_buisness_network",
-	"farmers_insurance",
-	"fastly",
-	"fat_llama",
-	"fedex",
-	"fetch_rev",
-	"fico",
-	"fictiv",
-	"finger_food_studios",
-	"first",
-	"fond",
-	"forward",
-	"fossa",
-	"front",
-	"fubo_tv",
-	"game_changer",
-	"gates_foundation",
-	"geckoboard",
-	"general_assembly",
-	"get_all",
-	"github",
-	"gitlab",
-	"gizmodo",
-	"glow",
-	"go_daddy",
-	"goat",
-	"gojek",
-	"gov_predict",
-	"gradient",
-	"gradle",
-	"grammarly",
-	"greenpeace",
-	"gridspace",
-	"guerrilla",
-	"gun_io",
-	"gusto",
-	"hacker_one",
-	"hashicorp",
-	"hazel_analytics",
-	"hello_alfred",
-	"hello_fresh",
-	"hello_sign",
-	"heycar",
-	"hifyre",
-	"hopsy",
-	"http_client",
-	"imageworks",
-	"impossible_foods",
-	"in_vision",
-	"inboxlab",
-	"influx_db",
-	"input",
-	"insightsoftware",
-	"instabase",
-	"instacart",
-	"instructure",
-	"inventables",
-	"invitae",
-	"iota",
-	"iris_automation",
-	"iron_ox",
-	"ironclad",
-	"issuu",
-	"jda",
-	"jellyfish",
-	"jet",
-	"jitx",
-	"job_posting",
-	"joor",
-	"journera",
-	"journy",
-	"kantar",
-	"kard",
-	"karius",
-	"kayak",
-	"khan_academy",
-	"kik",
-	"kinnek",
-	"kite",
-	"klarna",
-	"koddi",
-	"kohls",
-	"kraken",
-	"launch_darkly",
-	"lending_tree",
-	"lever",
-	"light_step",
-	"lighthouse_studios",
-	"lilt",
-	"lime",
-	"limeade",
-	"linux_foundation",
-	"live_nation",
-	"log_dna",
-	"logitech",
-	"looker",
-	"lucid",
-	"lyft",
-	"lyric",
-	"magic_leap",
-	"major_league_baseball",
-	"make_school",
-	"make_space",
-	"managed_by_q",
-	"mapbox",
-	"marriott",
-	"mastercard",
-	"mattermost",
-	"maven_clinic",
-	"mavens",
-	"mc_donalds",
-	"mckesson",
-	"measurabl",
-	"med_men",
-	"medium",
-	"message_bird",
-	"metal_toad",
-	"mighty_networks",
-	"modernize",
-	"modsy",
-	"mongodb",
-	"motorola_solutions",
-	"mount_sinai",
-	"movable_ink",
-	"mux",
-	"narvar",
-	"nash",
-	"nationwide",
-	"neo4j",
-	"netflix",
-	"netlify",
-	"neuralink",
-	"new_engen",
-	"new_york_times",
-	"newfront_insurance",
-	"nexient",
-	"nextdoor",
-	"niantic",
-	"nova",
-	"npm",
-	"ns1",
-	"nurx",
-	"nutanix",
-	"nvidia",
-	"ny_media",
-	"nylas",
-	"ochsner",
-	"okta",
-	"omada_health",
-	"omaze",
-	"one_login",
-	"open_ai",
-	"open_cosmos",
-	"open_fin",
-	"open_gov",
-	"open_market",
-	"open_phone",
-	"opendoor",
-	"optiv",
-	"origin",
-	"outschool",
-	"pachyderm",
-	"pae",
-	"pager_duty",
-	"palantir",
-	"palo_alto_networks",
-	"pantheon",
-	"paperspace",
-	"path_ai",
-	"pathlight",
-	"patreon",
-	"pax",
-	"paytm",
-	"people_ai",
-	"pepsico",
-	"persist_iq",
-	"petal",
-	"pfizer",
-	"pinterest",
-	"pioneer_square_labs",
-	"placepass",
-	"plan_grid",
-	"platformsh",
-	"plume",
-	"pocketworlds",
-	"policygenius",
-	"poll_everywhere",
-	"popdog",
-	"postmates",
-	"ppfa",
-	"predictive_index",
-	"procore",
-	"projekt202",
-	"proofpoint",
-	"protocol",
-	"psi_kick",
-	"pushpay",
-	"pwc",
-	"qualtrics",
-	"qualys",
-	"quartzy",
-	"quidd",
-	"quizlet",
-	"quora",
-	"rackspace",
-	"rainforest_qa",
-	"rapid7",
-	"recurly",
-	"reddit",
-	"reify_health",
-	"relativity",
-	"relayr",
-	"remarkably",
-	"remitly",
-	"remix",
-	"replate",
-	"research_gate",
-	"returntocorp",
-	"ring",
-	"riot_games",
-	"robinhood",
-	"roblox",
-	"roll_pay",
-	"rolls_royce",
-	"rooster_teeth",
-	"rover",
-	"rubrik",
-	"rush",
-	"salesforce",
-	"salt_lending",
-	"salt_stack",
-	"samsara",
-	"samsung",
-	"sanofi",
-	"sauce_labs",
-	"scale_ai",
-	"scaleway",
-	"scandit",
-	"scoop",
-	"screen_cloud",
-	"scribd",
-	"second_measure",
-	"second_spectrum",
-	"security_trails",
-	"securonix",
-	"semaphore_solutions",
-	"sensor_tower",
-	"sentry",
-	"shape_scale",
-	"sharkninja",
-	"shef",
-	"shoes",
-	"shop_keep",
-	"shopify",
-	"sift",
-	"signal",
-	"simpli_safe",
-	"skillshare",
-	"skip",
-	"skydio",
-	"slack",
-	"smarking",
-	"smartsheet",
-	"snap",
-	"snap_raise",
-	"snap_travel",
-	"snapdocs",
-	"snowflake",
-	"sonatype",
-	"sony_play_station",
-	"source_d",
-	"sourceress",
-	"spaceflight_industries",
-	"spacex",
-	"sparkswap",
-	"spot_hero",
-	"spotfront",
-	"springboard",
-	"sprout_social",
-	"squarespace",
-	"stack_adapt",
-	"starcity",
-	"starship",
-	"starsky_robotics",
-	"state_steet",
-	"stauer",
-	"strava",
-	"streamlabs",
-	"stripe",
-	"sumo_logic",
-	"survey_gizmo",
-	"survey_monkey",
-	"swat",
-	"swiss_borg",
-	"symantec",
-	"sysco",
-	"sysdig",
-	"t1cg",
-	"tableau",
-	"tablexi",
-	"taco_bell",
-	"tailored_brands",
-	"tala",
-	"taplytics",
-	"teamable",
-	"telaria",
-	"teller",
-	"the_athletic",
-	"the_trade_desk",
-	"thumbtack",
-	"thunder_token",
-	"tiket",
-	"tilting_point",
-	"time",
-	"time_inc",
-	"top_hat",
-	"toptal",
-	"trans_lifeline",
-	"transcend",
-	"transparent_systems",
-	"trilogy_education",
-	"trip_advisor",
-	"triple_byte",
-	"triplemint",
-	"ttt_studios",
-	"tuft_and_needle",
-	"tune",
-	"tutela",
-	"twilio",
-	"twitch",
-	"tyro",
-	"uber",
-	"uberether",
-	"udacity",
-	"uhaul",
-	"uniregistry",
-	"unisys",
-	"unity3d",
-	"university_of_chicago",
-	"university_of_virgina",
-	"upstart",
-	"upwork",
-	"user_leap",
-	"venafi",
-	"vend",
-	"venmo",
-	"verge_genomics",
-	"verifone",
-	"verishop",
-	"veritas",
-	"verizon_media",
-	"vewd",
-	"vice",
-	"vidyard",
-	"visa",
-	"voleon",
-	"voodoo",
-	"vox_media",
-	"voxter",
-	"wealthsimple",
-	"web3",
-	"wellframe",
-	"wgames",
-	"wheels",
-	"whisper",
-	"whole_foods",
-	"wikimedia",
-	"wintermute",
-	"wizeline",
-	"wonder",
-	"workday",
-	"workramp",
-	"xero",
-	"xylem",
-	"yelp",
-	"you",
-	"zendesk",
-	"zenefits",
-	"zentail",
-	"zeplin",
-	"zero_cater",
-	"zerofox",
-	"zeus",
-	"zipline",
-	"zipwhip",
-	"zoox",
-	"zume",
-	"zyris",
+func main() {
+	// signal.NotifyContext makes Ctrl-C cancel the crawl, which unwinds the
+	// in-flight HTTP requests rather than killing the process mid-write.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	if err := newRootCommand().ExecuteContext(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
-func main() {
-	cleanup := func() {
-		os.Exit(0)
+// globalFlags are shared by the commands that perform a crawl.
+type globalFlags struct {
+	timeout     time.Duration
+	concurrency int
+	logLevel    string
+}
+
+// register attaches the crawl flags to a command.
+func (g *globalFlags) register(cmd *cobra.Command) {
+	cmd.Flags().DurationVar(&g.timeout, "timeout", time.Hour, "overall time budget for the crawl")
+	cmd.Flags().IntVar(&g.concurrency, "concurrency", internal.DefaultConcurrency,
+		"number of job sources to fetch at once")
+	cmd.Flags().StringVar(&g.logLevel, "log-level", "warn", "log verbosity: debug, info, warn, or error")
+}
+
+// logger builds the structured logger for a run.
+//
+// Logs go to stderr so that stdout stays a clean data stream: `postings --json`
+// can be piped into jq while diagnostics remain readable in a terminal.
+func (g *globalFlags) logger(w io.Writer) *slog.Logger {
+	var level slog.Level
+
+	if err := level.UnmarshalText([]byte(g.logLevel)); err != nil {
+		level = slog.LevelWarn
 	}
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	go func() {
-		for range c {
-			cleanup()
-		}
-	}()
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: level}))
+}
 
-	var (
-		cmdJobPostingsPrintJSON bool
-		cmdJobPostingsPrintCSV  bool
+// crawlContext derives the crawl's context from the command's, applying the
+// time budget.
+func (g *globalFlags) crawlContext(cmd *cobra.Command) (context.Context, context.CancelFunc) {
+	if g.timeout <= 0 {
+		return context.WithCancel(cmd.Context())
+	}
+
+	return context.WithTimeout(cmd.Context(), g.timeout)
+}
+
+func newRootCommand() *cobra.Command {
+	root := &cobra.Command{
+		Use:   "job-hunter-toolkit",
+		Short: "Search job postings across many companies",
+		Long: "The job hunter's toolkit. Searches the job boards of more than a\n" +
+			"thousand companies across the major applicant tracking systems.",
+		SilenceUsage: true,
+	}
+
+	root.AddCommand(
+		newPostingsCommand(),
+		newCompaniesCommand(),
+		newTotalCommand(),
+		newHealthCommand(),
 	)
 
-	var cmdJobPostings = &cobra.Command{
-		Use:   "job-postings [flags]",
+	return root
+}
+
+// newPostingsCommand builds the `postings` command.
+func newPostingsCommand() *cobra.Command {
+	var (
+		flags     globalFlags
+		asJSON    bool
+		asCSV     bool
+		noDedupe  bool
+		filter    internal.Filter
+		showStats bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "postings",
 		Short: "Find job postings from various companies",
-		Run: func(cmd *cobra.Command, args []string) {
-			var printer func(j *jobpostings.JobPosting)
+		Long: "Find job postings from various companies.\n\n" +
+			"Filters combine as you would expect: values within a flag are OR-ed,\n" +
+			"and different flags are AND-ed. Matching is case-insensitive substring\n" +
+			"matching against the text the job board publishes.",
+		Example: "  # Remote application security roles\n" +
+			"  job-hunter-toolkit postings --remote --title security --title appsec\n\n" +
+			"  # Everything at a few companies, as JSON\n" +
+			"  job-hunter-toolkit postings --company stripe --company cloudflare --json",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := flags.logger(cmd.ErrOrStderr())
 
-			if cmdJobPostingsPrintJSON {
-				printer = func(j *jobpostings.JobPosting) {
-					data, err := json.Marshal(j)
-					if err == nil {
-						fmt.Println(string(data))
-					}
-				}
-			} else if cmdJobPostingsPrintCSV {
-				printerWrapper := func() func(j *jobpostings.JobPosting) {
-					w := csv.NewWriter(os.Stdout)
+			emit, flush, err := newPostingPrinter(cmd.OutOrStdout(), asJSON, asCSV)
+			if err != nil {
+				return err
+			}
+			defer flush()
 
-					return func(j *jobpostings.JobPosting) {
-						record := []string{j.Company, j.Title, j.Location, j.URL}
-						if err := w.Write(record); err != nil {
-							panic(err)
-						}
-					}
+			ctx, cancel := flags.crawlContext(cmd)
+			defer cancel()
+
+			client := httpx.NewClient(httpx.WithLogger(logger))
+
+			// Narrow the crawl to the requested companies before fetching, so a
+			// targeted query does not pay for a full crawl.
+			sources := services.SourcesMatching(filter.Companies)
+			if len(sources) == 0 {
+				return fmt.Errorf("no known companies match %s", strings.Join(filter.Companies, ", "))
+			}
+
+			logger.InfoContext(ctx, "starting crawl", slog.Int("sources", len(sources)))
+
+			jobs := internal.AllWithConcurrency(ctx, client, flags.concurrency, services.JobsFuncs(sources)...)
+
+			if !noDedupe {
+				jobs = internal.Dedupe(jobs)
+			}
+
+			jobs = postingFilterFor(filter).Apply(jobs)
+
+			var found, failed int
+
+			for jobPosting, err := range jobs {
+				if err != nil {
+					// A failing company is expected at this scale: boards get
+					// retired constantly. Report it without ending the crawl,
+					// and keep it off stdout so the data stream stays clean.
+					failed++
+					logger.DebugContext(ctx, "job source failed", slog.String("cause", err.Error()))
+
+					continue
 				}
-				printer = printerWrapper()
-			} else {
-				printer = func(j *jobpostings.JobPosting) {
-					fmt.Println("company:", j.Company, "title:", j.Title, "location:", j.Location, "url:", j.URL)
+
+				found++
+
+				if err := emit(jobPosting); err != nil {
+					return err
 				}
 			}
 
-			for jobPosting := range jobpostings.GetAllJobPostings(context.Background()) {
-				printer(jobPosting)
+			if err := flush(); err != nil {
+				return err
 			}
+
+			logger.InfoContext(ctx, "crawl finished",
+				slog.Int("postings", found),
+				slog.Int("failed_sources", failed),
+			)
+
+			if showStats {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%d postings from %d sources (%d sources failed)\n",
+					found, len(sources), failed)
+			}
+
+			return nil
 		},
 	}
-	cmdJobPostings.Flags().BoolVar(&cmdJobPostingsPrintJSON, "json", false, "output as newline separated JSON")
-	cmdJobPostings.Flags().BoolVar(&cmdJobPostingsPrintCSV, "csv", false, "output as CSV with no header (title, location, url)")
 
+	flags.register(cmd)
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output newline-delimited JSON")
+	cmd.Flags().BoolVar(&asCSV, "csv", false, "output CSV (company,title,location,url,pay_min,pay_max,currency,period) with no header")
+	cmd.Flags().BoolVar(&noDedupe, "no-dedupe", false,
+		"keep duplicate postings; by default postings sharing a URL are emitted once")
+	cmd.Flags().BoolVar(&showStats, "stats", false, "print a summary to stderr when the crawl finishes")
+
+	cmd.Flags().StringSliceVar(&filter.Titles, "title", nil,
+		"only postings whose title contains any of these terms")
+	cmd.Flags().StringSliceVar(&filter.ExcludeTitles, "exclude-title", nil,
+		"skip postings whose title contains any of these terms")
+	cmd.Flags().StringSliceVar(&filter.Locations, "location", nil,
+		"only postings whose location contains any of these terms")
+	cmd.Flags().StringSliceVar(&filter.Companies, "company", nil,
+		"only postings from companies matching any of these terms")
+	cmd.Flags().BoolVar(&filter.Remote, "remote", false, "only postings that look remote")
+	cmd.Flags().BoolVar(&filter.HasCompensation, "has-pay", false,
+		"only postings that publish a pay range")
+	cmd.Flags().Float64Var(&filter.MinAnnual, "min-pay", 0,
+		"only postings publishing pay of at least this much per year (hourly rates are annualized); implies --has-pay")
+
+	cmd.MarkFlagsMutuallyExclusive("json", "csv")
+
+	return cmd
+}
+
+// postingFilterFor returns the filter to apply to postings, given that company
+// selection has already been applied by narrowing which sources are crawled.
+//
+// The company constraint is deliberately dropped. A source is keyed by whatever
+// its platform uses to identify a tenant, a Workday tenant URL, a Phenom
+// hostname, while the posting it produces carries a short company name derived
+// from that key. Applying the constraint a second time compared those two
+// different forms and silently discarded every posting, reporting "0 postings"
+// as though the company simply were not hiring.
+func postingFilterFor(f internal.Filter) internal.Filter {
+	f.Companies = nil
+
+	return f
+}
+
+// newPostingPrinter returns a function that writes a posting in the requested
+// format, plus a flush function to call when the stream is complete.
+func newPostingPrinter(w io.Writer, asJSON, asCSV bool) (emit func(*internal.JobPosting) error, flush func() error, err error) {
+	switch {
+	case asJSON:
+		enc := json.NewEncoder(w)
+
+		return func(j *internal.JobPosting) error {
+			if err := enc.Encode(j); err != nil {
+				return fmt.Errorf("writing JSON: %w", err)
+			}
+
+			return nil
+		}, func() error { return nil }, nil
+
+	case asCSV:
+		cw := csv.NewWriter(w)
+
+		return func(j *internal.JobPosting) error {
+				// Pay columns are appended rather than inserted, so anything
+				// reading the original four fields keeps working. They are empty
+				// when the employer disclosed nothing, which is the common case.
+				var payMin, payMax, currency, period string
+
+				if !j.Compensation.IsZero() {
+					if j.Compensation.Min > 0 {
+						payMin = strconv.FormatFloat(j.Compensation.Min, 'f', -1, 64)
+					}
+
+					if j.Compensation.Max > 0 {
+						payMax = strconv.FormatFloat(j.Compensation.Max, 'f', -1, 64)
+					}
+
+					currency = j.Compensation.Currency
+					period = string(j.Compensation.Period)
+				}
+
+				record := []string{j.Company, j.Title, j.Location, j.URL, payMin, payMax, currency, period}
+
+				if err := cw.Write(record); err != nil {
+					return fmt.Errorf("writing CSV: %w", err)
+				}
+
+				return nil
+			}, func() error {
+				cw.Flush()
+
+				return cw.Error()
+			}, nil
+
+	default:
+		return func(j *internal.JobPosting) error {
+			pay := ""
+			if !j.Compensation.IsZero() {
+				pay = " pay: " + describeCompensation(j.Compensation)
+			}
+
+			_, err := fmt.Fprintf(w, "company: %s title: %s location: %s%s url: %s\n",
+				j.Company, j.Title, j.Location, pay, j.URL)
+
+			return err
+		}, func() error { return nil }, nil
+	}
+}
+
+// newCompaniesCommand builds the `companies` command.
+func newCompaniesCommand() *cobra.Command {
 	var (
-		cmdJobSourcesPrintJSON bool
-		cmdJobSourcesPrintCSV  bool
+		asJSON bool
+		asCSV  bool
 	)
 
-	var cmdJobSources = &cobra.Command{
-		Use:   "job-sources [flags]",
-		Short: "List the various companies available from job-postings",
-		Run: func(cmd *cobra.Command, args []string) {
-			var printer func(s []string)
+	cmd := &cobra.Command{
+		Use:     "companies",
+		Short:   "List the companies that postings are searched from",
+		Args:    cobra.NoArgs,
+		Aliases: []string{"sources"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			companies := services.Companies()
 
-			if cmdJobSourcesPrintJSON {
-				printer = func(s []string) {
-					data, err := json.Marshal(s)
-					if err == nil {
-						fmt.Println(string(data))
+			out := cmd.OutOrStdout()
+
+			switch {
+			case asJSON:
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+
+				return enc.Encode(companies)
+
+			case asCSV:
+				cw := csv.NewWriter(out)
+				defer cw.Flush()
+
+				for _, company := range companies {
+					if err := cw.Write([]string{company}); err != nil {
+						return fmt.Errorf("writing CSV: %w", err)
 					}
 				}
-			} else if cmdJobSourcesPrintCSV {
-				printer = func(s []string) {
-					fmt.Println(strings.Join(s, ","))
+
+				return cw.Error()
+
+			default:
+				for _, company := range companies {
+					if _, err := fmt.Fprintln(out, company); err != nil {
+						return err
+					}
+				}
+
+				return nil
+			}
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output as a JSON array")
+	cmd.Flags().BoolVar(&asCSV, "csv", false, "output one company per CSV row, with no header")
+	cmd.MarkFlagsMutuallyExclusive("json", "csv")
+
+	return cmd
+}
+
+// newTotalCommand builds the `total` command.
+func newTotalCommand() *cobra.Command {
+	var flags globalFlags
+
+	cmd := &cobra.Command{
+		Use:   "total",
+		Short: "Count the job postings currently available",
+		Long: "Count the job postings currently available.\n\n" +
+			"Writes a single row of \"DATE POSTINGS COMPANIES\" to stdout and a header\n" +
+			"to stderr, so the row can be appended straight to a record file.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := flags.logger(cmd.ErrOrStderr())
+
+			ctx, cancel := flags.crawlContext(cmd)
+			defer cancel()
+
+			client := httpx.NewClient(httpx.WithLogger(logger))
+
+			jobs := internal.Dedupe(
+				internal.AllWithConcurrency(ctx, client, flags.concurrency, services.JobsFuncs(services.Builtin)...),
+			)
+
+			var (
+				perCompany = map[string]int{}
+				total      int
+				failed     int
+			)
+
+			for jobPosting, err := range jobs {
+				if err != nil {
+					failed++
+
+					continue
+				}
+
+				perCompany[jobPosting.Company]++
+				total++
+			}
+
+			// Truncation is decided from the crawl context, not from the
+			// per-source errors. A single slow board hitting the HTTP client's
+			// own timeout produces an error that wraps context.DeadlineExceeded
+			// too, so inspecting individual errors would condemn a perfectly
+			// complete crawl.
+			truncated := ctx.Err() != nil
+
+			logger.InfoContext(ctx, "crawl finished",
+				slog.Int("postings", total),
+				slog.Int("companies", len(perCompany)),
+				slog.Int("failed_sources", failed),
+				slog.Bool("truncated", truncated),
+			)
+
+			fmt.Fprintf(cmd.ErrOrStderr(), "DATE POSTINGS COMPANIES\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %d %d\n",
+				time.Now().Format("01/02/06"), total, len(perCompany))
+
+			// Recording a truncated crawl as a data point would corrupt the
+			// long-running posting trend, which is this project's only historical
+			// record. Fail loudly instead, so the caller can discard the row.
+			if truncated {
+				return fmt.Errorf(
+					"crawl did not finish within %s: counted %d postings from %d companies, but this is incomplete and must not be recorded",
+					flags.timeout, total, len(perCompany))
+			}
+
+			return nil
+		},
+	}
+
+	flags.register(cmd)
+
+	return cmd
+}
+
+// sourceHealth is one company's result from a health check.
+type sourceHealth struct {
+	Company string `json:"company"`
+
+	// Key is the identifier the ATS uses, a tenant URL or hostname where that
+	// differs from the company name. Reported because a health check exists to be
+	// acted on: fixing a broken Workday tenant means knowing which URL failed,
+	// not just which company did.
+	Key string `json:"key,omitempty"`
+
+	Status   string `json:"status"`
+	Postings int    `json:"postings"`
+	Error    string `json:"error,omitempty"`
+
+	// Capped reports that counting stopped at [healthSampleLimit], so Postings
+	// is a floor rather than the true total.
+	Capped bool `json:"capped,omitempty"`
+}
+
+// healthSampleLimit bounds how many postings a health check reads per source.
+//
+// A health check only needs to know whether a source still works, and some
+// employers are enormous: FedEx alone publishes over 138,000 postings, which is
+// more than a thousand sequential paginated requests. Counting all of them would
+// make checking every source take hours and would dominate the run for the sake
+// of a number nobody reads precisely.
+const healthSampleLimit = 100
+
+// Health statuses.
+const (
+	statusOK     = "ok"
+	statusEmpty  = "empty"
+	statusFailed = "failed"
+)
+
+// newHealthCommand builds the `health` command.
+func newHealthCommand() *cobra.Command {
+	var (
+		flags     globalFlags
+		asJSON    bool
+		failsOnly bool
+		companies []string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "health",
+		Short: "Check every job source and report which ones are broken",
+		Long: "Check every job source and report which ones are broken.\n\n" +
+			"Job boards are retired constantly, and a crawl that silently skips\n" +
+			"failures slowly stops covering the companies it claims to. This reports\n" +
+			"each source as ok (postings returned), empty (reachable, but nothing\n" +
+			"posted), or failed (unreachable).\n\n" +
+			"An empty source is not broken; the company simply is not hiring.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := flags.logger(cmd.ErrOrStderr())
+
+			ctx, cancel := flags.crawlContext(cmd)
+			defer cancel()
+
+			client := httpx.NewClient(httpx.WithLogger(logger))
+
+			sources := services.SourcesMatching(companies)
+			if len(sources) == 0 {
+				return fmt.Errorf("no known companies match %s", strings.Join(companies, ", "))
+			}
+
+			results := checkSources(ctx, client, sources, flags.concurrency)
+
+			// Group by status so failures cluster together, then order by
+			// company within a status for a stable, diffable report.
+			slices.SortFunc(results, func(a, b sourceHealth) int {
+				if c := cmp.Compare(a.Status, b.Status); c != 0 {
+					return c
+				}
+
+				return cmp.Compare(strings.ToLower(a.Company), strings.ToLower(b.Company))
+			})
+
+			counts := map[string]int{}
+			for _, r := range results {
+				counts[r.Status]++
+			}
+
+			out := cmd.OutOrStdout()
+
+			if asJSON {
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+
+				if err := enc.Encode(results); err != nil {
+					return fmt.Errorf("writing JSON: %w", err)
 				}
 			} else {
-				printer = func(s []string) {
-					for _, source := range s {
-						fmt.Println(source)
+				for _, r := range results {
+					if failsOnly && r.Status != statusFailed {
+						continue
 					}
+
+					// Show the ATS key alongside the name when they differ, so a
+					// failure is actionable: fixing a broken Workday tenant means
+					// knowing which URL failed, not just which company did.
+					name := r.Company
+					if r.Key != "" {
+						name += " (" + r.Key + ")"
+					}
+
+					if r.Error != "" {
+						fmt.Fprintf(out, "%-8s %-72s %s\n", r.Status, name, r.Error)
+						continue
+					}
+
+					count := strconv.Itoa(r.Postings)
+					if r.Capped {
+						count += "+"
+					}
+
+					fmt.Fprintf(out, "%-8s %-72s %s postings\n", r.Status, name, count)
 				}
 			}
 
-			printer(sourcesList)
+			fmt.Fprintf(cmd.ErrOrStderr(), "\n%d sources: %d ok, %d empty, %d failed\n",
+				len(results), counts[statusOK], counts[statusEmpty], counts[statusFailed])
+
+			return nil
 		},
 	}
-	cmdJobSources.Flags().BoolVar(&cmdJobSourcesPrintJSON, "json", false, "output as newline separated JSON")
-	cmdJobSources.Flags().BoolVar(&cmdJobSourcesPrintCSV, "csv", false, "output as CSV with no header (source1, sourc2, ...)")
 
-	var rootCmd = &cobra.Command{Use: "job-hunter-toolkit"}
-	rootCmd.AddCommand(cmdJobPostings)
-	rootCmd.AddCommand(cmdJobSources)
-	rootCmd.Execute()
+	flags.register(cmd)
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output as a JSON array")
+	cmd.Flags().BoolVar(&failsOnly, "failed-only", false, "only print sources that failed")
+	cmd.Flags().StringSliceVar(&companies, "company", nil,
+		"only check companies matching any of these terms")
+
+	return cmd
+}
+
+// checkSources fetches every source and records how it behaved.
+func checkSources(ctx context.Context, client *http.Client, sources []services.Source, concurrency int) []sourceHealth {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	var (
+		results = make([]sourceHealth, len(sources))
+		sem     = make(chan struct{}, concurrency)
+		wg      sync.WaitGroup
+	)
+
+	for i, source := range sources {
+		wg.Add(1)
+
+		go func(i int, source services.Source) {
+			defer wg.Done()
+
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			health := sourceHealth{Company: source.Company, Status: statusOK}
+			if source.Key != source.Company {
+				health.Key = source.Key
+			}
+
+			// A panicking adapter is a bug worth surfacing, but it must not take
+			// down a check covering every source; the whole point of this
+			// command is to find broken sources, so it has to survive them.
+			// A real case: an adapter that ignored yield's return value panicked
+			// the moment this command started stopping early at the count cap.
+			defer func() {
+				if r := recover(); r != nil {
+					health.Status = statusFailed
+					health.Error = fmt.Sprintf("job source panicked: %v", r)
+					results[i] = health
+				}
+			}()
+
+			for jobPosting, err := range source.Jobs(ctx, client) {
+				if err != nil {
+					if health.Error == "" {
+						health.Error = err.Error()
+					}
+
+					continue
+				}
+
+				if jobPosting != nil {
+					health.Postings++
+				}
+
+				// Stop once the source has clearly proven itself. Breaking out
+				// tells the adapter to stop paginating, which is what keeps a
+				// check of every source bounded.
+				if health.Postings >= healthSampleLimit {
+					health.Capped = true
+
+					break
+				}
+			}
+
+			switch {
+			case health.Postings > 0:
+				health.Status = statusOK
+			case health.Error != "":
+				health.Status = statusFailed
+			default:
+				health.Status = statusEmpty
+			}
+
+			results[i] = health
+		}(i, source)
+	}
+
+	wg.Wait()
+
+	return results
+}
+
+// describeCompensation renders a pay range for human-readable output, preferring
+// the board's own summary when it supplied one.
+func describeCompensation(c *internal.Compensation) string {
+	if c.Summary != "" {
+		return c.Summary
+	}
+
+	period := ""
+	if c.Period != internal.PeriodUnknown {
+		period = "/" + string(c.Period)
+	}
+
+	currency := c.Currency
+	if currency != "" {
+		currency += " "
+	}
+
+	switch {
+	case c.Min > 0 && c.Max > 0 && c.Min != c.Max:
+		return fmt.Sprintf("%s%s-%s%s", currency,
+			strconv.FormatFloat(c.Min, 'f', -1, 64),
+			strconv.FormatFloat(c.Max, 'f', -1, 64), period)
+	case c.Max > 0:
+		return fmt.Sprintf("%s%s%s", currency, strconv.FormatFloat(c.Max, 'f', -1, 64), period)
+	default:
+		return fmt.Sprintf("%s%s%s", currency, strconv.FormatFloat(c.Min, 'f', -1, 64), period)
+	}
 }
