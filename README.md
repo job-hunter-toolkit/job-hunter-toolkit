@@ -1,67 +1,259 @@
 # Job Hunter Toolkit
 
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/blob/master/LICENSE)
-![GitHub action](https://github.com/job-hunter-toolkit/job-hunter-toolkit/workflows/CI/badge.svg)
-[![go report](https://goreportcard.com/badge/github.com/job-hunter-toolkit/job-hunter-toolkit)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/pulls)
+[![CI](https://github.com/job-hunter-toolkit/job-hunter-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/actions/workflows/ci.yml)
+[![go report](https://goreportcard.com/badge/github.com/job-hunter-toolkit/job-hunter-toolkit)](https://goreportcard.com/report/github.com/job-hunter-toolkit/job-hunter-toolkit)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/pulls)
 
-The job hunter's toolkit. Helps search job postings for hundreds of companies.
+The job hunter's toolkit. Searches the job boards of over 1,500 companies
+directly, across the major applicant tracking systems, and prints the results as
+text, JSON, or CSV.
 
-> 👩🏽‍💻 To get started, [check out the interactive tutorial](https://www.katacoda.com/picat/scenarios/job-hunter-toolkit).
+It talks to the same public board APIs that companies' own careers pages use, so
+postings come from the source rather than from an aggregator. Coverage spans
+hospital systems, universities, retailers, manufacturers, and banks as well as
+tech companies; a full crawl reaches well over a hundred thousand postings.
 
 ## Install
 
 ```console
-$ go get -u -v github.com/job-hunter-toolkit/job-hunter-toolkit
-...
+$ go install github.com/job-hunter-toolkit/job-hunter-toolkit@latest
 ```
 
-## Help
+## Usage
 
 ```console
-$ job-hunter-toolkit help
+$ job-hunter-toolkit --help
+The job hunter's toolkit. Searches the job boards of more than a
+thousand companies across the major applicant tracking systems.
+
 Usage:
   job-hunter-toolkit [command]
 
 Available Commands:
-  help         Help about any command
-  job-postings Find job postings from various companies
-  job-sources  List the various companies available from job-postings
-
-Flags:
-  -h, --help   help for job-hunter-toolkit
-
-Use "job-hunter-toolkit [command] --help" for more information about a command.
+  companies   List the companies that postings are searched from
+  health      Check every job source and report which ones are broken
+  postings    Find job postings from various companies
+  total       Count the job postings currently available
 ```
 
-## Job Postings
+### Finding postings
+
+Filters are the point: a full crawl returns well over a hundred thousand
+postings, which is only useful once you can narrow it.
 
 ```console
-$ job-hunter-toolkit job-postings
-company: ... title: ... location: ... url: ...
-company: ... title: ... location: ... url: ...
+$ job-hunter-toolkit postings --remote --title "security engineer"
+company: vercel title: Security Engineer, Cloud location: Remote - United States url: https://...
+company: wrike title: Senior Security Engineer location: Estonia - Remote url: https://...
 ...
 ```
 
-Output as newline separated JSON:
+Values within a flag are OR-ed; different flags are AND-ed. Matching is
+case-insensitive substring matching against the text the board publishes.
+
+| Flag | Effect |
+| --- | --- |
+| `--title` | only postings whose title contains any of these terms |
+| `--exclude-title` | skip postings whose title contains any of these terms |
+| `--location` | only postings whose location contains any of these terms |
+| `--company` | only these companies; this narrows the crawl itself, so it is fast |
+| `--remote` | only postings that look remote |
+| `--has-pay` | only postings that publish a pay range |
+| `--min-pay` | only postings paying at least this much per year (hourly rates are annualized) |
+| `--json` / `--csv` | machine-readable output |
+| `--stats` | print a summary to stderr when the crawl finishes |
+| `--concurrency` | how many sources to fetch at once |
+| `--timeout` | overall time budget |
+
+Because `--company` narrows which boards are fetched, targeted queries finish in
+about a second:
 
 ```console
-$ job-hunter-toolkit job-postings --json
-{"company":"...","title":"...","location":"...","url":"..."}
-{"company":"...","title":"...","location":"...","url":"..."}
+$ job-hunter-toolkit postings --company anthropic --stats
 ...
+461 postings from 2 sources (0 sources failed)
 ```
 
-Output as CSV (with no headers):
+Nurses, teachers, and machinists are covered as much as engineers; the crawl
+includes hospital systems, universities, retailers, and manufacturers alongside
+tech companies:
 
 ```console
-$ job-hunter-toolkit job-postings --csv
-company,title,location,url
-company,title,location,url
-company,title,location,url
-...
+$ job-hunter-toolkit postings --title "registered nurse" --location "St. Louis"
+$ job-hunter-toolkit postings --title teacher --location Texas
 ```
+
+Postings are de-duplicated by URL by default, since a company can appear under
+more than one board slug. Use `--no-dedupe` to see the raw stream.
+
+### Pay
+
+Where an employer publishes a pay range, it is parsed into a structured field:
+
+```console
+$ job-hunter-toolkit postings --company harvey --min-pay 200000
+company: harvey title: Staff Software Engineer, Model Infrastructure location: San Francisco pay: $236K – $290K • Offers Equity • Offers Bonus url: https://...
+
+$ job-hunter-toolkit postings --company petsmart --min-pay 60000
+company: petsmart title: Pet Groomer location: Signal Hill, California pay: 17.17-29.95/hour url: https://...
+```
+
+Hourly rates are annualized (2080 hours) so one `--min-pay` figure works across
+salaried and hourly roles alike.
+
+**Coverage is uneven, and absence never means unpaid.** Only some platforms
+publish pay as structured data at all:
+
+| Platform | Pay data |
+| --- | --- |
+| Jibe / iCIMS | Yes, amounts plus an explicit frequency, populated on most postings |
+| Ashby | Yes, amounts, currency, and interval, where the company opts in |
+| Lever | Yes, but populated on only a fraction of postings |
+| Greenhouse, Workday, SmartRecruiters, others | No structured field; pay appears only in the description |
+
+Every pay figure records where it came from, because a wrong salary looks exactly
+like a right one:
+
+```console
+$ job-hunter-toolkit postings --company harvey --has-pay --json | jq '.compensation.provenance' | sort | uniq -c
+```
+
+`employer` means the platform published it in a real API field; `structured`
+means it came from markup a board renders from a pay field; `description` means
+it was read out of prose and is the only kind that can be wrong about what a
+number means.
+
+Because a pay floor cannot be applied to an undisclosed salary, `--min-pay`
+excludes postings that publish nothing; which is most postings, on most boards.
+Use `--has-pay` to see exactly which ones disclose.
+
+Reading pay out of description prose is implemented and tested but not yet run by
+the crawl, since fetching descriptions inflates Greenhouse responses ~13.7x. See
+[docs/compensation.md](docs/compensation.md) for the extraction rules, the
+measured accuracy, and why that is behind a future opt-in flag.
+
+Output is designed to be piped; diagnostics go to stderr, data to stdout:
+
+```console
+$ job-hunter-toolkit postings --remote --title appsec --json | jq -r '.url'
+```
+
+### Listing companies
+
+```console
+$ job-hunter-toolkit companies | wc -l
+```
+
+### Checking source health
+
+Job boards get retired constantly, and a crawl that silently skips failures
+slowly stops covering the companies it claims to. `health` makes that visible:
+
+```console
+$ job-hunter-toolkit health --failed-only
+failed   somecompany    unexpected status code from Greenhouse for "somecompany": 404 Not Found
+...
+
+<total> sources: <n> ok, <n> empty, <n> failed
+```
+
+`empty` means the board is reachable but has no openings; that is a company not
+hiring, not a broken source. Only `failed` is a problem.
+
+Counting stops at 100 postings per source, reported as `100+`. A health check only
+needs to know whether a source works, and some employers are enormous, FedEx
+alone publishes over 138,000 postings, which is more than a thousand paginated
+requests for a single company.
+
+Narrow it to one company while adding a source:
+
+```console
+$ job-hunter-toolkit health --company newcompany
+ok       newcompany     42 postings
+```
+
+## Supported job boards
+
+One adapter per applicant tracking system, so adding a company is usually a
+one-line change rather than a new scraper.
+
+| Platform | Notes |
+| --- | --- |
+| Greenhouse | Largest source; common with tech companies |
+| Ashby | Common with AI labs, developer tools, and startups; publishes structured pay |
+| Workday | Dominates large enterprises, hospitals, and universities |
+| Jibe / iCIMS | Large retail, grocery, restaurant, and health systems; best pay coverage |
+| Phenom People | Large retail, industrial, and healthcare employers |
+| Lever | Public v0 API; being deprecated upstream |
+| Rippling | Startups using Rippling for HR |
+| SmartRecruiters | Enterprise, strong in Europe |
+| BambooHR | Small and mid-size US companies, nonprofits |
+| Workable | Small and mid-size companies |
+| Gem | |
+| Jobvite | Mid-size and large enterprises |
+| PeopleForce | Popular in Europe |
+
+A source is identified two ways: the **key** its platform uses to fetch it (a
+board slug, a Workday tenant URL, a Phenom hostname) and the readable **company
+name** derived from it. `--company` accepts either, and `health` shows both when
+they differ, so a failure is actionable.
+
+Company-specific adapters live in `internal/companies` for employers that run
+their own careers site rather than a supported ATS. Prefer adding a platform
+adapter over a one-off scraper: it covers every other company on that platform
+for the same effort. See [docs/source-backlog.md](docs/source-backlog.md).
 
 ## Total Job Postings Over Time
 
+A scheduled workflow records the total daily. **The level of this series tracks
+the crawler's coverage and health at least as much as it tracks hiring**: it has
+two multi-month gaps where the workflow broke silently, and step changes where
+sources were pruned or coverage widened. See [docs/jobs-record.md](docs/jobs-record.md)
+before drawing conclusions from it.
+
 <img alt="Total Job Postings Over Time" src="https://raw.githubusercontent.com/job-hunter-toolkit/job-hunter-toolkit/master/jobs_record.png" height="500" />
+
+## Development
+
+```console
+$ go build ./...
+$ go test ./...
+```
+
+### How a crawl behaves
+
+Each company is an independently scheduled source, fetched concurrently up to
+`--concurrency`. On top of that, `internal/httpx` bounds requests *per host*,
+because companies are not spread evenly across hosts; every Workable board is
+served by a single API host, so raising concurrency alone just earns HTTP 429s
+that look exactly like dead boards in a health report.
+
+That bound keys on the exact hostname, so platforms giving each tenant its own
+subdomain (PeopleForce) are not yet grouped and can still rate-limit. Treat a 429
+in a health report as "crawled too hard", never as a dead board.
+
+The client retries transient failures (5xx, 429) with jittered backoff, honours
+`Retry-After`, rewinds request bodies before replaying them, and cancels cleanly.
+A source that panics is reported as a failed source rather than taking down the
+crawl.
+
+`total` exits non-zero if the crawl did not finish in its time budget, so a
+partial count can never be recorded as a real data point in `jobs_record.txt`.
+
+Tests are hermetic: adapter behaviour is checked against fixture responses
+served through a stub HTTP transport, so the suite needs no network and runs in
+under a second.
+
+The tests that query live job boards are opt-in, because they fail whenever a
+company stops using its ATS; a fact about the world rather than a regression:
+
+```console
+$ JHT_NETWORK_TESTS=1 go test ./internal/services/ -run TestGreenhouse
+```
+
+Prefer `job-hunter-toolkit health` for checking source freshness.
+
+## License
+
+[MIT](LICENSE)
