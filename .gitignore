@@ -1,0 +1,13 @@
+# Compiled binaries. `go build` with no -o drops a binary named after the
+# directory, which is how an 11MB `cmd` file once ended up committed-adjacent.
+/job-hunter-toolkit
+/cmd
+*.exe
+*.test
+
+# Test and coverage output
+*.out
+coverage.*
+
+# macOS
+.DS_Store
