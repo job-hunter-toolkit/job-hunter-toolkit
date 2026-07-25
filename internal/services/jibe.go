@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFunc(Jibe, JibeCompanies))
+	registerBuiltin("jibe", multiJobsFunc(Jibe, JibeCompanies))
 }
 
 // jibePageSize is the number of postings requested per page.

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -12,6 +13,10 @@ func TestSourcesSeparateKeyFromDisplayName(t *testing.T) {
 	// tenant URLs into the user-facing company list and made `--company <URL>`
 	// silently match nothing.
 	for _, source := range Builtin {
+		if source.Platform == "" {
+			t.Errorf("source with key %q has no platform", source.Key)
+		}
+
 		if source.Key == "" {
 			t.Errorf("source %+v has no ATS key", source)
 		}
@@ -136,6 +141,30 @@ func TestSourcesMatchingEmptyTermsReturnsEverything(t *testing.T) {
 	}
 }
 
+func TestSourcesMatchingInterleavesPlatforms(t *testing.T) {
+	t.Parallel()
+
+	sources := SourcesMatching(nil)
+	allPlatforms := make(map[string]struct{})
+	for _, source := range sources {
+		allPlatforms[source.Platform] = struct{}{}
+	}
+
+	if len(sources) < len(allPlatforms) {
+		t.Fatalf("got %d sources for %d platforms", len(sources), len(allPlatforms))
+	}
+
+	firstRound := make(map[string]struct{}, len(allPlatforms))
+	for _, source := range sources[:len(allPlatforms)] {
+		firstRound[source.Platform] = struct{}{}
+	}
+
+	if len(firstRound) != len(allPlatforms) {
+		t.Errorf("first %d sources cover %d platforms, want all %d; crawl is platform-grouped",
+			len(allPlatforms), len(firstRound), len(allPlatforms))
+	}
+}
+
 func TestSourcesMatchingUnknownCompanyReturnsNothing(t *testing.T) {
 	t.Parallel()
 
@@ -151,5 +180,39 @@ func TestJobsFuncsMatchesSourceCount(t *testing.T) {
 
 	if got := JobsFuncs(sources); len(got) != len(sources) {
 		t.Errorf("JobsFuncs returned %d functions, want %d", len(got), len(sources))
+	}
+}
+
+func TestExpandedTenantListsAreSortedAndDeduplicated(t *testing.T) {
+	t.Parallel()
+
+	// These are the registries expanded most often during source-discovery
+	// passes. Keeping each one sorted makes additions reviewable; rejecting
+	// duplicates prevents a tenant from being crawled twice under the same ATS.
+	registries := map[string][]string{
+		"bamboohr": BambooHRCompanies,
+		"gem":      GemCompanies,
+		"jobvite":  JobviteCompanies,
+		"rippling": RipplingCompanies,
+		"workable": WorkableCompanies,
+	}
+
+	for name, tenants := range registries {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if !slices.IsSorted(tenants) {
+				t.Error("tenant list is not sorted")
+			}
+
+			seen := make(map[string]struct{}, len(tenants))
+			for _, tenant := range tenants {
+				if _, ok := seen[tenant]; ok {
+					t.Errorf("duplicate tenant %q", tenant)
+				}
+
+				seen[tenant] = struct{}{}
+			}
+		})
 	}
 }

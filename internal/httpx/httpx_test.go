@@ -1,11 +1,15 @@
 package httpx
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -705,5 +709,220 @@ func TestPerHostLimitReleasesSlotOnError(t *testing.T) {
 		}
 
 		cancel()
+	}
+}
+
+func TestServicePoliciesMatchBackendTopology(t *testing.T) {
+	t.Parallel()
+
+	request := func(rawURL string) *http.Request {
+		t.Helper()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, rawURL, nil)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext(%q) error = %v", rawURL, err)
+		}
+
+		return req
+	}
+
+	peopleforceA := servicePolicyFor(request("https://alpha.peopleforce.io/careers"), 8)
+	peopleforceB := servicePolicyFor(request("https://beta.peopleforce.io/careers"), 8)
+	if peopleforceA.key != peopleforceB.key {
+		t.Errorf("PeopleForce keys = %q and %q, want one shared backend", peopleforceA.key, peopleforceB.key)
+	}
+
+	workdayA := servicePolicyFor(request("https://alpha.wd1.myworkdayjobs.com/jobs"), 8)
+	workdayB := servicePolicyFor(request("https://beta.wd5.myworkdayjobs.com/jobs"), 8)
+	if workdayA.key == workdayB.key {
+		t.Errorf("Workday keys are both %q, want tenant-isolated infrastructure", workdayA.key)
+	}
+
+	workable := servicePolicyFor(request("https://apply.workable.com/api/v1/widget/accounts/acme"), 8)
+	if workable.maxConcurrent != 2 {
+		t.Errorf("Workable concurrency = %d, want 2", workable.maxConcurrent)
+	}
+	if workable.interval <= 0 {
+		t.Errorf("Workable interval = %v, want paced requests", workable.interval)
+	}
+}
+
+func TestServiceLimiterPacesAndCapsLongCooldown(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	var logs bytes.Buffer
+	base := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		status := http.StatusOK
+		header := http.Header{}
+
+		if calls.Add(1) == 1 {
+			status = http.StatusTooManyRequests
+			// Real Workable responses have carried day-long values. The limiter
+			// must expose that in logs but cap how long it stalls the crawl.
+			header.Set("Retry-After", "76447")
+		}
+
+		return &http.Response{
+			StatusCode: status,
+			Status:     http.StatusText(status),
+			Header:     header,
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	})
+
+	client := NewClient(
+		WithTransport(base),
+		WithMaxAttempts(1),
+		WithMaxDelay(20*time.Millisecond),
+		WithLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))),
+	)
+
+	const endpoint = "https://apply.workable.com/api/v1/widget/accounts/acme"
+
+	first, err := client.Get(endpoint)
+	if err != nil {
+		t.Fatalf("first Get() error = %v", err)
+	}
+	_ = first.Body.Close()
+
+	start := time.Now()
+	second, err := client.Get(endpoint)
+	if err != nil {
+		t.Fatalf("second Get() error = %v", err)
+	}
+	_ = second.Body.Close()
+
+	elapsed := time.Since(start)
+	if elapsed < 20*time.Millisecond {
+		t.Errorf("second request waited %v, want at least the capped cooldown", elapsed)
+	}
+	if elapsed > time.Second {
+		t.Errorf("second request waited %v, want the day-long Retry-After capped", elapsed)
+	}
+
+	logOutput := logs.String()
+	if !strings.Contains(logOutput, "retry_after=76447") {
+		t.Errorf("logs = %q, want the original Retry-After value", logOutput)
+	}
+	if !strings.Contains(logOutput, "service=apply.workable.com") {
+		t.Errorf("logs = %q, want the affected service key", logOutput)
+	}
+}
+
+func TestParseProxyURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{name: "HTTP", raw: "http://proxy.example:8080"},
+		{name: "HTTPS with credentials", raw: "https://user:secret@proxy.example:8443"},
+		{name: "SOCKS5", raw: "socks5://127.0.0.1:1080"},
+		{name: "missing scheme", raw: "proxy.example:8080", wantErr: true},
+		{name: "unsupported scheme", raw: "file:///tmp/socket", wantErr: true},
+		{name: "path", raw: "https://proxy.example/not-a-proxy-path", wantErr: true},
+		{name: "query", raw: "https://proxy.example?token=secret", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			proxyURL, err := ParseProxyURL(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseProxyURL(%q) error = %v, wantErr %v", tt.raw, err, tt.wantErr)
+			}
+
+			if err == nil && strings.Contains(proxyEndpoint(proxyURL), "secret") {
+				t.Errorf("proxyEndpoint(%q) exposed credentials", tt.raw)
+			}
+		})
+	}
+}
+
+func TestProxyPoolIsStickyAndDistributesBoards(t *testing.T) {
+	t.Parallel()
+
+	proxies := make([]*url.URL, 3)
+	for i, raw := range []string{
+		"https://one.example:8443",
+		"https://two.example:8443",
+		"socks5://three.example:1080",
+	} {
+		proxyURL, err := ParseProxyURL(raw)
+		if err != nil {
+			t.Fatalf("ParseProxyURL(%q) error = %v", raw, err)
+		}
+		proxies[i] = proxyURL
+	}
+
+	selectProxy := proxyPool(proxies)
+	used := make(map[string]struct{})
+
+	for i := range 100 {
+		rawURL := fmt.Sprintf("https://apply.workable.com/api/v1/widget/accounts/company-%d", i)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, rawURL, nil)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext() error = %v", err)
+		}
+
+		first, err := selectProxy(req)
+		if err != nil {
+			t.Fatalf("proxy selection error = %v", err)
+		}
+		second, err := selectProxy(req)
+		if err != nil {
+			t.Fatalf("repeat proxy selection error = %v", err)
+		}
+
+		if first.String() != second.String() {
+			t.Errorf("board %q moved from %q to %q", rawURL, first, second)
+		}
+
+		used[first.String()] = struct{}{}
+	}
+
+	if len(used) != len(proxies) {
+		t.Errorf("100 boards used %d proxies, want all %d", len(used), len(proxies))
+	}
+}
+
+func TestExplicitProxyWithCustomTransportFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	proxyURL, err := ParseProxyURL("https://proxy.example:8443")
+	if err != nil {
+		t.Fatalf("ParseProxyURL() error = %v", err)
+	}
+
+	var directCalls atomic.Int64
+	direct := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		directCalls.Add(1)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       http.NoBody,
+			Header:     http.Header{},
+			Request:    req,
+		}, nil
+	})
+
+	client := NewClient(
+		WithTransport(direct),
+		WithProxyURL(proxyURL),
+		WithMaxAttempts(1),
+	)
+
+	if _, err := client.Get("https://example.test/"); err == nil {
+		t.Fatal("Get() error = nil, want proxy/custom-transport configuration error")
+	}
+
+	if got := directCalls.Load(); got != 0 {
+		t.Errorf("custom transport made %d direct calls, want 0 when proxy setup cannot be honored", got)
 	}
 }

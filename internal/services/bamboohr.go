@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFunc(BambooHR, BambooHRCompanies))
+	registerBuiltin("bamboohr", multiJobsFunc(BambooHR, BambooHRCompanies))
 }
 
 var BambooHRCompanies = []string{
@@ -17,6 +17,7 @@ var BambooHRCompanies = []string{
 	"americanrivers",
 	"atomicobject",
 	"azerion",
+	"beehiiv",
 	"britecore",
 	"catf",
 	"cbf",
@@ -24,14 +25,17 @@ var BambooHRCompanies = []string{
 	"charitywater",
 	"chimp",
 	"coimpact",
+	"cortina",
 	"crisisgroup",
 	"digitalgreen",
 	"dockyard",
 	"dreamcorps",
 	"endeavor",
+	"er2",
 	"evidenceaction",
 	"fauna",
 	"freepress",
+	"g2",
 	"givedirectly",
 	"ilrc",
 	"interaction",
@@ -47,10 +51,13 @@ var BambooHRCompanies = []string{
 	"nextgenamerica",
 	"opencosmos",
 	"protectdemocracy",
+	"r2",
 	"refugeesinternational",
 	"relayr",
 	"securonix",
+	"signal1",
 	"solidaritycenter",
+	"soundstripe",
 	"spiralscout",
 	"swat",
 	"t1cg",

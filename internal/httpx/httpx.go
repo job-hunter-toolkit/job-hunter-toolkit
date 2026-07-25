@@ -10,11 +10,14 @@ package httpx
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,7 +34,7 @@ const (
 	defaultMaxDelay    = 30 * time.Second
 	defaultTimeout     = 2 * time.Minute
 
-	// defaultPerHostLimit bounds concurrent requests to any single host.
+	// defaultPerHostLimit bounds concurrent requests to any single service key.
 	//
 	// A crawl fans out over companies, but companies are not spread evenly over
 	// hosts: every Workable board is served by apply.workable.com, so raising
@@ -39,11 +42,9 @@ const (
 	// sources failed with HTTP 429 purely from self-inflicted load, which looks
 	// identical to a dead board in a health report.
 	//
-	// Note this keys on the exact host, so it does NOT group platforms that give
-	// each tenant its own subdomain, PeopleForce (<tenant>.peopleforce.io) still
-	// rate-limits, because those are distinct hosts sharing one backend. Grouping
-	// by registrable domain would fix that, but would also serialise Workday,
-	// whose per-tenant subdomains are genuinely separate infrastructure.
+	// Most requests key on the exact host. servicePolicyFor groups only known
+	// shared backends such as BambooHR and PeopleForce, while deliberately
+	// leaving Workday tenant hosts independent.
 	defaultPerHostLimit = 4
 )
 
@@ -105,16 +106,45 @@ func WithTransport(base http.RoundTripper) Option {
 	}
 }
 
-// WithPerHostLimit bounds how many requests may be in flight to a single host.
-// A value below 1 disables the limit.
+// WithProxyURL routes requests through proxyURL.
+//
+// Credentials in the URL are supported by net/http but are never written to
+// logs. This option is fail-closed when combined with a non-*http.Transport:
+// requests return an error rather than unexpectedly bypassing the proxy.
+func WithProxyURL(proxyURL *url.URL) Option {
+	return WithProxyURLs(proxyURL)
+}
+
+// WithProxyURLs distributes job boards deterministically across proxyURLs.
+//
+// Selection is sticky per board: pagination and retries use the same proxy.
+// The pool does not fail over automatically, because replaying a request through
+// another route can duplicate writes and conceal a broken proxy.
+func WithProxyURLs(proxyURLs ...*url.URL) Option {
+	return func(t *retryTransport) {
+		t.proxyURLs = t.proxyURLs[:0]
+
+		for _, proxyURL := range proxyURLs {
+			if proxyURL != nil {
+				cloned := *proxyURL
+				t.proxyURLs = append(t.proxyURLs, &cloned)
+			}
+		}
+	}
+}
+
+// WithPerHostLimit bounds how many requests may be in flight to a single
+// service. Known shared backends are grouped even when tenants use different
+// subdomains; unknown services use their exact host. A value below 1 disables
+// the limit.
 func WithPerHostLimit(limit int) Option {
 	return func(t *retryTransport) {
 		t.perHostLimit = limit
 	}
 }
 
-// NewClient returns an HTTP client that retries transient failures and bounds
-// concurrency per host.
+// NewClient returns an HTTP client that retries transient failures and applies
+// service-aware concurrency, pacing, and cooldown limits.
 //
 // The client has no overall timeout of its own beyond a generous safety net;
 // crawls are expected to be bounded by the context passed to each request, so
@@ -143,11 +173,31 @@ func NewClient(opts ...Option) *http.Client {
 		opt(t)
 	}
 
+	if len(t.proxyURLs) > 0 {
+		baseTransport, ok := t.base.(*http.Transport)
+		if !ok {
+			t.base = failingTransport{err: fmt.Errorf("httpx: explicit proxy cannot be combined with transport type %T", t.base)}
+		} else {
+			baseTransport = baseTransport.Clone()
+			baseTransport.Proxy = proxyPool(t.proxyURLs)
+			t.base = baseTransport
+
+			t.logger.Info("using explicit HTTP proxy pool",
+				slog.Int("proxies", len(t.proxyURLs)),
+				slog.String("selection", "sticky-per-board"),
+			)
+		}
+	}
+
 	// The host limiter wraps the base transport rather than the retry loop, so
 	// each individual attempt is throttled, including retries, which are
 	// exactly what a rate-limited host does not want more of.
 	if t.perHostLimit > 0 {
-		t.base = &hostLimiter{base: t.base, limit: t.perHostLimit}
+		t.base = &hostLimiter{
+			base:     t.base,
+			limit:    t.perHostLimit,
+			maxDelay: t.maxDelay,
+		}
 	}
 
 	return &http.Client{
@@ -156,52 +206,168 @@ func NewClient(opts ...Option) *http.Client {
 	}
 }
 
-// hostLimiter bounds the number of requests in flight to any single host.
+// hostLimiter applies service-aware concurrency, pacing, and shared cooldowns.
+//
+// The name is retained for compatibility with the public WithPerHostLimit
+// option, but known multi-tenant backends may share one limiter key across
+// subdomains. Unknown services remain isolated by exact host.
 type hostLimiter struct {
-	base  http.RoundTripper
-	limit int
+	base     http.RoundTripper
+	limit    int
+	maxDelay time.Duration
 
-	mu   sync.Mutex
-	sems map[string]chan struct{}
+	mu     sync.Mutex
+	states map[string]*limitState
 }
 
-// sem returns the semaphore for a host, creating it on first use.
-func (h *hostLimiter) sem(host string) chan struct{} {
+type limitState struct {
+	sem      chan struct{}
+	interval time.Duration
+	cooldown time.Duration
+
+	mu   sync.Mutex
+	next time.Time
+}
+
+type servicePolicy struct {
+	key           string
+	maxConcurrent int
+	interval      time.Duration
+	cooldown      time.Duration
+}
+
+// servicePolicyFor captures only platform behavior verified in this project.
+// Unknown hosts get the generic exact-host policy instead of being guessed into
+// a shared bucket.
+func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
+	host := strings.ToLower(req.URL.Hostname())
+	policy := servicePolicy{
+		key:           strings.ToLower(req.URL.Host),
+		maxConcurrent: defaultLimit,
+		cooldown:      5 * time.Second,
+	}
+
+	switch {
+	case host == "apply.workable.com":
+		policy.maxConcurrent = min(defaultLimit, 2)
+		policy.interval = 100 * time.Millisecond
+		policy.cooldown = 30 * time.Second
+	case host == "ats.rippling.com",
+		host == "jobs.gem.com",
+		host == "api.smartrecruiters.com",
+		host == "api.lever.co",
+		host == "boards-api.greenhouse.io":
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
+	case strings.HasSuffix(host, ".peopleforce.io"):
+		policy.key = "peopleforce.io"
+		policy.maxConcurrent = min(defaultLimit, 2)
+		policy.interval = 100 * time.Millisecond
+		policy.cooldown = 15 * time.Second
+	case strings.HasSuffix(host, ".bamboohr.com"):
+		policy.key = "bamboohr.com"
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
+	case strings.HasSuffix(host, ".jibeapply.com"):
+		policy.key = "jibeapply.com"
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
+	}
+
+	return policy
+}
+
+// state returns the limiter state for a service, creating it on first use.
+func (h *hostLimiter) state(req *http.Request) *limitState {
+	policy := servicePolicyFor(req, h.limit)
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.sems == nil {
-		h.sems = make(map[string]chan struct{})
+	if h.states == nil {
+		h.states = make(map[string]*limitState)
 	}
 
-	if _, ok := h.sems[host]; !ok {
-		h.sems[host] = make(chan struct{}, h.limit)
+	if _, ok := h.states[policy.key]; !ok {
+		h.states[policy.key] = &limitState{
+			sem:      make(chan struct{}, policy.maxConcurrent),
+			interval: policy.interval,
+			cooldown: policy.cooldown,
+		}
 	}
 
-	return h.sems[host]
+	return h.states[policy.key]
+}
+
+// wait reserves the next request start time for a service.
+func (s *limitState) wait(ctx context.Context) error {
+	s.mu.Lock()
+
+	now := time.Now()
+	start := now
+	if s.next.After(start) {
+		start = s.next
+	}
+	if s.interval > 0 {
+		s.next = start.Add(s.interval)
+	}
+
+	s.mu.Unlock()
+
+	return sleep(ctx, time.Until(start))
+}
+
+// penalize delays new requests after a service returns 429. Retry-After is
+// bounded by maxDelay so one hostile or day-long value cannot stall the crawl.
+func (s *limitState) penalize(resp *http.Response, maxDelay time.Duration) {
+	delay := min(s.cooldown, maxDelay)
+	if retryDelay, ok := retryAfter(resp); ok {
+		delay = max(delay, min(retryDelay, maxDelay))
+	}
+
+	until := time.Now().Add(delay)
+
+	s.mu.Lock()
+	if until.After(s.next) {
+		s.next = until
+	}
+	s.mu.Unlock()
 }
 
 // RoundTrip implements [net/http.RoundTripper].
 func (h *hostLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
-	sem := h.sem(req.URL.Host)
+	state := h.state(req)
 
 	select {
-	case sem <- struct{}{}:
+	case state.sem <- struct{}{}:
 	case <-req.Context().Done():
 		return nil, req.Context().Err()
 	}
 
-	resp, err := h.base.RoundTrip(req)
-	if err != nil {
-		<-sem
+	if err := state.wait(req.Context()); err != nil {
+		<-state.sem
 
 		return nil, err
+	}
+
+	resp, err := h.base.RoundTrip(req)
+	if err != nil {
+		<-state.sem
+
+		return nil, err
+	}
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		state.penalize(resp, h.maxDelay)
 	}
 
 	// The slot is held until the body is closed, not merely until the headers
 	// arrive: a response whose body is still streaming is still occupying the
 	// server's attention.
-	resp.Body = &releaseOnClose{ReadCloser: resp.Body, release: func() { <-sem }}
+	resp.Body = &releaseOnClose{ReadCloser: resp.Body, release: func() { <-state.sem }}
 
 	return resp, nil
 }
@@ -233,6 +399,96 @@ type retryTransport struct {
 	logger       *slog.Logger
 	userAgent    string
 	perHostLimit int
+	proxyURLs    []*url.URL
+}
+
+type failingTransport struct {
+	err error
+}
+
+func (t failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, t.err
+}
+
+// ParseProxyURL validates a user-supplied proxy URL without making a request.
+func ParseProxyURL(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("proxy URL is empty")
+	}
+	if len(raw) > 2048 {
+		return nil, fmt.Errorf("proxy URL is too long")
+	}
+
+	proxyURL, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse proxy URL: %w", err)
+	}
+
+	switch strings.ToLower(proxyURL.Scheme) {
+	case "http", "https", "socks5":
+	default:
+		return nil, fmt.Errorf("unsupported proxy scheme %q; use http, https, or socks5", proxyURL.Scheme)
+	}
+
+	if proxyURL.Hostname() == "" {
+		return nil, fmt.Errorf("proxy URL has no host")
+	}
+	if proxyURL.RawQuery != "" || proxyURL.Fragment != "" {
+		return nil, fmt.Errorf("proxy URL must not contain a query or fragment")
+	}
+	if proxyURL.Path != "" && proxyURL.Path != "/" {
+		return nil, fmt.Errorf("proxy URL must not contain a path")
+	}
+
+	proxyURL.Path = ""
+
+	return proxyURL, nil
+}
+
+// proxyEndpoint deliberately omits userinfo so credentials never reach logs.
+func proxyEndpoint(proxyURL *url.URL) string {
+	if proxyURL == nil {
+		return ""
+	}
+
+	return proxyURL.Scheme + "://" + proxyURL.Host
+}
+
+// proxyPool returns a net/http proxy selector that shards boards, rather than
+// individual requests, across the configured pool.
+func proxyPool(proxyURLs []*url.URL) func(*http.Request) (*url.URL, error) {
+	return func(req *http.Request) (*url.URL, error) {
+		if len(proxyURLs) == 0 {
+			return nil, nil
+		}
+
+		hash := fnv.New64a()
+		_, _ = io.WriteString(hash, proxyShardKey(req))
+
+		return proxyURLs[hash.Sum64()%uint64(len(proxyURLs))], nil
+	}
+}
+
+// proxyShardKey is stable across a board's pagination requests.
+//
+// URL queries are intentionally excluded because they usually contain an
+// offset. Gem is the exception: all tenants use one GraphQL URL, so its small,
+// replayable request body is included to distinguish board IDs.
+func proxyShardKey(req *http.Request) string {
+	key := strings.ToLower(req.URL.Host) + req.URL.EscapedPath()
+
+	if strings.EqualFold(req.URL.Hostname(), "jobs.gem.com") && req.GetBody != nil {
+		body, err := req.GetBody()
+		if err == nil {
+			defer body.Close()
+
+			content, _ := io.ReadAll(io.LimitReader(body, 8<<10))
+			key += "\n" + string(content)
+		}
+	}
+
+	return key
 }
 
 // RoundTrip implements [net/http.RoundTripper].
@@ -283,7 +539,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if resp != nil {
 				// Retries are exhausted on a retryable status. Report it, then
 				// hand back the real response so the caller can see the status.
-				t.logExhausted(req, attempts, lastErr)
+				t.logExhausted(req, attempts, lastErr, resp)
 
 				return resp, nil
 			}
@@ -311,9 +567,11 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		t.logger.DebugContext(req.Context(), "retrying HTTP request",
 			slog.String("url", req.URL.Redacted()),
+			slog.String("service", servicePolicyFor(req, t.perHostLimit).key),
 			slog.Int("attempt", attempt),
 			slog.Int("max_attempts", t.maxAttempts),
 			slog.Duration("delay", delay),
+			slog.String("retry_after", retryAfterValue(resp)),
 			slog.String("cause", lastErr.Error()),
 		)
 
@@ -322,7 +580,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	t.logExhausted(req, attempts, lastErr)
+	t.logExhausted(req, attempts, lastErr, nil)
 
 	return nil, lastErr
 }
@@ -330,12 +588,22 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // logExhausted reports a request that ran out of attempts. The count is the
 // number of attempts actually made, which is not necessarily maxAttempts: a
 // non-replayable request stops after the first.
-func (t *retryTransport) logExhausted(req *http.Request, attempts int, cause error) {
+func (t *retryTransport) logExhausted(req *http.Request, attempts int, cause error, resp *http.Response) {
 	t.logger.WarnContext(req.Context(), "HTTP request failed after retries",
 		slog.String("url", req.URL.Redacted()),
+		slog.String("service", servicePolicyFor(req, t.perHostLimit).key),
 		slog.Int("attempts", attempts),
+		slog.String("retry_after", retryAfterValue(resp)),
 		slog.String("cause", cause.Error()),
 	)
+}
+
+func retryAfterValue(resp *http.Response) string {
+	if resp == nil {
+		return ""
+	}
+
+	return resp.Header.Get("Retry-After")
 }
 
 // rewind returns a request whose body can be read again, for replaying a

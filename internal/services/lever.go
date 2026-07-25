@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFunc(Lever, LeverCompanies))
+	registerBuiltin("lever", multiJobsFunc(Lever, LeverCompanies))
 }
 
 var LeverCompanies = []string{

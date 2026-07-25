@@ -11,11 +11,13 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFunc(Jobvite, JobviteCompanies))
+	registerBuiltin("jobvite", multiJobsFunc(Jobvite, JobviteCompanies))
 }
 
 var JobviteCompanies = []string{
 	"actionet",
+	"affcareers",
+	"anthology",
 	"aspirepublicschools",
 	"ayrwellness",
 	"bigbrandtire",
@@ -29,13 +31,17 @@ var JobviteCompanies = []string{
 	"martinmarietta",
 	"mercy-health",
 	"ninjaone",
+	"northwest-center",
 	"nutanix",
 	"paloaltonetworks",
 	"pilgrims",
+	"pointofrental",
+	"reveal",
 	"securityfinance",
 	"splunk-careers",
 	"torrancememorialjobs",
 	"tylertech",
+	"versa-networks",
 	"visiongroup",
 	"von",
 	"washingtonhospital",
@@ -171,7 +177,9 @@ func jobviteLocationNode(n *html.Node) *html.Node {
 // rather than failing; see docs/source-backlog.md.
 func Jobvite(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
-		for page := 1; ; page++ {
+		// Jobvite's search is zero-indexed. Starting at one silently skipped the
+		// first (and often only) page, making active tenants appear empty.
+		for page := 0; ; page++ {
 			if ctx.Err() != nil {
 				yield(nil, ctx.Err())
 

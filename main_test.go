@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -344,6 +345,17 @@ func TestGlobalFlagsLoggerLevel(t *testing.T) {
 
 	if !strings.Contains(buf.String(), "a warning") {
 		t.Errorf("fallback level did not log warnings: %q", buf.String())
+	}
+}
+
+func TestGlobalFlagsRejectInvalidProxy(t *testing.T) {
+	t.Parallel()
+
+	flags := globalFlags{proxies: []string{"file:///tmp/proxy.sock"}}
+	logger := slog.New(slog.DiscardHandler)
+
+	if _, err := flags.client(logger); err == nil {
+		t.Fatal("client() error = nil, want invalid proxy rejected before crawling")
 	}
 }
 

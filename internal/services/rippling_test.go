@@ -6,7 +6,7 @@ import (
 )
 
 func TestRippling(t *testing.T) {
-	testSingle(t, "chess", AshbyHQ)
+	testSingle(t, "chess", Rippling)
 }
 
 func TestRippling_all(t *testing.T) {

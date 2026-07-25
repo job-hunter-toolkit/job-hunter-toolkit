@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -41,6 +42,7 @@ type globalFlags struct {
 	timeout     time.Duration
 	concurrency int
 	logLevel    string
+	proxies     []string
 }
 
 // register attaches the crawl flags to a command.
@@ -49,6 +51,8 @@ func (g *globalFlags) register(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&g.concurrency, "concurrency", internal.DefaultConcurrency,
 		"number of job sources to fetch at once")
 	cmd.Flags().StringVar(&g.logLevel, "log-level", "warn", "log verbosity: debug, info, warn, or error")
+	cmd.Flags().StringArrayVar(&g.proxies, "proxy", nil,
+		"HTTP, HTTPS, or SOCKS5 proxy URL; repeat for sticky load balancing (standard proxy environment variables also work)")
 }
 
 // logger builds the structured logger for a run.
@@ -63,6 +67,29 @@ func (g *globalFlags) logger(w io.Writer) *slog.Logger {
 	}
 
 	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: level}))
+}
+
+// client builds the shared crawler client, validating an explicit proxy before
+// any source work starts. The default transport already honors the standard
+// HTTP_PROXY, HTTPS_PROXY, and NO_PROXY environment variables.
+func (g *globalFlags) client(logger *slog.Logger) (*http.Client, error) {
+	opts := []httpx.Option{httpx.WithLogger(logger)}
+
+	proxyURLs := make([]*url.URL, 0, len(g.proxies))
+	for _, rawProxy := range g.proxies {
+		proxyURL, err := httpx.ParseProxyURL(rawProxy)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --proxy: %w", err)
+		}
+
+		proxyURLs = append(proxyURLs, proxyURL)
+	}
+
+	if len(proxyURLs) > 0 {
+		opts = append(opts, httpx.WithProxyURLs(proxyURLs...))
+	}
+
+	return httpx.NewClient(opts...), nil
 }
 
 // crawlContext derives the crawl's context from the command's, applying the
@@ -129,7 +156,10 @@ func newPostingsCommand() *cobra.Command {
 			ctx, cancel := flags.crawlContext(cmd)
 			defer cancel()
 
-			client := httpx.NewClient(httpx.WithLogger(logger))
+			client, err := flags.client(logger)
+			if err != nil {
+				return err
+			}
 
 			// Narrow the crawl to the requested companies before fetching, so a
 			// targeted query does not pay for a full crawl.
@@ -365,10 +395,18 @@ func newTotalCommand() *cobra.Command {
 			ctx, cancel := flags.crawlContext(cmd)
 			defer cancel()
 
-			client := httpx.NewClient(httpx.WithLogger(logger))
+			client, err := flags.client(logger)
+			if err != nil {
+				return err
+			}
 
 			jobs := internal.Dedupe(
-				internal.AllWithConcurrency(ctx, client, flags.concurrency, services.JobsFuncs(services.Builtin)...),
+				internal.AllWithConcurrency(
+					ctx,
+					client,
+					flags.concurrency,
+					services.JobsFuncs(services.SourcesMatching(nil))...,
+				),
 			)
 
 			var (
@@ -484,7 +522,10 @@ func newHealthCommand() *cobra.Command {
 			ctx, cancel := flags.crawlContext(cmd)
 			defer cancel()
 
-			client := httpx.NewClient(httpx.WithLogger(logger))
+			client, err := flags.client(logger)
+			if err != nil {
+				return err
+			}
 
 			sources := services.SourcesMatching(companies)
 			if len(sources) == 0 {

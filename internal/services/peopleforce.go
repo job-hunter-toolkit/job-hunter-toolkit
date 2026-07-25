@@ -14,7 +14,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFunc(PeopleForce, PeopleForceCompanies))
+	registerBuiltin("peopleforce", multiJobsFunc(PeopleForce, PeopleForceCompanies))
 }
 
 var PeopleForceCompanies = []string{

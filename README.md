@@ -65,6 +65,7 @@ case-insensitive substring matching against the text the board publishes.
 | `--stats` | print a summary to stderr when the crawl finishes |
 | `--concurrency` | how many sources to fetch at once |
 | `--timeout` | overall time budget |
+| `--proxy` | optional HTTP, HTTPS, or SOCKS5 proxy; repeat to distribute boards across a pool |
 
 Because `--company` narrows which boards are fetched, targeted queries finish in
 about a second:
@@ -138,6 +139,40 @@ Output is designed to be piped; diagnostics go to stderr, data to stdout:
 ```console
 $ job-hunter-toolkit postings --remote --title appsec --json | jq -r '.url'
 ```
+
+### Network behavior and proxies
+
+The crawler interleaves ATS platforms and applies service-aware concurrency,
+pacing, retries, and shared cooldowns. A strict shared endpoint does not have to
+run at the same rate as tenant-isolated Workday hosts, and a 429 from one
+multi-tenant backend delays sibling requests rather than triggering a retry
+storm. Debug logs show the service key, retry delay, and the server's raw
+`Retry-After` value:
+
+```console
+$ job-hunter-toolkit health --log-level debug
+```
+
+Go's standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables
+work automatically. Explicit proxies can also be supplied; repeat the flag to
+form a pool:
+
+```console
+$ job-hunter-toolkit total \
+    --proxy https://proxy-a.example:8443 \
+    --proxy socks5://proxy-b.example:1080
+```
+
+Proxy selection is deterministic and sticky per job board, so all pagination
+and retries for one source stay on one route while different boards are spread
+across the pool. The crawler does not automatically fail over a request to a
+different proxy: that can duplicate a replayed request and conceal a broken
+route. Proxy credentials are never logged. Prefer environment variables or a
+secret-injection mechanism over putting credentials in command history.
+
+Proxies are optional routing infrastructure, not a substitute for respectful
+request rates. The crawler still honors the same per-service controls when a
+pool is configured, and TLS verification remains enabled.
 
 ### Listing companies
 
@@ -224,19 +259,19 @@ $ go test ./...
 ### How a crawl behaves
 
 Each company is an independently scheduled source, fetched concurrently up to
-`--concurrency`. On top of that, `internal/httpx` bounds requests *per host*,
-because companies are not spread evenly across hosts; every Workable board is
-served by a single API host, so raising concurrency alone just earns HTTP 429s
-that look exactly like dead boards in a health report.
-
-That bound keys on the exact hostname, so platforms giving each tenant its own
-subdomain (PeopleForce) are not yet grouped and can still rate-limit. Treat a 429
-in a health report as "crawled too hard", never as a dead board.
+`--concurrency`. Sources are interleaved across ATS platforms, then
+`internal/httpx` applies service-aware concurrency and pacing. Shared backends
+such as Workable and PeopleForce are grouped even when their tenant URLs differ;
+tenant-isolated Workday hosts remain independent. This keeps one strict service
+from monopolizing the worker pool or turning self-inflicted HTTP 429s into
+apparently dead boards.
 
 The client retries transient failures (5xx, 429) with jittered backoff, honours
-`Retry-After`, rewinds request bodies before replaying them, and cancels cleanly.
-A source that panics is reported as a failed source rather than taking down the
-crawl.
+`Retry-After` up to the crawl-safe delay cap, shares 429 cooldowns with sibling
+requests, rewinds request bodies before replaying them, and cancels cleanly. The
+original `Retry-After` value remains in debug logs so unusually long server
+blocks are diagnosable. A source that panics is reported as a failed source
+rather than taking down the crawl.
 
 `total` exits non-zero if the crawl did not finish in its time budget, so a
 partial count can never be recorded as a real data point in `jobs_record.txt`.

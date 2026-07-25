@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFuncNamed(Phenom, PhenomCompanies, phenomCompanyName))
+	registerBuiltin("phenom", multiJobsFuncNamed(Phenom, PhenomCompanies, phenomCompanyName))
 }
 
 // phenomPageSize is the number of postings requested per page.

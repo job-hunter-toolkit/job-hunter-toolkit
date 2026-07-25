@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFunc(Gem, GemCompanies))
+	registerBuiltin("gem", multiJobsFunc(Gem, GemCompanies))
 }
 
 var GemCompanies = []string{
@@ -28,6 +28,7 @@ var GemCompanies = []string{
 	"engineering--codified",
 	"fanpierlabs-com",
 	"felix",
+	"fetch",
 	"function-health",
 	"gc-ai",
 	"gem",
@@ -35,26 +36,34 @@ var GemCompanies = []string{
 	"genesisdigital-co",
 	"getro",
 	"inception",
+	"index-exchange",
 	"letter-ai",
 	"lumalabs-ai",
 	"mission",
+	"modular",
 	"myriad-technology",
 	"nominal",
+	"ocient-inc-",
 	"plixai",
 	"pogo-recruiting",
 	"portal-ai",
 	"prahsys-com",
+	"quo",
 	"retool",
 	"rivia",
 	"roamless",
+	"sequencing",
 	"silkline",
+	"soundhound",
 	"ssg",
 	"system-two-security",
 	"the-boring-company",
 	"theburntapp-com",
+	"thunder",
 	"tropic",
 	"up-labs",
 	"veho-technologies",
+	"wonolo",
 }
 
 type gemJobs struct {

@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFuncNamed(Workday, WorkdayCompanyURLs, workdayCompanyName))
+	registerBuiltin("workday", multiJobsFuncNamed(Workday, WorkdayCompanyURLs, workdayCompanyName))
 
 	for _, companyURL := range WorkdayCompanyURLs {
 		WorkdayCompanies = append(WorkdayCompanies, workdayCompanyName(companyURL))

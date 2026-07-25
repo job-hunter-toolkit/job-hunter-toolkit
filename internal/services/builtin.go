@@ -3,6 +3,7 @@ package services
 import (
 	"cmp"
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -12,6 +13,10 @@ import (
 
 // Source is a single crawlable job board: one company on one ATS.
 type Source struct {
+	// Platform identifies the ATS family. It is used to interleave crawl work so
+	// one shared service does not consume every worker at once.
+	Platform string
+
 	// Key identifies the company to its ATS and is what the adapter fetches
 	// with: a board slug for most platforms, a full tenant URL for Workday, a
 	// hostname for Phenom.
@@ -39,9 +44,13 @@ type Source struct {
 // company behind its platform.
 var Builtin []Source
 
-// registerBuiltin adds sources to [Builtin]. It is called from each service
-// file's init function.
-func registerBuiltin(sources []Source) {
+// registerBuiltin adds one platform's sources to [Builtin]. It is called from
+// each service file's init function.
+func registerBuiltin(platform string, sources []Source) {
+	for i := range sources {
+		sources[i].Platform = platform
+	}
+
 	Builtin = append(Builtin, sources...)
 }
 
@@ -78,9 +87,7 @@ func SourcesMatching(terms []string) []Source {
 	}
 
 	if len(lowered) == 0 {
-		// Clipped so a caller appending to the result reallocates instead of
-		// writing into the shared registry's backing array.
-		return slices.Clip(Builtin)
+		return interleaveSources(Builtin)
 	}
 
 	var matched []Source
@@ -100,7 +107,38 @@ func SourcesMatching(terms []string) []Source {
 		}
 	}
 
-	return matched
+	return interleaveSources(matched)
+}
+
+// interleaveSources returns a deterministic round-robin of ATS families.
+//
+// Registries are populated one platform at a time. Passing that grouped order
+// directly to a bounded worker pool makes its first wave hit only one service,
+// leaving other services idle while the first one rate-limits. Interleaving
+// keeps the overall crawl fast without raising pressure on any single backend.
+func interleaveSources(sources []Source) []Source {
+	if len(sources) < 2 {
+		return slices.Clip(sources)
+	}
+
+	groups := make(map[string][]Source)
+	for _, source := range sources {
+		groups[source.Platform] = append(groups[source.Platform], source)
+	}
+
+	platforms := slices.Sorted(maps.Keys(groups))
+	interleaved := make([]Source, 0, len(sources))
+
+	for index := 0; len(interleaved) < len(sources); index++ {
+		for _, platform := range platforms {
+			group := groups[platform]
+			if index < len(group) {
+				interleaved = append(interleaved, group[index])
+			}
+		}
+	}
+
+	return interleaved
 }
 
 // Companies returns the identifier of every company this binary can crawl,

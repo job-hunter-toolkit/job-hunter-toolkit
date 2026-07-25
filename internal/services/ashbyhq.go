@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFunc(AshbyHQ, AshbyHQCompanies))
+	registerBuiltin("ashby", multiJobsFunc(AshbyHQ, AshbyHQCompanies))
 }
 
 var AshbyHQCompanies = []string{

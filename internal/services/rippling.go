@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	registerBuiltin(multiJobsFunc(Rippling, RipplingCompanies))
+	registerBuiltin("rippling", multiJobsFunc(Rippling, RipplingCompanies))
 }
 
 var RipplingCompanies = []string{
@@ -31,6 +31,7 @@ var RipplingCompanies = []string{
 	"bonsairoboticsmain",
 	"brevian-careers",
 	"campspot",
+	"careers-ucfs",
 	"cbts",
 	"centil-jobs",
 	"chess",
@@ -46,7 +47,9 @@ var RipplingCompanies = []string{
 	"createmusicgroup",
 	"crenndininggroup",
 	"cruciallogics",
+	"curiosity-current-openings",
 	"daloopa",
+	"dialogue-en",
 	"dpirecruiting",
 	"droneshield",
 	"earthbanc_careers",
@@ -60,9 +63,11 @@ var RipplingCompanies = []string{
 	"foundation-robotics",
 	"fountane",
 	"framework",
+	"futuri-careers",
 	"galileo",
 	"get-engaged",
 	"gga",
+	"go-forth",
 	"hammerspace",
 	"harborcompliance",
 	"hercules-careers",
@@ -79,6 +84,7 @@ var RipplingCompanies = []string{
 	"legitscript-careers",
 	"lighthouseai-careers",
 	"liquiddeath",
+	"livewire",
 	"luupli",
 	"mapped",
 	"meundies-recruiting",
