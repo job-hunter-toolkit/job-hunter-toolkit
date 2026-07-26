@@ -26,9 +26,12 @@
 # rows stretched the y-axis to 400k and then drew an empty chart. Now that the
 # nightly runs with --allow-partial, partial rows will be common and a complete
 # crawl between two deadline days is exactly the value a reader most wants to
-# see. The overlay is the same colour at pointsize 0.35, so under the line it is
-# invisible (compared pixel-wise against the pre-overlay render) and it only
-# becomes the mark where the line cannot be drawn.
+# see. The overlay is the same colour at pointsize 0.35, so it reads as part of
+# the line rather than as separate marks. Measured against a render of this same
+# script with the two overlay series removed: 966 of 1,872,000 pixels change by
+# more than half a channel (0.05%), all of them on the existing line, and the
+# isolated point that was previously undrawn gains 57. Do not enlarge it -- at
+# 0.45 the line-thickening cost nearly doubles for 3 more pixels of signal.
 #
 # MOST ANNOTATIONS ARE POSITIONED IN GRAPH COORDINATES, not data values, so they
 # stay put when the y-scale grows. The per-ATS rewrite multiplies postings
@@ -49,8 +52,8 @@ outage2_start = "01/27/22"      # counts stop again
 outage2_end   = "11/07/22"      # resumes the day after 4dd3685 "Remove broken stuff"
 peak_date     = "01/25/22"      # 131,895 postings, the all-time high
 peak_value    = 131895          # labelled in data coords so it tracks the peak
-prune_value   = 22332           # 11/07/22, where the prune arrowhead must land
 prune_date    = "11/07/22"      # sources pruned: level shift, not a market move
+prune_value   = 22332           # postings that day; where the arrowhead must land
 rewrite_date  = "07/26/26"      # per-ATS rewrite: coverage widens sharply
 
 # Rows added before crawl-quality tracking have no fourth column and are treated

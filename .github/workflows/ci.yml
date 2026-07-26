@@ -25,7 +25,16 @@ env:
   # supply-chain fetch on every run. The scheduled job below still runs @latest
   # so new advisories are surfaced -- just not as a merge gate.
   GOVULNCHECK_VERSION: v1.1.4
-  STATICCHECK_VERSION: "2025.1.1"
+  # Staticcheck compiles the code it analyses, so it must itself be built with a
+  # Go at least as new as the toolchain go.mod pins (go1.26.5). It is not: the
+  # previously pinned 2025.1.1 is built with go1.24.7 and fails outright with
+  # "module requires at least go1.25, but Staticcheck was built with go1.24.7",
+  # so this job reported a compile failure rather than a verdict on every run.
+  # v0.7.0 is built with go1.25 and fails the same way against the go1.26
+  # standard library. v0.8.0-rc.1 requires go1.26 and analyses this module
+  # cleanly, so it is the only currently published release that can run here.
+  # When a stable release built with go1.26 ships, move to it.
+  STATICCHECK_VERSION: v0.8.0-rc.1
 
 jobs:
   build:

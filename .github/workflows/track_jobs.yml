@@ -137,7 +137,9 @@ jobs:
         # stdout -- a cobra deprecation notice, a panic trace -- would both
         # defeat the numeric guard below and push a multi-line value into
         # GITHUB_OUTPUT, which GitHub rejects as malformed.
-        ROWS=$(wc -l < total.txt)
+        # awk END{NR} rather than `wc -l`, which reports 0 for a single line with
+        # no trailing newline and would reject a perfectly good row.
+        ROWS=$(awk 'END{print NR}' total.txt)
         if [ "$ROWS" -ne 1 ]; then
           echo "::error::expected exactly one row on total's stdout, got $ROWS lines"
           exit 1

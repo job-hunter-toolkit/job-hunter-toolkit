@@ -87,6 +87,20 @@ type smartRecruitersJobs struct {
 	} `json:"content"`
 }
 
+// smartRecruitersMaxPages bounds how many pages a single SmartRecruiters tenant
+// may be asked for.
+//
+// This loop's only stop conditions were an empty page and the tenant's own
+// "totalFound". Both are supplied by the server, so a tenant reporting a
+// totalFound of ten million while serving ten postings a page would issue a
+// million requests against api.smartrecruiters.com, a shared host, and yield
+// nothing but duplicates. The other paginating adapters in this package were
+// given explicit ceilings after exactly that failure was reproduced against
+// them; this one was missed because no ceiling looks necessary while the server
+// is behaving. At 100 postings a page this allows 50,000 per tenant, well beyond
+// the largest SmartRecruiters employer observed here.
+const smartRecruitersMaxPages = 500
+
 // smartRecruitersPage fetches one page of SmartRecruiters postings.
 func smartRecruitersPage(ctx context.Context, httpClient *http.Client, company string, offset int) (*smartRecruitersJobs, error) {
 	query := url.Values{"offset": {strconv.Itoa(offset)}}
@@ -104,7 +118,11 @@ func smartRecruitersPage(ctx context.Context, httpClient *http.Client, company s
 // hiring" from "no such tenant", which matters when verifying a new entry.
 func SmartRecruiters(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
-		for offset := 0; ; {
+		var pages pageRepeatGuard
+
+		offset := 0
+
+		for range smartRecruitersMaxPages {
 			if ctx.Err() != nil {
 				yield(nil, ctx.Err())
 
@@ -122,6 +140,19 @@ func SmartRecruiters(ctx context.Context, httpClient *http.Client, company strin
 			// because a zero-length page would otherwise leave the offset
 			// unchanged and loop forever.
 			if len(doc.Content) == 0 {
+				return
+			}
+
+			// A tenant that ignores "offset" answers every request with the same
+			// first page. Without this the loop would run to smartRecruitersMaxPages
+			// emitting duplicates, which Dedupe would then hide, so the only visible
+			// symptom would be a slow crawl.
+			ids := make([]string, 0, len(doc.Content))
+			for _, item := range doc.Content {
+				ids = append(ids, item.ID)
+			}
+
+			if pages.repeated(ids) {
 				return
 			}
 
@@ -154,5 +185,8 @@ func SmartRecruiters(ctx context.Context, httpClient *http.Client, company strin
 				return
 			}
 		}
+
+		yield(nil, fmt.Errorf("SmartRecruiters postings for %q exceeded %d pages; refusing to keep paginating",
+			company, smartRecruitersMaxPages))
 	}
 }

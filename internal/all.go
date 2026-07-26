@@ -39,13 +39,19 @@ type JobsFunc func(context.Context, *http.Client) Jobs
 // for weeks.
 //
 // 64 is sized against file descriptors, which is the resource that actually
-// binds here. Each source issues one request at a time, so the pool holds at
-// most 64 sockets in flight, on top of httpx's 200-connection idle cache
-// (MaxIdleConns): roughly 264 descriptors against the default 1024 soft limit
-// on a GitHub runner. That leaves real headroom, and going much further would
-// make the crawl's success depend on ulimit rather than on anything measured.
-// If per-source parallel pagination lands, this ceiling becomes 64 times the
-// per-source fan-out and must be re-checked.
+// binds here. Sources that issue one request at a time hold one socket each,
+// but that is no longer true of all of them: the Workday adapter fetches a
+// tenant's remaining pages with a fan-out of workdayPageFetchers (4), and
+// Workday tenant hosts are deliberately given their own limiter key, so those
+// requests do not share a per-service cap with one another. A pool full of
+// Workday sources therefore holds up to 64*4 = 256 sockets in flight, not 64.
+// With httpx's 200-connection idle cache (MaxIdleConns) that is roughly 456
+// descriptors against the default 1024 soft limit on a GitHub runner: still
+// real headroom, but four times what a one-request-per-source model predicts.
+//
+// Any future adapter that fans out within a source multiplies this the same
+// way. Raise the fan-out or the pool, but not both without redoing this sum;
+// the crawl's success should not come to depend on ulimit.
 var DefaultConcurrency = 64
 
 // All finds all of the JobPostings using each of the provided job sources,
