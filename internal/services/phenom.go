@@ -19,6 +19,19 @@ func init() {
 // phenomPageSize is the number of postings requested per page.
 const phenomPageSize = 100
 
+// phenomMaxPages bounds how many pages a single Phenom tenant may be asked for.
+//
+// Phenom is the likeliest platform here to need it: the adapter re-requests the
+// *same* server-rendered search-results page with a different "from", so a
+// tenant whose SSR ignores "from" serves identical jobs forever. Replayed
+// against a stub that behaves that way, this loop issued 5,001 requests and
+// yielded 500,001 duplicate postings in 0.9s and stopped only because the
+// consumer gave up. [pageRepeatGuard] catches the identical-page case; this is
+// the backstop for a tenant that varies its pages without ever running out. At
+// 100 postings per page it allows 50,000 postings from one company, far above
+// any tenant in [PhenomCompanies].
+const phenomMaxPages = 500
+
 // PhenomCompanies holds the hostnames of Phenom People career sites this
 // project crawls.
 //
@@ -140,17 +153,41 @@ func phenomCompanyName(host string) string {
 // not a short slug, see [PhenomCompanies].
 func Phenom(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
-		companyName := phenomCompanyName(company)
+		var (
+			companyName = phenomCompanyName(company)
+			pages       pageRepeatGuard
+		)
 
-		for from := 0; ; from += phenomPageSize {
+		for n := range phenomMaxPages {
 			if ctx.Err() != nil {
 				yield(nil, ctx.Err())
 				return
 			}
 
+			from := n * phenomPageSize
+
 			page, err := phenomPage(ctx, httpClient, company, from)
 			if err != nil {
 				yield(nil, err)
+				return
+			}
+
+			if len(page.Data.Jobs) == 0 {
+				return
+			}
+
+			ids := make([]string, 0, len(page.Data.Jobs))
+			for _, job := range page.Data.Jobs {
+				// Both, because tenants that render applications on the Phenom
+				// site itself omit applyUrl entirely for every posting, which
+				// would make each page fingerprint as the same empty list.
+				ids = append(ids, job.ApplyURL, job.JobID)
+			}
+
+			// Checked before anything is yielded, so a tenant whose search page
+			// ignores "from" costs one wasted request rather than an endless
+			// stream of duplicates.
+			if pages.repeated(ids) {
 				return
 			}
 
@@ -197,5 +234,7 @@ func Phenom(ctx context.Context, httpClient *http.Client, company string) intern
 				return
 			}
 		}
+
+		yield(nil, fmt.Errorf("refusing to keep paginating Phenom for company %q: the search was still serving full pages after %d pages of %d", company, phenomMaxPages, phenomPageSize))
 	}
 }

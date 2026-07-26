@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
-	"runtime"
 	"sync"
 )
 
@@ -21,10 +20,33 @@ type JobsFunc func(context.Context, *http.Client) Jobs
 
 // DefaultConcurrency is the number of job sources [All] fetches at once.
 //
-// The work is entirely network-bound, so this is set well above the CPU count;
-// it is capped to stay polite to the job boards being crawled and to avoid
-// exhausting file descriptors.
-var DefaultConcurrency = min(32, max(8, runtime.NumCPU()*4))
+// This is a scheduling width, not a politeness setting, and the distinction is
+// the whole reason the number can be this large. Politeness is enforced
+// per-service by httpx's limiter, which caps concurrent requests to a single
+// backend at httpx.DefaultPerHostLimit, which is 4 (2 for Workable and
+// PeopleForce), and
+// paces them. Adding workers cannot exceed that cap on any backend; it only
+// stops the pool from idling while workers are parked on a service semaphore
+// waiting for their turn. Nine hundred Greenhouse sources still go through four
+// slots on boards-api.greenhouse.io whether the pool is 16 wide or 64.
+//
+// This used to be min(32, max(8, runtime.NumCPU()*4)). The comment claimed it
+// was "well above the CPU count", but the value was still derived from it, and
+// on a 4-vCPU GitHub runner that formula evaluates to 16, half the intended
+// ceiling, for work that is 100% network-bound and burns essentially no CPU.
+// At ~1,772 companies and a 60-minute budget, 16 workers give each source a
+// mean of 29 seconds, and the nightly crawl has missed its deadline every day
+// for weeks.
+//
+// 64 is sized against file descriptors, which is the resource that actually
+// binds here. Each source issues one request at a time, so the pool holds at
+// most 64 sockets in flight, on top of httpx's 200-connection idle cache
+// (MaxIdleConns): roughly 264 descriptors against the default 1024 soft limit
+// on a GitHub runner. That leaves real headroom, and going much further would
+// make the crawl's success depend on ulimit rather than on anything measured.
+// If per-source parallel pagination lands, this ceiling becomes 64 times the
+// per-source fan-out and must be re-checked.
+var DefaultConcurrency = 64
 
 // All finds all of the JobPostings using each of the provided job sources,
 // fetching up to [DefaultConcurrency] sources concurrently.

@@ -39,11 +39,12 @@ func main() {
 
 // globalFlags are shared by the commands that perform a crawl.
 type globalFlags struct {
-	timeout     time.Duration
-	concurrency int
-	logLevel    string
-	logFormat   string
-	proxies     []string
+	timeout      time.Duration
+	concurrency  int
+	perHostLimit int
+	logLevel     string
+	logFormat    string
+	proxies      []string
 }
 
 // register attaches the crawl flags to a command.
@@ -51,6 +52,13 @@ func (g *globalFlags) register(cmd *cobra.Command) {
 	cmd.Flags().DurationVar(&g.timeout, "timeout", time.Hour, "overall time budget for the crawl")
 	cmd.Flags().IntVar(&g.concurrency, "concurrency", internal.DefaultConcurrency,
 		"number of job sources to fetch at once")
+	// --concurrency is throughput; this is politeness. They are separate because
+	// they trade against different things: workers cost file descriptors and
+	// memory here, while this costs the job board's patience. Tuning the crawl
+	// used to mean recompiling, which made "is Ashby's limit right?" an
+	// unanswerable question in CI.
+	cmd.Flags().IntVar(&g.perHostLimit, "per-host-limit", httpx.DefaultPerHostLimit,
+		"maximum requests in flight to any single job-board service; known shared backends (Workable, PeopleForce) have lower measured ceilings this cannot raise")
 	cmd.Flags().StringVar(&g.logLevel, "log-level", "warn", "log verbosity: debug, info, warn, or error")
 	cmd.Flags().StringVar(&g.logFormat, "log-format", "text", "log encoding: text or json")
 	cmd.Flags().StringArrayVar(&g.proxies, "proxy", nil,
@@ -80,7 +88,23 @@ func (g *globalFlags) logger(w io.Writer) *slog.Logger {
 // any source work starts. The default transport already honors the standard
 // HTTP_PROXY, HTTPS_PROXY, and NO_PROXY environment variables.
 func (g *globalFlags) client(logger *slog.Logger) (*http.Client, error) {
-	opts := []httpx.Option{httpx.WithLogger(logger)}
+	// httpx treats a limit below 1 as "no limit at all". That is a reasonable
+	// library default and a terrible thing to let a command line ask for: an
+	// unlimited crawl of ~1,772 companies is indistinguishable from an attack on
+	// whichever backend hosts the most of them. Zero means "flag not set", which
+	// is how a zero-valued globalFlags reaches here in tests.
+	perHostLimit := g.perHostLimit
+	switch {
+	case perHostLimit == 0:
+		perHostLimit = httpx.DefaultPerHostLimit
+	case perHostLimit < 0:
+		return nil, fmt.Errorf("invalid --per-host-limit %d: must be at least 1, because the per-service limit is what keeps a crawl of this size polite", g.perHostLimit)
+	}
+
+	opts := []httpx.Option{
+		httpx.WithLogger(logger),
+		httpx.WithPerHostLimit(perHostLimit),
+	}
 
 	proxyURLs := make([]*url.URL, 0, len(g.proxies))
 	for _, rawProxy := range g.proxies {

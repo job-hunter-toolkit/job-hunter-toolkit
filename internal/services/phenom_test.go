@@ -6,6 +6,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 // phenomFixturePage wraps job entries in the HTML shell a Phenom search-results
@@ -99,6 +102,84 @@ func TestPhenomPaginatesUntilAShortPage(t *testing.T) {
 	if len(transport.requests) != 2 {
 		t.Errorf("made %d requests, want 2 (a full page keeps paging)", len(transport.requests))
 	}
+}
+
+// TestPhenomStopsWhenTheSiteIgnoresFrom is a regression test.
+//
+// This adapter re-requests the *same* server-rendered search-results page with a
+// different "from", which makes it the likeliest platform here to meet a tenant
+// whose SSR ignores the offset and serves identical jobs forever. Termination
+// used to be decided solely by page size, so such a tenant was crawled until the
+// crawl deadline: measured at 5,001 requests and 500,001 duplicate postings
+// against a stub like this one in 0.9 seconds.
+func TestPhenomStopsWhenTheSiteIgnoresFrom(t *testing.T) {
+	t.Parallel()
+
+	fullPage := make([]string, phenomPageSize)
+	for i := range fullPage {
+		fullPage[i] = fmt.Sprintf(`{"title":"Job %d","jobId":"%d","applyUrl":"https://acme.example.com/apply/%d"}`, i, i, i)
+	}
+
+	client, transport := repeatingPageClient(phenomFixturePage(strings.Join(fullPage, ",")))
+
+	postings, errs := drain(Phenom(t.Context(), client, "acme.example.com"))
+
+	must.SliceEmpty(t, errs)
+
+	// The first page is served; the second is recognised as a repeat of it and
+	// ends the loop before any of its duplicates are yielded.
+	test.Eq(t, 2, transport.requests)
+	test.Len(t, phenomPageSize, postings)
+}
+
+// TestPhenomStopsWhenTheSiteIgnoresFromWithoutApplyURLs covers the same tenant
+// behaviour on a board that handles applications on the Phenom site itself.
+// Those postings carry no applyUrl at all, so a page fingerprint taken from
+// apply URLs alone would be an empty list on every page and could not tell two
+// pages apart.
+func TestPhenomStopsWhenTheSiteIgnoresFromWithoutApplyURLs(t *testing.T) {
+	t.Parallel()
+
+	fullPage := make([]string, phenomPageSize)
+	for i := range fullPage {
+		fullPage[i] = fmt.Sprintf(`{"title":"Job %d","jobId":"%d","applyUrl":""}`, i, i)
+	}
+
+	client, transport := repeatingPageClient(phenomFixturePage(strings.Join(fullPage, ",")))
+
+	postings, errs := drain(Phenom(t.Context(), client, "acme.example.com"))
+
+	must.SliceEmpty(t, errs)
+	test.Eq(t, 2, transport.requests)
+	test.Len(t, phenomPageSize, postings)
+}
+
+// TestPhenomStopsWhenTheConsumerDoes guards the iterator contract the health
+// command depends on: it caps each source at 100 postings by returning false
+// from yield, and an adapter that keeps fetching afterwards both burns the
+// budget the cap exists to save and risks calling yield again, which panics.
+func TestPhenomStopsWhenTheConsumerDoes(t *testing.T) {
+	t.Parallel()
+
+	fullPage := make([]string, phenomPageSize)
+	for i := range fullPage {
+		fullPage[i] = fmt.Sprintf(`{"title":"Job %d","jobId":"%d","applyUrl":"https://acme.example.com/apply/%d"}`, i, i, i)
+	}
+
+	client, transport := repeatingPageClient(phenomFixturePage(strings.Join(fullPage, ",")))
+
+	var seen int
+
+	for range Phenom(t.Context(), client, "acme.example.com") {
+		seen++
+
+		if seen == 5 {
+			break
+		}
+	}
+
+	test.Eq(t, 5, seen)
+	test.Eq(t, 1, transport.requests)
 }
 
 func TestPhenomReportsHTTPError(t *testing.T) {

@@ -14,6 +14,19 @@ func init() {
 	registerBuiltin("jobvite", multiJobsFunc(Jobvite, JobviteCompanies))
 }
 
+// jobviteMaxPages bounds how many pages a single Jobvite tenant may be asked
+// for.
+//
+// Jobvite publishes no total, and the search template answers an out-of-range
+// page with whatever it feels like, so before this the loop ended only when a
+// page happened to contain no job links. A tenant that ignores "p" paginates
+// until the crawl deadline: the same shape, measured on the sibling adapters,
+// produced 5,001 requests and 500,001 duplicate postings against a stub in under
+// a second. [pageRepeatGuard] handles the repeated-page case; this is the
+// backstop. Jobvite serves a few dozen postings per page, so 500 pages is far
+// more than any tenant in [JobviteCompanies] publishes.
+const jobviteMaxPages = 500
+
 var JobviteCompanies = []string{
 	"actionet",
 	"affcareers",
@@ -177,9 +190,11 @@ func jobviteLocationNode(n *html.Node) *html.Node {
 // rather than failing; see docs/source-backlog.md.
 func Jobvite(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
+		var pages pageRepeatGuard
+
 		// Jobvite's search is zero-indexed. Starting at one silently skipped the
 		// first (and often only) page, making active tenants appear empty.
-		for page := 0; ; page++ {
+		for page := range jobviteMaxPages {
 			if ctx.Err() != nil {
 				yield(nil, ctx.Err())
 
@@ -198,53 +213,52 @@ func Jobvite(ctx context.Context, httpClient *http.Client, company string) inter
 				return
 			}
 
+			// The page's postings are collected before any of them is yielded so
+			// a page that merely repeats one already served can be recognised
+			// and dropped whole. Collecting also removes the reason the walk
+			// used to carry a "stopped" flag through every level of the
+			// recursion: yield is no longer called from inside it, so there is
+			// nothing to stop calling.
 			var (
-				found   int
-				stopped bool
+				postings []*internal.JobPosting
+				walk     func(*html.Node)
 			)
 
-			// walk visits the tree, stopping the moment the consumer stops
-			// wanting postings. The stop must propagate out of every level of the
-			// recursion: returning only from the current level would keep calling
-			// yield after it returned false, which panics.
-			var walk func(*html.Node)
-
 			walk = func(n *html.Node) {
-				if stopped {
-					return
-				}
-
 				if posting, ok := jobviteJobLink(n, company); ok {
-					found++
-
-					if !yield(posting, nil) {
-						stopped = true
-
-						return
-					}
+					postings = append(postings, posting)
 				}
 
 				for c := n.FirstChild; c != nil; c = c.NextSibling {
-					if stopped {
-						return
-					}
-
 					walk(c)
 				}
 			}
 
 			walk(doc)
 
-			if stopped {
-				return
-			}
-
 			// Counted per page, not cumulatively: a cumulative count never
 			// reaches zero once any page has matched, so an empty later page
 			// would page forever.
-			if found == 0 {
+			if len(postings) == 0 {
 				return
 			}
+
+			ids := make([]string, 0, len(postings))
+			for _, posting := range postings {
+				ids = append(ids, posting.URL)
+			}
+
+			if pages.repeated(ids) {
+				return
+			}
+
+			for _, posting := range postings {
+				if !yield(posting, nil) {
+					return
+				}
+			}
 		}
+
+		yield(nil, fmt.Errorf("refusing to keep paginating Jobvite for company %q: the search was still serving job links after %d pages", company, jobviteMaxPages))
 	}
 }

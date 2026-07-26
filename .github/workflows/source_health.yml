@@ -20,79 +20,165 @@ jobs:
   health:
     name: Check every job source
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The full crawl now runs for hours over ~1,890 sources. Health caps each
+    # source at a 100-posting sample, but 45m under a 60m job was tight enough
+    # that the deadline, not the boards, decided the result.
+    timeout-minutes: 90
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
-        check-latest: true
 
     - name: Build
       run: go build -o job-hunter-toolkit .
 
     - name: Check source health
       id: health
+      env:
+        # A run that reaches its deadline is not a census, so its failure rate
+        # says nothing about adapters. Alarm on the two conditions separately.
+        MAX_ADAPTER_FAILURE_PCT: "35"
+        MAX_DEADLINE_PCT: "20"
       run: |
-        set -uo pipefail
+        # -e was deliberately absent here and that made the workflow lie. If the
+        # health binary crashed, health.json was left empty, every python3 call
+        # below raised, TOTAL and FAILED came back empty, and `[ "$TOTAL" -gt 0 ]`
+        # exited 2 with "integer expression expected" -- which, inside an `if`
+        # condition and without -e, evaluates false. The step exited 0 and the
+        # run went green having checked nothing at all.
+        set -euo pipefail
 
-        ./job-hunter-toolkit health --json --timeout=45m > health.json 2> health-summary.txt
-
-        cat health-summary.txt
-
-        python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-        import json
-
-        with open("health.json") as f:
-            results = json.load(f)
-
-        counts = {}
-        for r in results:
-            counts[r["status"]] = counts.get(r["status"], 0) + 1
-
-        total = len(results)
-        failed = counts.get("failed", 0)
-
-        print("## Source health\n")
-        print(f"| status | count |\n| --- | --- |")
-        for status in ("ok", "empty", "failed"):
-            print(f"| {status} | {counts.get(status, 0)} |")
-        print(f"\n{total} sources checked.\n")
-
-        if failed:
-            print("### Failed sources\n")
-            print("| company | error |\n| --- | --- |")
-            for r in sorted(results, key=lambda r: r["company"]):
-                if r["status"] == "failed":
-                    error = r.get("error", "").replace("|", "\\|")[:180]
-                    print(f"| `{r['company']}` | {error} |")
-
-        # Surface the failure rate as the job's headline signal.
-        rate = (failed / total * 100) if total else 0
-        print(f"\nFailure rate: {rate:.1f}%")
-        PY
-
-        # Fail the run only on a broad breakage, which usually means an adapter
-        # broke rather than individual companies retiring their boards.
-        TOTAL=$(python3 -c 'import json;print(len(json.load(open("health.json"))))')
-        FAILED=$(python3 -c 'import json;print(sum(1 for r in json.load(open("health.json")) if r["status"]=="failed"))')
-
-        echo "failed=$FAILED of $TOTAL"
-
-        if [ "$TOTAL" -gt 0 ] && [ $((FAILED * 100 / TOTAL)) -gt 35 ]; then
-          echo "::error::${FAILED}/${TOTAL} sources failed, which suggests an adapter is broken rather than boards being retired"
+        if ! ./job-hunter-toolkit health --json --timeout=70m > health.json 2> health-summary.txt; then
+          echo "::error::health check exited non-zero; no source census was produced"
+          tail -n 40 health-summary.txt || true
           exit 1
         fi
 
+        cat health-summary.txt
+
+        # Assert the artifact before trusting anything derived from it. `health`
+        # encodes the whole array at the end of the run, so a crash leaves this
+        # file empty rather than partially valid.
+        if [ ! -s health.json ]; then
+          echo "::error::health.json is empty; the census did not complete"
+          exit 1
+        fi
+
+        python3 - <<'PY'
+        import json
+        import os
+        import sys
+
+        # A deadline turns every not-yet-reached and in-flight source into
+        # `failed` with a context error, so the old ">35% failed" alarm blamed
+        # adapters for the clock. Split the two before judging either. These
+        # markers are the error strings Go produces for a cancelled context and
+        # for the HTTP client's own timeout.
+        DEADLINE_MARKERS = (
+            "context deadline exceeded",
+            "context canceled",
+            "client.timeout",
+            "timeout awaiting response headers",
+        )
+
+        def is_deadline(result):
+            error = str(result.get("error", "")).lower()
+
+            return any(marker in error for marker in DEADLINE_MARKERS)
+
+        try:
+            with open("health.json", encoding="utf-8") as stream:
+                results = json.load(stream)
+            if not isinstance(results, list):
+                raise TypeError(f"health.json is {type(results).__name__}, want array")
+        except Exception as err:
+            print(f"::error::could not read health.json: {err}")
+            sys.exit(1)
+
+        total = len(results)
+        if total == 0:
+            print("::error::health.json contains no sources; the census did not complete")
+            sys.exit(1)
+
+        counts = {}
+        for result in results:
+            counts[result.get("status", "unknown")] = counts.get(result.get("status", "unknown"), 0) + 1
+
+        failed = [r for r in results if r.get("status") == "failed"]
+        deadline = [r for r in failed if is_deadline(r)]
+        adapter = [r for r in failed if not is_deadline(r)]
+        # Judge adapters only over the sources the run actually reached.
+        reached = total - len(deadline)
+
+        lines = ["## Source health\n\n", "| status | count |\n| --- | --- |\n"]
+        for status in ("ok", "empty", "failed"):
+            lines.append(f"| {status} | {counts.get(status, 0)} |\n")
+        lines.append(f"\n{total} sources checked.\n\n")
+        lines.append(
+            f"Of {len(failed)} failures, {len(adapter)} look like broken sources and "
+            f"{len(deadline)} are the run's own deadline.\n"
+        )
+
+        if adapter:
+            lines.append("\n### Failed sources\n\n| company | error |\n| --- | --- |\n")
+            for result in sorted(adapter, key=lambda r: str(r.get("company", ""))):
+                error = str(result.get("error", "")).replace("|", "\\|")[:180]
+                lines.append(f"| `{result.get('company', '?')}` | {error} |\n")
+
+        if deadline:
+            lines.append(
+                f"\n### Not reached before the deadline\n\n{len(deadline)} sources were "
+                "still queued or in flight when the time budget expired. They are not "
+                "evidence of anything; raise --timeout to get a verdict on them.\n"
+            )
+
+        adapter_pct = (len(adapter) / reached * 100) if reached else 0.0
+        deadline_pct = len(deadline) / total * 100
+        lines.append(
+            f"\nAdapter failure rate: {adapter_pct:.1f}% of {reached} reached. "
+            f"Unreached: {deadline_pct:.1f}%.\n"
+        )
+
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+            summary.writelines(lines)
+
+        print(f"reached={reached} adapter_failures={len(adapter)} deadline_failures={len(deadline)} total={total}")
+
+        status = 0
+        if deadline_pct > float(os.environ["MAX_DEADLINE_PCT"]):
+            print(
+                f"::error::{len(deadline)}/{total} sources were never reached before the "
+                "deadline, so this run is not a census of source health. Raise the health "
+                "--timeout; do not read the failure rate below as an adapter signal."
+            )
+            status = 1
+        elif deadline:
+            print(f"::warning::{len(deadline)}/{total} sources were not reached before the deadline")
+
+        if reached and adapter_pct > float(os.environ["MAX_ADAPTER_FAILURE_PCT"]):
+            print(
+                f"::error::{len(adapter)}/{reached} reached sources failed for reasons other "
+                "than the deadline, which suggests an adapter is broken rather than boards "
+                "being retired"
+            )
+            status = 1
+
+        sys.exit(status)
+        PY
+
     - name: Upload health report
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
-        name: source-health
+        # Run-scoped so a re-run's report does not collide with the original's,
+        # and so two dispatches in one week stay distinguishable in the UI.
+        name: source-health-${{ github.run_id }}-${{ github.run_attempt }}
         path: |
           health.json
           health-summary.txt
+        if-no-files-found: warn
         retention-days: 90

@@ -13,11 +13,23 @@ on:
         required: false
         default: false
         type: boolean
+      allow_level_shift:
+        description: Record even if coverage dropped sharply (deliberate source prune only)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 concurrency:
+  # Deliberately NOT cancel-in-progress: killing a five-hour crawl at minute 300
+  # throws the whole day away. The cost is that a manual dispatch queues behind a
+  # scheduled run and checks out master BEFORE the running job commits, so both
+  # runs see a jobs_record.txt without today's row and both clear the pre-crawl
+  # duplicate check. That check is therefore treated as an optimisation only; the
+  # authoritative one lives in the commit step, after `git fetch`, milliseconds
+  # before the write.
   group: track-jobs
   cancel-in-progress: false
 
@@ -25,54 +37,79 @@ jobs:
   report_total_jobs:
     name: Record total job postings
     runs-on: ubuntu-latest
-    # GitHub-hosted jobs are capped at 360 minutes. The crawler gets 350 so
-    # cancellation can unwind and the manifest, chart, artifact, and commit
-    # still have time to finish.
+    # 360 minutes is GitHub's hard per-job ceiling, so this timeout and GitHub's
+    # own kill coincide and give no warning. Everything inside is budgeted to
+    # land well short of it: see the crawl step's own timeout-minutes.
     timeout-minutes: 360
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
-        check-latest: true
-
-    - name: Install gnuplot
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gnuplot
+        # check-latest was dropped on purpose. It forces a toolchain download
+        # instead of using the one already on the runner image, and it spent
+        # those minutes inside a crawl budget that had none to spare. It also
+        # meant the Go version CI actually used was recorded nowhere.
 
     - name: Build
       run: go build -o job-hunter-toolkit .
 
     - name: Count job postings
       id: count
+      # The crawl gets 330m, this step gets 340m, and the job gets 360m. The gap
+      # is what pays for apt-get, gnuplot, the commit and up to five push
+      # attempts. Before this, --timeout=350m under a 360m job cap left under ten
+      # minutes for all of that once setup had run first.
+      timeout-minutes: 340
       env:
         PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.preview }}
+        ALLOW_LEVEL_SHIFT: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_level_shift }}
+        # Absolute floors. The series has never legitimately dipped below 537
+        # sources, so 100 is a wide margin that still catches a crawl which died
+        # after a handful of boards.
+        MIN_POSTINGS: "1000"
+        MIN_SOURCES: "100"
+        # Relative floors, as a percentage of the last recorded value. These
+        # exist because --allow-partial removed the only thing that used to stop
+        # a five-minute network blip from becoming a permanent data point.
+        MIN_POSTINGS_PCT: "50"
+        MIN_SOURCES_PCT: "60"
       run: |
         set -euo pipefail
 
-        DATE=$(date "+%m/%d/%y")
-        RECORD_DATE="$DATE"
         ARTIFACT_DATE=$(date "+%Y-%m-%d")
+        # Only a GUESS of the date the row will carry: `total` stamps the row
+        # with time.Now() at crawl END (main.go), up to 330 minutes after this
+        # line runs. The real value is read back off total.txt below. The preview
+        # path is the exception -- it deliberately plots the current crawl as
+        # tomorrow's point, so it keeps this computed date.
+        GUESS_DATE=$(date "+%m/%d/%y")
 
         if [ "$PREVIEW" = "true" ]; then
-          RECORD_DATE=$(date -d tomorrow "+%m/%d/%y")
+          GUESS_DATE=$(date -d tomorrow "+%m/%d/%y")
           ARTIFACT_DATE=$(date -d tomorrow "+%Y-%m-%d")
         fi
 
-        echo "date=$RECORD_DATE" >> "$GITHUB_OUTPUT"
         echo "artifact_date=$ARTIFACT_DATE" >> "$GITHUB_OUTPUT"
 
-        # Skip if this date is already recorded, so a re-run or a manual
-        # dispatch cannot double-count a day.
-        if [ "$PREVIEW" != "true" ] && grep -q "^$RECORD_DATE " jobs_record.txt; then
-          echo "already recorded for $RECORD_DATE"
-          echo "recorded=false" >> "$GITHUB_OUTPUT"
-          echo "preview=false" >> "$GITHUB_OUTPUT"
-          exit 0
+        # Cheap early exit so a re-run of a finished day does not burn six hours
+        # of runner time. A `partial` row is NOT a reason to skip: the old guard
+        # matched any row for the date, so the first observation of a day won
+        # permanently and every deadline day was locked to a diamond even when a
+        # re-run would have finished. Rows written before status tracking have no
+        # fourth field and are complete by definition.
+        if [ "$PREVIEW" != "true" ] && grep -q "^$GUESS_DATE " jobs_record.txt; then
+          EXISTING=$(awk -v d="$GUESS_DATE" '$1 == d {print ($4 == "" ? "complete" : $4)}' jobs_record.txt | tail -n 1)
+          if [ "$EXISTING" != "partial" ]; then
+            echo "already recorded for $GUESS_DATE as $EXISTING"
+            echo "recorded=false" >> "$GITHUB_OUTPUT"
+            echo "preview=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice::$GUESS_DATE is recorded as partial; crawling again to try to supersede it"
         fi
 
         # `total` writes the header to stderr and the data row to stdout, so
@@ -82,7 +119,7 @@ jobs:
         # partial. The plot renders partial observations as isolated diamonds,
         # never as part of the completed-crawl trend line.
         if ! ./job-hunter-toolkit total \
-          --timeout=350m \
+          --timeout=330m \
           --allow-partial \
           --manifest=crawl-manifest.json \
           --log-level=info \
@@ -95,20 +132,88 @@ jobs:
 
         cat total.txt
 
-        # Guard against recording a truncated or empty crawl as a real
-        # data point, a bogus zero would corrupt the trend line permanently.
-        POSTINGS=$(awk '{print $2}' total.txt)
-        SOURCES=$(awk '{print $3}' total.txt)
-        STATUS=$(awk '{print $4}' total.txt)
+        # total.txt must be exactly one line. Reading it with a bare `awk
+        # '{print $2}'` silently concatenated every line, so any future write to
+        # stdout -- a cobra deprecation notice, a panic trace -- would both
+        # defeat the numeric guard below and push a multi-line value into
+        # GITHUB_OUTPUT, which GitHub rejects as malformed.
+        ROWS=$(wc -l < total.txt)
+        if [ "$ROWS" -ne 1 ]; then
+          echo "::error::expected exactly one row on total's stdout, got $ROWS lines"
+          exit 1
+        fi
 
-        if [ -z "$POSTINGS" ] || [ "$POSTINGS" -lt 1000 ]; then
-          echo "::error::refusing to record implausible posting count: '$POSTINGS'"
+        ROW_DATE=$(awk 'NR==1{print $1}' total.txt)
+        POSTINGS=$(awk 'NR==1{print $2}' total.txt)
+        SOURCES=$(awk 'NR==1{print $3}' total.txt)
+        STATUS=$(awk 'NR==1{print $4}' total.txt)
+
+        # `[ "$X" -lt N ]` exits 2 with "integer expression expected" on anything
+        # non-numeric. The old guard put that test inside an `if` condition,
+        # where a non-zero exit does NOT trip `set -e` and `||` with a failing
+        # right operand evaluates false -- so the guard skipped itself on exactly
+        # the garbage it existed to reject, and the garbage got committed. Match
+        # the digits explicitly before doing any arithmetic comparison.
+        if ! [[ "$ROW_DATE" =~ ^[0-9]{2}/[0-9]{2}/[0-9]{2}$ ]]; then
+          echo "::error::refusing to record a malformed record date: '$ROW_DATE'"
+          exit 1
+        fi
+        if ! [[ "$POSTINGS" =~ ^[0-9]+$ ]]; then
+          echo "::error::refusing to record a non-numeric posting count: '$POSTINGS'"
+          exit 1
+        fi
+        if ! [[ "$SOURCES" =~ ^[0-9]+$ ]]; then
+          echo "::error::refusing to record a non-numeric source count: '$SOURCES'"
           exit 1
         fi
         if [ "$STATUS" != "complete" ] && [ "$STATUS" != "partial" ]; then
           echo "::error::refusing to record unknown crawl status: '$STATUS'"
           exit 1
         fi
+
+        if [ "$POSTINGS" -lt "$MIN_POSTINGS" ]; then
+          echo "::error::refusing to record implausible posting count: $POSTINGS < $MIN_POSTINGS"
+          exit 1
+        fi
+        # SOURCES was validated nowhere at all, which is what let --allow-partial
+        # turn a crawl that reached thirty boards into a permanent point: it only
+        # had to clear the posting floor.
+        if [ "$SOURCES" -lt "$MIN_SOURCES" ]; then
+          echo "::error::refusing to record implausible source count: $SOURCES < $MIN_SOURCES"
+          exit 1
+        fi
+
+        # Coverage floor against the last row that actually carried a number
+        # (550 historical rows carry `?` for postings, and a row for this same
+        # date is excluded because we may be superseding it). A hole in the
+        # series is recoverable by re-running; a wrong point is not, and
+        # docs/jobs-record.md exists because of the last time one was believed.
+        PREV_POSTINGS=$(awk -v d="$ROW_DATE" '$1 != d && $2 ~ /^[0-9]+$/ {v=$2} END{print v+0}' jobs_record.txt)
+        PREV_SOURCES=$(awk -v d="$ROW_DATE" '$1 != d && $3 ~ /^[0-9]+$/ {v=$3} END{print v+0}' jobs_record.txt)
+
+        if [ "$ALLOW_LEVEL_SHIFT" = "true" ]; then
+          # 11/07/22 is the precedent: pruning dead sources dropped the count
+          # from 131,895 to 22,332 in one day. That was a real, intended level
+          # shift, and it must stay recordable -- but only by a human who says so
+          # on the dispatch, never by a silent nightly.
+          echo "::warning::relative coverage floors disabled by allow_level_shift"
+        else
+          if [ "$PREV_SOURCES" -gt 0 ]; then
+            FLOOR=$(( PREV_SOURCES * MIN_SOURCES_PCT / 100 ))
+            if [ "$SOURCES" -lt "$FLOOR" ]; then
+              echo "::error::coverage collapsed: $SOURCES sources against $PREV_SOURCES recorded previously (floor $FLOOR). Re-run, or dispatch with allow_level_shift if this drop is intended."
+              exit 1
+            fi
+          fi
+          if [ "$PREV_POSTINGS" -gt 0 ]; then
+            FLOOR=$(( PREV_POSTINGS * MIN_POSTINGS_PCT / 100 ))
+            if [ "$POSTINGS" -lt "$FLOOR" ]; then
+              echo "::error::postings collapsed: $POSTINGS against $PREV_POSTINGS recorded previously (floor $FLOOR). Re-run, or dispatch with allow_level_shift if this drop is intended."
+              exit 1
+            fi
+          fi
+        fi
+
         if [ "$STATUS" = "partial" ]; then
           echo "::warning::recording a deadline snapshot; the chart will mark it as partial"
         fi
@@ -117,12 +222,21 @@ jobs:
           # Never mutate the historical series for a preview. Replace any
           # existing row for tomorrow only in a temporary copy so rerunning the
           # preview remains deterministic.
-          awk -v date="$RECORD_DATE" '$1 != date' jobs_record.txt > jobs_record-preview.txt
-          printf '%s %s %s\n' "$RECORD_DATE" "$POSTINGS" "$SOURCES" >> jobs_record-preview.txt
+          #
+          # STATUS is part of the row. Dropping it -- as this printf used to --
+          # produced a three-field preview row, which fails jobs_record.gnuplot's
+          # `$# >= 4` guard and is therefore drawn as a completed trend point.
+          # docs/architecture-roadmap.md forbids exactly that.
+          awk -v date="$GUESS_DATE" '$1 != date' jobs_record.txt > jobs_record-preview.txt
+          printf '%s %s %s %s\n' "$GUESS_DATE" "$POSTINGS" "$SOURCES" "$STATUS" >> jobs_record-preview.txt
+          echo "date=$GUESS_DATE" >> "$GITHUB_OUTPUT"
           echo "preview=true" >> "$GITHUB_OUTPUT"
           echo "recorded=false" >> "$GITHUB_OUTPUT"
         else
-          cat total.txt >> jobs_record.txt
+          # jobs_record.txt is deliberately NOT touched here. The merge happens in
+          # the commit step, against a freshly fetched master, so that nothing
+          # between this step and the push can lose the row.
+          echo "date=$ROW_DATE" >> "$GITHUB_OUTPUT"
           echo "preview=false" >> "$GITHUB_OUTPUT"
           echo "recorded=true" >> "$GITHUB_OUTPUT"
         fi
@@ -133,6 +247,13 @@ jobs:
 
     - name: Summarize crawl diagnostics
       if: always()
+      # This step is pure diagnostics and must never be able to cost us the day's
+      # row. It used to hard-index six manifest keys with no error handling while
+      # sitting between the append and the commit, so a manifest schema change
+      # would have reddened the job and dropped the number. It is now both
+      # defensive and non-fatal, and the row it once endangered is no longer
+      # written until the commit step anyway.
+      continue-on-error: true
       run: |
         if [ ! -f crawl-manifest.json ]; then
           echo "No crawl manifest was produced." >> "$GITHUB_STEP_SUMMARY"
@@ -142,46 +263,81 @@ jobs:
         python3 - <<'PY'
         import json
         import os
-
-        with open("crawl-manifest.json", encoding="utf-8") as stream:
-            manifest = json.load(stream)
+        import traceback
 
         def cell(value):
             return str(value).replace("|", "\\|").replace("\n", " ")
 
-        duration = manifest["duration_ms"] / 1000
-        counts = manifest["source_counts"]
-        sources = manifest["sources"]
-        slowest = sorted(
-            (source for source in sources if source.get("duration_ms", 0) > 0),
-            key=lambda source: source["duration_ms"],
-            reverse=True,
-        )[:15]
+        def number(value, default=0):
+            try:
+                return type(default)(value)
+            except (TypeError, ValueError):
+                return default
+
+        lines = []
+        try:
+            with open("crawl-manifest.json", encoding="utf-8") as stream:
+                manifest = json.load(stream)
+            if not isinstance(manifest, dict):
+                raise TypeError(f"manifest is {type(manifest).__name__}, want object")
+
+            duration = number(manifest.get("duration_ms"), 0.0) / 1000
+            counts = manifest.get("source_counts") or {}
+            sources = [s for s in (manifest.get("sources") or []) if isinstance(s, dict)]
+            terminal = sum(
+                number(counts.get(status))
+                for status in ("complete", "failed", "truncated", "stopped")
+            )
+            # source_counts is tallied from sources, so these agree in a healthy
+            # manifest. Prefer the tally as the denominator anyway: a truncated
+            # or hand-edited manifest that lists fewer sources than it counts
+            # would otherwise print a coverage figure above 100%.
+            planned = sum(number(value) for value in counts.values()) or len(sources)
+            coverage = terminal / planned if planned else 0.0
+
+            lines.append("## Crawl result\n\n")
+            lines.append(
+                f"**{cell(manifest.get('status', 'unknown'))}** — "
+                f"{number(manifest.get('postings')):,} postings from "
+                f"{number(manifest.get('companies')):,} companies in {duration:,.1f}s. "
+                f"{terminal:,} of {planned:,} sources reached a terminal state "
+                f"({coverage:.1%}).\n\n"
+            )
+            lines.append("| Source outcome | Count |\n| --- | ---: |\n")
+            for status in ("complete", "failed", "truncated", "stopped", "running", "planned"):
+                lines.append(f"| {status} | {number(counts.get(status)):,} |\n")
+
+            slowest = sorted(
+                (s for s in sources if number(s.get("duration_ms")) > 0),
+                key=lambda s: number(s.get("duration_ms")),
+                reverse=True,
+            )[:15]
+            lines.append("\n### Slowest sources\n\n")
+            lines.append("| Platform | Company | Status | Seconds | Postings | Errors |\n")
+            lines.append("| --- | --- | --- | ---: | ---: | ---: |\n")
+            for source in slowest:
+                lines.append(
+                    f"| {cell(source.get('platform'))} | {cell(source.get('company'))} | "
+                    f"{cell(source.get('status'))} | {number(source.get('duration_ms')) / 1000:,.1f} | "
+                    f"{number(source.get('postings')):,} | {number(source.get('errors')):,} |\n"
+                )
+        except Exception:
+            # Report the failure into the summary instead of raising it: the
+            # manifest is a diagnostic, and no diagnostic is worth a lost row.
+            lines = [
+                "## Crawl result\n\n",
+                "Could not summarize crawl-manifest.json; the recorded row is unaffected.\n\n",
+                "```\n" + traceback.format_exc() + "```\n",
+            ]
 
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-            summary.write("## Crawl result\n\n")
-            summary.write(
-                f"**{manifest['status']}** — {manifest['postings']:,} postings "
-                f"from {manifest['companies']:,} companies in {duration:,.1f}s.\n\n"
-            )
-            summary.write("| Source outcome | Count |\n| --- | ---: |\n")
-            for status in ("complete", "failed", "truncated", "stopped", "running", "planned"):
-                summary.write(f"| {status} | {counts.get(status, 0):,} |\n")
-
-            summary.write("\n### Slowest sources\n\n")
-            summary.write("| Platform | Company | Status | Seconds | Postings | Errors |\n")
-            summary.write("| --- | --- | --- | ---: | ---: | ---: |\n")
-            for source in slowest:
-                summary.write(
-                    f"| {cell(source['platform'])} | {cell(source['company'])} | "
-                    f"{cell(source['status'])} | {source['duration_ms'] / 1000:,.1f} | "
-                    f"{source['postings']:,} | {source['errors']:,} |\n"
-                )
+            summary.writelines(lines)
         PY
 
     - name: Upload crawl diagnostics
       if: always()
-      uses: actions/upload-artifact@v4
+      continue-on-error: true
+      uses: actions/upload-artifact@v5
       with:
         name: crawl-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
         path: |
@@ -190,9 +346,19 @@ jobs:
         if-no-files-found: warn
         retention-days: 14
 
-    - name: Regenerate historical plot
-      if: steps.count.outputs.recorded == 'true'
-      run: gnuplot jobs_record.gnuplot
+    - name: Install gnuplot
+      if: steps.count.outputs.recorded == 'true' || steps.count.outputs.preview == 'true'
+      # Installed AFTER the crawl on purpose: `apt-get update && install` costs a
+      # couple of minutes that used to be spent inside the crawl's own budget.
+      # gnuplot-nox is the headless build; the plain `gnuplot` metapackage drags
+      # in the Qt/X11 chain for terminals this script never uses. Assert the
+      # binary afterwards, because a package rename must fail here and not later
+      # with the day's row already in hand.
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y gnuplot-nox
+        gnuplot --version
 
     - name: Render preview plot
       if: steps.count.outputs.preview == 'true'
@@ -203,7 +369,7 @@ jobs:
 
     - name: Upload preview
       if: steps.count.outputs.preview == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: jobs-record-preview-${{ steps.count.outputs.artifact_date }}
         path: jobs_record-preview.png
@@ -213,7 +379,7 @@ jobs:
     - name: Commit and push
       if: steps.count.outputs.recorded == 'true'
       env:
-        DATE: ${{ steps.count.outputs.date }}
+        ROW_DATE: ${{ steps.count.outputs.date }}
         POSTINGS: ${{ steps.count.outputs.postings }}
         SOURCES: ${{ steps.count.outputs.sources }}
         STATUS: ${{ steps.count.outputs.status }}
@@ -223,14 +389,76 @@ jobs:
         git config user.name "Job Hunter Toolkit Bot"
         git config user.email "job-hunter-toolkit@users.noreply.github.com"
 
-        git add jobs_record.txt jobs_record.png
+        # This step owns the whole write. The row exists only in total.txt on this
+        # runner until the push lands, so the merge, the chart and the push all
+        # live here where a failure can be retried instead of silently discarding
+        # the day. The previous shape appended the row hours earlier and then ran
+        # a Python summarizer and gnuplot before committing, either of which
+        # could -- and, for weeks, did -- end the job with the number unsaved.
+        for attempt in 1 2 3 4 5; do
+          # The checkout is up to six hours stale by now and master takes commits
+          # all day, so a bare push is a non-fast-forward waiting to happen.
+          git fetch --quiet origin master
 
-        # Nothing to do if the crawl produced no change, rather than failing the
-        # run on an empty commit.
-        if git diff --cached --quiet; then
-          echo "no changes to commit"
-          exit 0
-        fi
+          # Rebuild the change on top of the fetched tip rather than rebasing our
+          # own commit onto it: the row is a pure function of (master, total.txt),
+          # and a rebase would have to three-way-merge a 100 KB PNG that the other
+          # run also rewrote, which has no sensible resolution. reset --hard keeps
+          # untracked total.txt and crawl-manifest.json, the only inputs needed.
+          git reset --quiet --hard FETCH_HEAD
 
-        git commit -m "update jobs_record.txt for $DATE with $POSTINGS jobs from $SOURCES sources ($STATUS)"
-        git push origin HEAD:master
+          # THE authoritative duplicate check. The pre-crawl one ran six hours and
+          # one fetch ago against a different clock, and a queued second run in
+          # the same concurrency group clears it too. This one reads the real tip
+          # immediately before the write.
+          EXISTING=$(awk -v d="$ROW_DATE" '$1 == d {print ($4 == "" ? "complete" : $4)}' jobs_record.txt | tail -n 1)
+          if [ "$EXISTING" = "complete" ]; then
+            echo "::notice::$ROW_DATE is already recorded as complete; leaving it alone"
+            exit 0
+          fi
+          if [ "$EXISTING" = "partial" ] && [ "$STATUS" != "complete" ]; then
+            echo "::notice::$ROW_DATE is already recorded as partial and this crawl is $STATUS too; leaving it alone"
+            exit 0
+          fi
+
+          # A complete crawl supersedes a partial row for the same date. Drop the
+          # old row rather than appending a second one for the day; the row is
+          # re-appended at the end, which is also where it belongs chronologically
+          # because the date being replaced is always the most recent.
+          awk -v d="$ROW_DATE" '$1 != d' jobs_record.txt > jobs_record.txt.new
+          cat total.txt >> jobs_record.txt.new
+          mv jobs_record.txt.new jobs_record.txt
+
+          # Render to a side file and swap it in only on success. gnuplot used to
+          # be its own step ahead of the commit, so any error in it threw away the
+          # row; the chart is derived and reproducible, the number is neither.
+          # This also means a crash can never leave a truncated PNG committed.
+          if gnuplot -e "outputfile='jobs_record.png.new'" jobs_record.gnuplot; then
+            mv jobs_record.png.new jobs_record.png
+          else
+            rm -f jobs_record.png.new
+            echo "::error::gnuplot failed; committing $ROW_DATE without refreshing the chart"
+          fi
+
+          git add jobs_record.txt jobs_record.png
+
+          # Nothing to do if the crawl produced no change, rather than failing the
+          # run on an empty commit.
+          if git diff --cached --quiet; then
+            echo "no changes to commit"
+            exit 0
+          fi
+
+          git commit --quiet -m "update jobs_record.txt for $ROW_DATE with $POSTINGS jobs from $SOURCES sources ($STATUS)"
+
+          if git push --quiet origin HEAD:master; then
+            echo "recorded $ROW_DATE: $POSTINGS postings from $SOURCES sources ($STATUS)"
+            exit 0
+          fi
+
+          echo "::warning::push rejected on attempt $attempt; refetching and rebuilding the row"
+          sleep $(( attempt * 15 ))
+        done
+
+        echo "::error::could not push the row for $ROW_DATE after 5 attempts; the count was $POSTINGS from $SOURCES sources ($STATUS)"
+        exit 1

@@ -3,6 +3,8 @@ package services
 import (
 	"cmp"
 	"context"
+	"fmt"
+	"hash/fnv"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,6 +16,65 @@ import (
 func init() {
 	registerBuiltin("lever", multiJobsFunc(Lever, LeverCompanies))
 }
+
+// pageRepeatGuard recognises a board that ignores its page or offset parameter.
+//
+// Every offset-based adapter in this package used to decide it was finished only
+// when a page came back short or empty. A tenant that answers every offset with
+// the same full first page therefore never ends the loop: replayed against a
+// stub transport that behaves that way, Lever, Jibe and Phenom each issued 5,001
+// requests and yielded 500,001 duplicate postings in under a second, and stopped
+// only because the consumer gave up. In a real crawl the loop ends at the crawl
+// deadline instead, pinning one of the 32 worker slots and hammering a single
+// host for hours, while [internal.Dedupe] hides the duplicates so the posting
+// total looks unremarkable.
+//
+// The guard fingerprints each page rather than retaining every posting URL: a
+// per-source URL set costs roughly 124 bytes per posting and the largest tenants
+// publish six figures of them, whereas a page fingerprint is 8 bytes per page.
+//
+// The zero value is ready to use.
+type pageRepeatGuard struct {
+	seen map[uint64]struct{}
+}
+
+// repeated reports whether a page whose postings are identified by ids has
+// already been returned for this source, which means the board is not honouring
+// pagination and the caller must stop rather than ask for the next page.
+func (g *pageRepeatGuard) repeated(ids []string) bool {
+	sum := fnv.New64a()
+
+	for _, id := range ids {
+		// The separator keeps {"ab", "c"} from fingerprinting the same as
+		// {"a", "bc"}.
+		_, _ = sum.Write([]byte(id))
+		_, _ = sum.Write([]byte{0})
+	}
+
+	key := sum.Sum64()
+
+	if _, ok := g.seen[key]; ok {
+		return true
+	}
+
+	if g.seen == nil {
+		g.seen = make(map[uint64]struct{})
+	}
+
+	g.seen[key] = struct{}{}
+
+	return false
+}
+
+// leverMaxPages bounds how many pages a single Lever tenant may be asked for.
+//
+// Lever publishes no total, so [pageRepeatGuard] is the primary stop for a board
+// that ignores "skip"; this is the backstop for the case a fingerprint cannot
+// see, a board that keeps serving *different* full pages forever. At 100
+// postings per page it allows 50,000 postings from one company, an order of
+// magnitude above the largest Lever board observed, so reaching it means
+// something is wrong and the adapter says so rather than crawling on.
+const leverMaxPages = 500
 
 var LeverCompanies = []string{
 	"15five",
@@ -241,9 +302,12 @@ func Lever(ctx context.Context, httpClient *http.Client, company string) interna
 	return func(yield func(*internal.JobPosting, error) bool) {
 		const limit = 100
 
-		skip := 0
+		var (
+			pages pageRepeatGuard
+			skip  int
+		)
 
-		for {
+		for range leverMaxPages {
 			doc, err := leverPage(ctx, httpClient, company, limit, skip)
 			if err != nil {
 				yield(nil, err)
@@ -251,7 +315,19 @@ func Lever(ctx context.Context, httpClient *http.Client, company string) interna
 			}
 
 			if len(doc) == 0 {
-				break
+				return
+			}
+
+			ids := make([]string, 0, len(doc))
+			for _, item := range doc {
+				ids = append(ids, item.HostedURL)
+			}
+
+			// Checked before anything is yielded, so a board that ignores "skip"
+			// costs one wasted request rather than an endless stream of
+			// duplicates.
+			if pages.repeated(ids) {
+				return
 			}
 
 			for _, item := range doc {
@@ -278,11 +354,13 @@ func Lever(ctx context.Context, httpClient *http.Client, company string) interna
 			}
 
 			if len(doc) < limit {
-				break
+				return
 			}
 
 			skip += limit
 		}
+
+		yield(nil, fmt.Errorf("refusing to keep paginating Lever for company %q: the board was still serving full pages after %d pages of %d", company, leverMaxPages, limit))
 	}
 }
 

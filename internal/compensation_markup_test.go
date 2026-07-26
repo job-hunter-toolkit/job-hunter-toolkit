@@ -1,9 +1,12 @@
 package internal_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 // greenhousePayWidget is the markup Greenhouse renders when an employer fills in
@@ -124,6 +127,102 @@ func TestParseCompensationFromDescriptionRejectsImplausibleWidgetValues(t *testi
 
 	if got := internal.ParseCompensationFromDescription(description); got != nil {
 		t.Errorf("ParseCompensationFromDescription() = %+v, want nil for implausible values", got)
+	}
+}
+
+// TestParseCompensationFromDescriptionWidgetCurrency checks that the structured
+// path reads the currency out of the widget rather than assuming.
+//
+// A container declaring itself the pay range is the strongest non-API evidence
+// this toolkit has, which makes a wrong currency label here worse than anywhere
+// else: it is reported as ProvenanceStructured, so a consumer weighing
+// provenance trusts it more than prose.
+func TestParseCompensationFromDescriptionWidgetCurrency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		description  string
+		wantCurrency string
+		wantMin      float64
+		wantMax      float64
+	}{
+		{
+			// The prefixed second operand used to break the range match outright,
+			// so the widget reported C$95,000 as a lone USD figure.
+			name: "canadian widget keeps both ends and its currency",
+			description: `<div class="pay-range"><span>C$95,000</span>` +
+				`<span class="divider">&mdash;</span><span>C$120,000</span></div>`,
+			wantCurrency: "CAD",
+			wantMin:      95000,
+			wantMax:      120000,
+		},
+		{
+			name: "code written after the range",
+			description: `<div class="pay-range"><span>$95,000</span>` +
+				`<span class="divider">&mdash;</span><span>$120,000 CAD</span></div>`,
+			wantCurrency: "CAD",
+			wantMin:      95000,
+			wantMax:      120000,
+		},
+		{
+			// The live Databricks widget, which really does say USD.
+			name:         "usd widget",
+			description:  greenhousePayWidget,
+			wantCurrency: "USD",
+			wantMin:      145700,
+			wantMax:      200300,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := internal.ParseCompensationFromDescription(tt.description)
+			must.NotNil(t, got, must.Sprint("ParseCompensationFromDescription() = nil"))
+
+			test.Eq(t, internal.ProvenanceStructured, got.Provenance)
+			test.Eq(t, tt.wantCurrency, got.Currency)
+			test.Eq(t, tt.wantMin, got.Min)
+			test.Eq(t, tt.wantMax, got.Max)
+		})
+	}
+}
+
+func TestParseCompensationFromDescriptionWidgetStatesACeiling(t *testing.T) {
+	t.Parallel()
+
+	// A widget holding one open-ended figure states a maximum. Recording it as
+	// Min inverted the meaning, and the CSV writer then emitted pay_min=200000
+	// with an empty pay_max.
+	got := internal.ParseCompensationFromDescription(
+		`<div class="pay-range"><span>Up to $200,000 USD</span></div>`)
+	must.NotNil(t, got, must.Sprint("ParseCompensationFromDescription() = nil"))
+
+	test.Eq(t, 0.0, got.Min)
+	test.Eq(t, 200000.0, got.Max)
+}
+
+func TestParseCompensationFromDescriptionWidgetHandlesNonASCII(t *testing.T) {
+	t.Parallel()
+
+	// The widget's own text used to be matched in one string and sliced in
+	// another. strings.ToLower shrinks U+0130 (İ) from two bytes to one, so a
+	// non-ASCII label inside the container shifted the period window off "per
+	// year" and, with enough of them, made the slice panic outright.
+	for _, repeats := range []int{0, 16, 18, 25, 40} {
+		description := `<div class="pay-range"><span>` +
+			strings.Repeat("İstanbul İK İş İlanı ", repeats) +
+			`$150,000</span><span class="divider">&mdash;</span>` +
+			`<span>$200,000 per year</span></div>`
+
+		got := internal.ParseCompensationFromDescription(description)
+		must.NotNil(t, got, must.Sprintf("nil with %d label repetitions", repeats))
+
+		test.Eq(t, 150000.0, got.Min, test.Sprintf("%d repetitions", repeats))
+		test.Eq(t, 200000.0, got.Max, test.Sprintf("%d repetitions", repeats))
+		test.Eq(t, internal.PeriodYear, got.Period, test.Sprintf("%d repetitions", repeats))
 	}
 }
 

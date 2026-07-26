@@ -18,6 +18,18 @@ func init() {
 // jibePageSize is the number of postings requested per page.
 const jibePageSize = 100
 
+// jibeMaxPages bounds how many pages a single Jibe tenant may be asked for.
+//
+// "totalCount" and [pageRepeatGuard] are the real stops; this is the backstop
+// for a tenant that reports no usable total and keeps serving different full
+// pages forever, which is how the unbounded loop this replaces ran up 5,001
+// requests and 500,001 duplicate postings against a stub in 0.8s. At 100
+// postings per page it still allows 200,000 postings from one company, well
+// above the largest Jibe boards here (FedEx, Costco, Marriott), so reaching it
+// means the board is misbehaving and the adapter says so rather than crawling
+// on.
+const jibeMaxPages = 2000
+
 var JibeCompanies = []string{
 	"84lumber",
 	"alaskaair",
@@ -171,12 +183,30 @@ func Jibe(ctx context.Context, httpClient *http.Client, company string) internal
 		var (
 			baseURL = fmt.Sprintf("https://%s.jibeapply.com/api/jobs", company)
 			page    = 1
+			pages   pageRepeatGuard
+			fetched int
 		)
 
-		for {
+		for range jibeMaxPages {
 			apiResp, err := jibePage(ctx, httpClient, company, baseURL, page)
 			if err != nil {
 				yield(nil, err)
+				return
+			}
+
+			if len(apiResp.Jobs) == 0 {
+				return
+			}
+
+			ids := make([]string, 0, len(apiResp.Jobs))
+			for _, item := range apiResp.Jobs {
+				ids = append(ids, item.Data.ApplyURL)
+			}
+
+			// Checked before anything is yielded, so a tenant that ignores
+			// "page" costs one wasted request rather than an endless stream of
+			// duplicates.
+			if pages.repeated(ids) {
 				return
 			}
 
@@ -205,11 +235,32 @@ func Jibe(ctx context.Context, httpClient *http.Client, company string) internal
 				}
 			}
 
+			// Counted in the units totalCount uses, postings the search matched,
+			// not postings this adapter considered complete enough to yield.
+			fetched += len(apiResp.Jobs)
+
+			// totalCount is the only authority Jibe gives for "there is nothing
+			// after this page", and it was decoded but never read until this
+			// loop was bounded.
+			//
+			// It is trusted only when it exceeds a single page: a totalCount
+			// equal to the page size is indistinguishable from a per-page count,
+			// and reading one as the other would cap every large tenant at 100
+			// postings, the silent-truncation failure this project has been
+			// burned by before. Giving up that one case costs a single extra
+			// request on a board whose posting count is an exact multiple of the
+			// page size, which the short-page check below then ends.
+			if apiResp.TotalCount > jibePageSize && fetched >= apiResp.TotalCount {
+				return
+			}
+
 			if len(apiResp.Jobs) < jibePageSize {
 				return
 			}
 
 			page++
 		}
+
+		yield(nil, fmt.Errorf("refusing to keep paginating Jibe for company %q: the board was still serving full pages after %d pages of %d", company, jibeMaxPages, jibePageSize))
 	}
 }

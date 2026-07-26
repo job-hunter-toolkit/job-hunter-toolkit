@@ -1,6 +1,7 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -136,14 +137,24 @@ type gemJobs struct {
 //	curl -X POST 'https://jobs.gem.com/api/public/graphql' \
 //	 -H 'Content-Type: application/json' \
 //	 -d '{
-//	   "query": "query JobPostingInfo($boardId: String!) { oatsExternalJobPostings(boardId: $boardId) { jobPostings { id title companyUrl locations { name city isoCountry } } } }",
+//	   "query": "query JobPostingInfo($boardId: String!) { oatsExternalJobPostings(boardId: $boardId) { jobPostings { id extId title companyUrl locations { name city isoCountry } } } }",
 //	   "variables": { "boardId": "bluesky" }
 //	 }'
 func Gem(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
 		var (
 			baseURL = "https://jobs.gem.com/api/public/graphql"
-			query   = `{"query":"query JobPostingInfo($boardId: String!) { oatsExternalJobPostings(boardId: $boardId) { jobPostings { id title companyUrl locations { name city isoCountry } } } }","variables":{"boardId":"%s"}}`
+
+			// GraphQL returns exactly the fields the query selects, so a field
+			// this adapter reads but does not ask for is silently empty.
+			//
+			// "extId" is the segment every posting URL is built from and it was
+			// missing from this selection set, so every posting on a board came
+			// back as https://jobs.gem.com/<company>/ — one URL for the whole
+			// company. internal.Dedupe keys on the URL, so each of the 51 Gem
+			// sources collapsed to a single posting (measured: 3 postings in, 1
+			// out). Adding one word to this string restores the other ~50x.
+			query = `{"query":"query JobPostingInfo($boardId: String!) { oatsExternalJobPostings(boardId: $boardId) { jobPostings { id extId title companyUrl locations { name city isoCountry } } } }","variables":{"boardId":"%s"}}`
 		)
 
 		doc, err := fetchJSON[gemJobs](ctx, httpClient, "Gem", company, jsonRequest{
@@ -163,7 +174,17 @@ func Gem(ctx context.Context, httpClient *http.Client, company string) internal.
 				return
 			}
 
-			url := fmt.Sprintf("https://jobs.gem.com/%s/%s", company, item.ExtID)
+			// extId is the segment Gem's own public board uses. Falling back to
+			// the internal id keeps postings distinguishable if a tenant ever
+			// publishes one without an extId: a link that may not resolve is
+			// recoverable, whereas identical URLs are deleted outright by
+			// internal.Dedupe and the posting is never seen again.
+			id := cmp.Or(item.ExtID, item.ID)
+			if id == "" {
+				continue
+			}
+
+			url := fmt.Sprintf("https://jobs.gem.com/%s/%s", company, id)
 
 			job := &internal.JobPosting{
 				Company: company,

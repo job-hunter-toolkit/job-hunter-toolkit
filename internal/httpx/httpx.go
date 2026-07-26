@@ -9,6 +9,7 @@ package httpx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -25,7 +26,32 @@ import (
 // DefaultUserAgent identifies this tool to job boards. Sending a real
 // User-Agent is both polite and practical: some boards reject requests that
 // do not set one.
-const DefaultUserAgent = "job-hunter-toolkit/1.0 (+https://github.com/job-hunter-toolkit/job-hunter-toolkit)"
+//
+// The contact URL is not decoration. Several canonical data providers require a
+// reachable contact in their access policy (SEC EDGAR and the Wikimedia APIs
+// both reject or throttle agents without one), and a crawler covering ~1,772
+// companies owes any board it annoys a way to tell us to stop that is not
+// "block the IP range and hope". It points at the issue tracker rather than a
+// person's mailbox so the address stays valid as maintainers change.
+const DefaultUserAgent = "job-hunter-toolkit/1.0 (+https://github.com/job-hunter-toolkit/job-hunter-toolkit; " +
+	"contact: https://github.com/job-hunter-toolkit/job-hunter-toolkit/issues)"
+
+// DefaultPerHostLimit bounds concurrent requests to any single service key.
+//
+// A crawl fans out over companies, but companies are not spread evenly over
+// hosts: every Workable board is served by apply.workable.com, so raising
+// overall concurrency just rate-limits that one host. Measured: 56 Workable
+// sources failed with HTTP 429 purely from self-inflicted load, which looks
+// identical to a dead board in a health report.
+//
+// Most requests key on the exact host. servicePolicyFor groups only known
+// shared backends such as BambooHR and PeopleForce, while deliberately
+// leaving Workday tenant hosts independent.
+//
+// This, and not the size of the crawl's worker pool, is the politeness ceiling:
+// internal.DefaultConcurrency decides how many sources are in flight, but no
+// number of workers can put more than this many requests on one backend.
+const DefaultPerHostLimit = 4
 
 // Defaults for [NewClient].
 const (
@@ -34,19 +60,63 @@ const (
 	defaultMaxDelay    = 30 * time.Second
 	defaultTimeout     = 2 * time.Minute
 
-	// defaultPerHostLimit bounds concurrent requests to any single service key.
+	// defaultSlotWaitWarn is how long a request may wait for a per-service slot
+	// before the limiter says so.
 	//
-	// A crawl fans out over companies, but companies are not spread evenly over
-	// hosts: every Workable board is served by apply.workable.com, so raising
-	// overall concurrency just rate-limits that one host. Measured: 56 Workable
-	// sources failed with HTTP 429 purely from self-inflicted load, which looks
-	// identical to a dead board in a health report.
+	// A slot is held until the response body is closed, so an adapter that
+	// defers Close outside its pagination loop parks every later request to that
+	// service until the request context expires. That happened to every large
+	// Workday tenant and cost minutes of crawl budget per tenant while producing
+	// no log line at all. Waiting this long for a slot is not normal contention.
+	defaultSlotWaitWarn = 30 * time.Second
+
+	// shedAfterRejections is how many consecutive 429s from one service open its
+	// circuit breaker.
 	//
-	// Most requests key on the exact host. servicePolicyFor groups only known
-	// shared backends such as BambooHR and PeopleForce, while deliberately
-	// leaving Workday tenant hosts independent.
-	defaultPerHostLimit = 4
+	// A single logical request can produce defaultMaxAttempts (4) 429s on its
+	// own, so the threshold sits just above that: tripping requires at least two
+	// separate requests to have found nothing but 429s, with no successful
+	// response from that service in between.
+	shedAfterRejections = 5
+
+	// maxShedWindow bounds how long a service's breaker stays open.
+	//
+	// peopleforce.io has answered with Retry-After: 3510 (58 minutes), which is
+	// longer than the nightly crawl's entire budget. Honouring that exactly
+	// would be indistinguishable from marking the platform dead for the run, and
+	// would leave a long-lived process unable to recover, so the window is
+	// capped here.
+	maxShedWindow = 15 * time.Minute
 )
+
+// ErrRateLimited reports that a service is being shed because it answered HTTP
+// 429 repeatedly. Callers that need to tell "the board rate-limited us" apart
+// from "the board is broken" can test for it with [errors.Is].
+var ErrRateLimited = errors.New("service is rate limiting this crawl")
+
+// RateLimitedError is the error returned for a request that was never sent
+// because its service's circuit breaker was open. It unwraps to
+// [ErrRateLimited].
+type RateLimitedError struct {
+	// Service is the limiter key that is shedding, which for a shared backend
+	// covers every tenant on it: "peopleforce.io", not one tenant's subdomain.
+	Service string
+
+	// URL is the request that was not sent, with any credentials redacted.
+	URL string
+
+	// RetryAfter is how much of the shedding window remains.
+	RetryAfter time.Duration
+}
+
+// Error implements the error interface.
+func (e *RateLimitedError) Error() string {
+	return fmt.Sprintf("httpx: not sending %s: service %q answered HTTP 429 repeatedly; shedding its requests for another %s",
+		e.URL, e.Service, e.RetryAfter.Round(time.Second))
+}
+
+// Unwrap returns [ErrRateLimited].
+func (e *RateLimitedError) Unwrap() error { return ErrRateLimited }
 
 // Option configures the client returned by [NewClient].
 type Option func(*retryTransport)
@@ -156,6 +226,12 @@ func NewClient(opts ...Option) *http.Client {
 	// concurrently. The stdlib default of 2 idle connections per host is fine,
 	// but the default idle-connection ceiling across all hosts is low enough to
 	// cause needless reconnects at this fan-out.
+	//
+	// Deliberately unchanged: this clone carries ForceAttemptHTTP2 from
+	// http.DefaultTransport, so h2 is negotiated and a single connection
+	// multiplexes; and DisableCompression stays false with no adapter setting
+	// Accept-Encoding, so net/http's transparent gzip is already active on every
+	// request. Neither needed touching.
 	base.MaxIdleConns = 200
 	base.MaxIdleConnsPerHost = 8
 
@@ -166,11 +242,20 @@ func NewClient(opts ...Option) *http.Client {
 		maxDelay:     defaultMaxDelay,
 		logger:       slog.New(slog.DiscardHandler),
 		userAgent:    DefaultUserAgent,
-		perHostLimit: defaultPerHostLimit,
+		perHostLimit: DefaultPerHostLimit,
 	}
 
 	for _, opt := range opts {
 		opt(t)
+	}
+
+	// The idle pool must not be scarcer than the concurrency allowed to one
+	// service, or the requests past the eighth would dial a fresh connection
+	// every time and the limit meant to reduce load on a board would instead
+	// increase its connection churn. At the default limit of 4 this is a no-op;
+	// it only moves if --per-host-limit is raised past 8.
+	if t.perHostLimit > base.MaxIdleConnsPerHost {
+		base.MaxIdleConnsPerHost = t.perHostLimit
 	}
 
 	if len(t.proxyURLs) > 0 {
@@ -192,12 +277,19 @@ func NewClient(opts ...Option) *http.Client {
 	// The host limiter wraps the base transport rather than the retry loop, so
 	// each individual attempt is throttled, including retries, which are
 	// exactly what a rate-limited host does not want more of.
+	//
+	// retryTransport keeps its own reference so it can tell whether the shared
+	// cooldown is in play; see the 429 handling in its RoundTrip.
 	if t.perHostLimit > 0 {
-		t.base = &hostLimiter{
-			base:     t.base,
-			limit:    t.perHostLimit,
-			maxDelay: t.maxDelay,
+		t.limiter = &hostLimiter{
+			base:         t.base,
+			limit:        t.perHostLimit,
+			maxDelay:     t.maxDelay,
+			logger:       t.logger,
+			slotWaitWarn: defaultSlotWaitWarn,
 		}
+
+		t.base = t.limiter
 	}
 
 	return &http.Client{
@@ -215,18 +307,29 @@ type hostLimiter struct {
 	base     http.RoundTripper
 	limit    int
 	maxDelay time.Duration
+	logger   *slog.Logger
+
+	// slotWaitWarn is defaultSlotWaitWarn outside tests, which shorten it so a
+	// leaked response body is observable without a 30-second test.
+	slotWaitWarn time.Duration
 
 	mu     sync.Mutex
 	states map[string]*limitState
 }
 
 type limitState struct {
+	key      string
 	sem      chan struct{}
 	interval time.Duration
 	cooldown time.Duration
 
 	mu   sync.Mutex
 	next time.Time
+
+	// rejections counts 429s since this service last answered with anything
+	// else, and shedUntil is the circuit breaker those 429s open.
+	rejections int
+	shedUntil  time.Time
 }
 
 type servicePolicy struct {
@@ -247,6 +350,13 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 		cooldown:      5 * time.Second,
 	}
 
+	// The min(defaultLimit, N) caps below are ceilings, not targets. N is what
+	// this project has measured as safe for that backend, so --per-host-limit
+	// can lower every service but cannot raise a named one past its measured
+	// value; only hosts with no measured ceiling (Workday and Phenom tenants,
+	// which are genuinely tenant-isolated infrastructure) follow the flag
+	// upward. The asymmetry is deliberate: the dial exists to be turned down
+	// when a board complains, not up.
 	switch {
 	case host == "apply.workable.com":
 		policy.maxConcurrent = min(defaultLimit, 2)
@@ -257,6 +367,19 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 		host == "api.smartrecruiters.com",
 		host == "api.lever.co",
 		host == "boards-api.greenhouse.io":
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
+	case host == "api.ashbyhq.com",
+		host == "jobs.jobvite.com":
+		// Both are single-host multi-tenant backends: all 418 Ashby boards (the
+		// second-largest platform here) and all 33 Jobvite boards are served by
+		// one hostname each. They were already sharing a limiter key, but only
+		// by accident of the generic exact-host policy, which leaves interval at
+		// zero, so the only thing standing between api.ashbyhq.com and a burst
+		// was how many workers happened to be free. Raising the worker pool made
+		// that gap load-bearing, so name them explicitly and give them the same
+		// 25ms spacing and 10s cooldown as the other shared JSON backends.
 		policy.maxConcurrent = min(defaultLimit, 4)
 		policy.interval = 25 * time.Millisecond
 		policy.cooldown = 10 * time.Second
@@ -293,6 +416,7 @@ func (h *hostLimiter) state(req *http.Request) *limitState {
 
 	if _, ok := h.states[policy.key]; !ok {
 		h.states[policy.key] = &limitState{
+			key:      policy.key,
 			sem:      make(chan struct{}, policy.maxConcurrent),
 			interval: policy.interval,
 			cooldown: policy.cooldown,
@@ -320,37 +444,156 @@ func (s *limitState) wait(ctx context.Context) error {
 	return sleep(ctx, time.Until(start))
 }
 
-// penalize delays new requests after a service returns 429. Retry-After is
-// bounded by maxDelay so one hostile or day-long value cannot stall the crawl.
-func (s *limitState) penalize(resp *http.Response, maxDelay time.Duration) {
+// penalize delays new requests after a service returns 429 and, once 429 is all
+// the service has to say, opens its circuit breaker. It reports the shedding
+// window when this response is what opened (or re-opened) it.
+//
+// Retry-After is bounded by maxDelay for the cooldown, so one hostile or
+// day-long value cannot stall the crawl. The breaker deliberately uses the raw
+// value instead, capped only by maxShedWindow: shedding occupies no worker and
+// issues no request, so there is no cost to waiting exactly as long as the
+// service asked, and every reason to.
+func (s *limitState) penalize(resp *http.Response, maxDelay time.Duration) time.Duration {
 	delay := min(s.cooldown, maxDelay)
-	if retryDelay, ok := retryAfter(resp); ok {
-		delay = max(delay, min(retryDelay, maxDelay))
+
+	requested, hasRetryAfter := retryAfter(resp)
+	if hasRetryAfter {
+		delay = max(delay, min(requested, maxDelay))
 	}
 
-	until := time.Now().Add(delay)
+	now := time.Now()
+	until := now.Add(delay)
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if until.After(s.next) {
 		s.next = until
 	}
-	s.mu.Unlock()
+
+	s.rejections++
+	if s.rejections < shedAfterRejections {
+		return 0
+	}
+
+	window := s.cooldown
+	if hasRetryAfter && requested > window {
+		window = requested
+	}
+
+	window = min(window, maxShedWindow)
+
+	if shedUntil := now.Add(window); shedUntil.After(s.shedUntil) {
+		s.shedUntil = shedUntil
+
+		return window
+	}
+
+	return 0
+}
+
+// succeed records that the service answered with something other than 429,
+// which resets the breaker.
+//
+// A request already in flight when the breaker tripped can land here and clear
+// it early. That is the intended reading: a backend that is returning real
+// responses is not one worth shedding.
+func (s *limitState) succeed() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.rejections = 0
+	s.shedUntil = time.Time{}
+}
+
+// shedding reports whether the service's breaker is open, and for how long yet.
+func (s *limitState) shedding() (time.Duration, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.shedUntil.IsZero() {
+		return 0, false
+	}
+
+	remaining := time.Until(s.shedUntil)
+	if remaining <= 0 {
+		// Half-open. rejections is deliberately left where it is, so the first
+		// 429 from the probe re-opens the breaker immediately rather than
+		// paying the whole threshold again; only a real response clears it.
+		s.shedUntil = time.Time{}
+
+		return 0, false
+	}
+
+	return remaining, true
+}
+
+// acquire reserves one of the service's request slots.
+//
+// A wait long enough to look like a leak rather than contention is logged with
+// the service name, and the context error that ends it names the service too.
+// Both exist because the failure this catches used to be completely silent: a
+// slot is only released when the response body is closed, so an adapter that
+// defers Close outside its pagination loop stalls every later request to that
+// service until the request context expires, producing no log line and an
+// unattributable "context deadline exceeded".
+func (h *hostLimiter) acquire(req *http.Request, state *limitState) error {
+	select {
+	case state.sem <- struct{}{}:
+		return nil
+	default:
+	}
+
+	started := time.Now()
+
+	warn := time.NewTimer(h.slotWaitWarn)
+	defer warn.Stop()
+
+	for {
+		select {
+		case state.sem <- struct{}{}:
+			return nil
+		case <-req.Context().Done():
+			return fmt.Errorf("httpx: %s: waited %s for a request slot on service %q (limit %d): %w",
+				req.URL.Redacted(), time.Since(started).Round(time.Millisecond),
+				state.key, cap(state.sem), req.Context().Err())
+		case <-warn.C:
+			h.logger.WarnContext(req.Context(), "waiting for a service request slot",
+				slog.String("url", req.URL.Redacted()),
+				slog.String("service", state.key),
+				slog.Duration("waited", time.Since(started)),
+				slog.Int("limit", cap(state.sem)),
+				slog.String("hint", "a slot is held until the response body is closed; an adapter deferring Close outside its pagination loop will stall here"),
+			)
+		}
+	}
 }
 
 // RoundTrip implements [net/http.RoundTripper].
 func (h *hostLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
 	state := h.state(req)
 
-	select {
-	case state.sem <- struct{}{}:
-	case <-req.Context().Done():
-		return nil, req.Context().Err()
+	// Checked before the semaphore, deliberately: a shed request must fail
+	// immediately rather than queue behind the very service it is being shed
+	// from. Failing fast and loudly costs the crawl nothing; queueing for a
+	// backend that is answering nothing but 429 costs it minutes per source.
+	if remaining, open := state.shedding(); open {
+		return nil, &RateLimitedError{
+			Service:    state.key,
+			URL:        req.URL.Redacted(),
+			RetryAfter: remaining,
+		}
+	}
+
+	if err := h.acquire(req, state); err != nil {
+		return nil, err
 	}
 
 	if err := state.wait(req.Context()); err != nil {
 		<-state.sem
 
-		return nil, err
+		return nil, fmt.Errorf("httpx: %s: waiting out the cooldown on service %q: %w",
+			req.URL.Redacted(), state.key, err)
 	}
 
 	resp, err := h.base.RoundTrip(req)
@@ -361,7 +604,19 @@ func (h *hostLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		state.penalize(resp, h.maxDelay)
+		if window := state.penalize(resp, h.maxDelay); window > 0 {
+			h.logger.WarnContext(req.Context(), "shedding requests to a rate-limited service",
+				slog.String("url", req.URL.Redacted()),
+				slog.String("service", state.key),
+				slog.Int("consecutive_429", shedAfterRejections),
+				// The raw header, not the clamped delay: the value the board
+				// actually sent is the diagnostic.
+				slog.String("retry_after", retryAfterValue(resp)),
+				slog.Duration("shedding_for", window),
+			)
+		}
+	} else {
+		state.succeed()
 	}
 
 	// The slot is held until the body is closed, not merely until the headers
@@ -400,6 +655,11 @@ type retryTransport struct {
 	userAgent    string
 	perHostLimit int
 	proxyURLs    []*url.URL
+
+	// limiter is the hostLimiter inside base, when one is installed. It is held
+	// so the retry loop can tell whether a service-wide cooldown has already
+	// been applied to a 429 and avoid waiting for it a second time.
+	limiter *hostLimiter
 }
 
 type failingTransport struct {
@@ -519,8 +779,27 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 			resp = nil
 
+			// The request was never sent: the service's breaker is open.
+			// Retrying would only re-check the same breaker three more times
+			// and report a vaguer error at the end of it.
+			var rateLimited *RateLimitedError
+			if errors.As(err, &rateLimited) {
+				return nil, err
+			}
+
 			// A cancelled or expired context is deliberate, not transient.
 			if ctxErr := req.Context().Err(); ctxErr != nil {
+				// Logged because this was the one exit with no diagnostics at
+				// all. A crawl whose adapters leak response bodies parks every
+				// later request on a service semaphore until the deadline, and
+				// a 75-minute failing run reported exactly nothing about it.
+				t.logger.WarnContext(req.Context(), "HTTP request abandoned",
+					slog.String("url", req.URL.Redacted()),
+					slog.String("service", servicePolicyFor(req, t.perHostLimit).key),
+					slog.Int("attempts", attempts),
+					slog.String("cause", err.Error()),
+				)
+
 				return nil, err
 			}
 
@@ -547,7 +826,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			break
 		}
 
-		delay := t.backoff(attempt, resp)
+		delay := t.retryDelay(attempt, resp)
 
 		// The response body must be drained and closed before the connection
 		// can be reused, and leaking it would hold a connection per retry.
@@ -622,6 +901,37 @@ func rewind(req *http.Request) (*http.Request, error) {
 	clone.Body = body
 
 	return clone, nil
+}
+
+// retryDelay returns how long this loop should sleep before the next attempt,
+// after accounting for what the service limiter is already going to make it
+// wait.
+//
+// A 429 is paced twice otherwise, and the two waits stack. hostLimiter's
+// penalize has already pushed the service's shared next-start time out by the
+// (clamped) Retry-After, and *every* attempt re-enters the limiter, so that
+// cooldown is enforced whether or not this loop also sleeps. Sleeping the
+// Retry-After here as well makes a retried request pay it twice: once outside
+// the limiter, and then again when it re-queues behind a cooldown that other
+// tenants extended while it slept. Measured on peopleforce.io, where all ~37
+// tenants share one limiter key, that serialised the entire platform at roughly
+// one request per maxDelay and produced zero postings for an extrapolated ~37
+// minutes of crawl budget.
+//
+// The shared cooldown is the one worth keeping, because it is the one that
+// protects the other 36 tenants rather than just this request. What is left
+// here is a small jitter: the limiter can release everyone at the same instant,
+// and requests that resume in lockstep get rate-limited in lockstep. With no
+// limiter installed (WithPerHostLimit(0)) nothing else is pacing the retry, so
+// the full backoff still applies.
+func (t *retryTransport) retryDelay(attempt int, resp *http.Response) time.Duration {
+	delay := t.backoff(attempt, resp)
+
+	if t.limiter != nil && resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+		return min(delay, rand.N(t.baseDelay+1))
+	}
+
+	return delay
 }
 
 // backoff returns how long to wait before the next attempt, honouring a
