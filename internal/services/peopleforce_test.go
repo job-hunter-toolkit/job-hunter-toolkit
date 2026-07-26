@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -102,6 +103,125 @@ func TestPeopleForceFollowsPagesWithoutTheDisplayingMarker(t *testing.T) {
 	for _, posting := range postings {
 		test.Eq(t, "acme", posting.Company)
 		test.Eq(t, "Any - Remote", posting.Location)
+	}
+}
+
+// peopleForceCareersPageWithDetails renders one posting whose details line is
+// supplied verbatim, so a test can exercise the shapes that line comes in.
+func peopleForceCareersPageWithDetails(details string) string {
+	return `<html><body><div id="results">` +
+		`<div class="row"><div class="title"><a href="/careers/v/dev-42">Job</a></div>` +
+		`<div class="details">` + details + `</div></div>` +
+		`</div></body></html>`
+}
+
+// TestPeopleForceReadsTheDetailsItAlreadyParsed is a regression test.
+//
+// The details line is the board's "<department>, <employment type>, <location>"
+// string. The adapter's own comment has documented that shape since it was
+// written, and the implementation then split on commas, kept the last segment as
+// the location, and discarded the other two — after having already parsed them
+// into a string in memory.
+func TestPeopleForceReadsTheDetailsItAlreadyParsed(t *testing.T) {
+	t.Parallel()
+
+	transport := &peopleForceTransport{pages: map[string]string{
+		"https://acme.peopleforce.io/careers": peopleForceCareersPage("", "one"),
+	}}
+
+	postings, errs := drain(PeopleForce(t.Context(), &http.Client{Transport: transport}, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	// "Engineering, Full Time Position, Any - Remote"
+	test.Eq(t, "Engineering", postings[0].Department)
+	test.Eq(t, internal.EmploymentTypeFullTime, postings[0].EmploymentType)
+	test.Eq(t, internal.WorkplaceTypeRemote, postings[0].WorkplaceType)
+	test.Eq(t, "one", postings[0].ExternalID)
+	test.Eq(t, internal.PostingSource{Platform: peopleForcePlatform, Key: "acme"}, postings[0].Source)
+
+	// The location is still the last segment, exactly as before.
+	test.Eq(t, "Any - Remote", postings[0].Location)
+}
+
+func TestPeopleForceDetailShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		details        string
+		location       string
+		department     string
+		employmentType internal.EmploymentType
+		workplaceType  internal.WorkplaceType
+	}{
+		{
+			name:           "the documented three-part line",
+			details:        "Engineering, Full Time Position, Any - Remote",
+			location:       "Any - Remote",
+			department:     "Engineering",
+			employmentType: internal.EmploymentTypeFullTime,
+			workplaceType:  internal.WorkplaceTypeRemote,
+		},
+		{
+			name:          "no employment type published",
+			details:       "Engineering, Kyiv",
+			location:      "Kyiv",
+			workplaceType: internal.WorkplaceTypeUnknown,
+			// Two segments are ambiguous: "Kyiv, Ukraine" is a location that
+			// happens to contain a comma, and reading its city as a department
+			// would file real postings under one that does not exist. So a
+			// two-part line yields no department at all.
+		},
+		{
+			name:           "two parts where the first is an employment type",
+			details:        "Internship, Berlin",
+			location:       "Berlin",
+			employmentType: internal.EmploymentTypeInternship,
+		},
+		{
+			name:     "location only",
+			details:  "Warsaw",
+			location: "Warsaw",
+		},
+		{
+			name:           "office rather than remote",
+			details:        "Finance, Part Time, Office",
+			location:       "Office",
+			department:     "Finance",
+			employmentType: internal.EmploymentTypePartTime,
+			workplaceType:  internal.WorkplaceTypeOnsite,
+		},
+		{
+			name:       "a place name normalises to no workplace type",
+			details:    "Design, Contract, Kyiv, Ukraine",
+			location:   "Ukraine",
+			department: "Design",
+			// "Contract" is read as an employment type wherever it sits, because
+			// a place name never normalises to one.
+			employmentType: internal.EmploymentTypeContract,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transport := &peopleForceTransport{pages: map[string]string{
+				"https://acme.peopleforce.io/careers": peopleForceCareersPageWithDetails(tt.details),
+			}}
+
+			postings, errs := drain(PeopleForce(t.Context(), &http.Client{Transport: transport}, "acme"))
+
+			must.SliceEmpty(t, errs)
+			must.Len(t, 1, postings)
+
+			test.Eq(t, tt.location, postings[0].Location)
+			test.Eq(t, tt.department, postings[0].Department)
+			test.Eq(t, tt.employmentType, postings[0].EmploymentType)
+			test.Eq(t, tt.workplaceType, postings[0].WorkplaceType)
+		})
 	}
 }
 

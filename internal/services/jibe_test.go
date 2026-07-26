@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -53,6 +54,37 @@ func TestJibeStopsWhenTheBoardIgnoresPage(t *testing.T) {
 	// ends the loop before any of its duplicates are yielded.
 	test.Eq(t, 2, transport.requests)
 	test.Len(t, jibePageSize, postings)
+}
+
+// TestJibeRecordsItsSourceIdentity covers the one enrichment this adapter got.
+//
+// The rest of Jibe's payload stays unmodelled on purpose: no live body has ever
+// been decoded here beyond the four fields the adapter reads, and a guessed
+// field *type* fails the decode and takes the tenant with it — which is exactly
+// what modelling "meta_data" as a struct did to nine large employers. Source is
+// different in kind: it comes from the registration rather than the response, so
+// it needs no guess about what the board sends.
+func TestJibeRecordsItsSourceIdentity(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"jibeapply.com": `{
+			"jobs": [{"data": {
+				"title": "Cloud Security Engineer",
+				"apply_url": "https://acme.jibeapply.com/jobs/1",
+				"full_location": "Chicago, IL"
+			}}],
+			"totalCount": 1,
+			"meta_data": false
+		}`,
+	})
+
+	postings, errs := drain(Jibe(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	test.Eq(t, internal.PostingSource{Platform: jibePlatform, Key: "acme"}, postings[0].Source)
 }
 
 // TestJibeStopsAtItsReportedTotal is a regression test.

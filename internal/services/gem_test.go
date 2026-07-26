@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/companies"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -42,6 +44,14 @@ type gemStubPosting struct {
 	id    string
 	extID string
 	title string
+
+	// The enrichment half of the posting, served only when the query asks for
+	// it, for the same reason as the fields above.
+	publishedSec   int
+	employmentType string
+	requisitionID  string
+	locationType   string
+	locationRemote bool
 }
 
 func (g *gemGraphQLTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -80,7 +90,23 @@ func (g *gemGraphQLTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			fields = append(fields, fmt.Sprintf(`"title":%q`, posting.title))
 		}
 
-		fields = append(fields, `"locations":[{"name":"Remote","city":"Austin","isoCountry":"US"}]`)
+		if strings.Contains(request.Query, " firstPublishedTsSec ") {
+			fields = append(fields, fmt.Sprintf(`"firstPublishedTsSec":%d`, posting.publishedSec))
+		}
+
+		location := `{"name":"Remote","city":"Austin","isoCountry":"US"`
+		if strings.Contains(request.Query, " isRemote ") {
+			location += fmt.Sprintf(`,"isRemote":%t`, posting.locationRemote)
+		}
+
+		fields = append(fields, `"locations":[`+location+`}]`)
+
+		if strings.Contains(request.Query, " job ") {
+			fields = append(fields, fmt.Sprintf(
+				`"job":{"employmentType":%q,"requisitionId":%q,"locationType":%q,"department":{"name":"Engineering"}}`,
+				posting.employmentType, posting.requisitionID, posting.locationType,
+			))
+		}
 
 		rendered = append(rendered, "{"+strings.Join(fields, ",")+"}")
 	}
@@ -94,6 +120,39 @@ func (g *gemGraphQLTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		Body:       io.NopCloser(strings.NewReader(response)),
 		Request:    req,
 	}, nil
+}
+
+// TestDirectEmployersAreRegistered is a regression test.
+//
+// internal/companies held two working, tested adapters that no crawl had ever
+// run. A crawl is assembled from Builtin, every entry of which is added by an
+// init in this package, and `grep -rn "internal/companies"` matched nothing
+// outside that package's own tests — so Oxide and Uber were dead code in the
+// shipped binary. It is the same failure TestBuiltinRegistryIsPopulated guards
+// in the large, and the same one that once silently stopped PeopleForce being
+// crawled.
+func TestDirectEmployersAreRegistered(t *testing.T) {
+	t.Parallel()
+
+	registered := make(map[string]Source)
+
+	for _, source := range Builtin {
+		if source.Platform == companies.DirectPlatform {
+			registered[source.Company] = source
+		}
+	}
+
+	for _, want := range []string{"oxide", "uber"} {
+		source, ok := registered[want]
+
+		must.True(t, ok, must.Sprintf("%q is not in Builtin, so no crawl can reach it", want))
+		test.Eq(t, want, source.Key)
+		must.NotNil(t, source.Jobs)
+	}
+
+	// SourcesMatching is what the CLI narrows a crawl with, so the registration
+	// is only real if it survives that path too.
+	must.SliceNotEmpty(t, SourcesMatching([]string{"oxide"}))
 }
 
 // TestGemBuildsADistinctURLPerPosting is a regression test.
@@ -129,6 +188,65 @@ func TestGemBuildsADistinctURLPerPosting(t *testing.T) {
 
 	must.SliceEmpty(t, errs)
 	must.Len(t, 3, deduped)
+}
+
+// TestGemAsksForTheFieldsItAlreadyModels is a regression test on the same defect
+// class as the missing extId.
+//
+// gemJobs has modelled the department, requisition number, employment type,
+// workplace type and publication date since the adapter was written, and the
+// query never selected any of them. GraphQL returns exactly what is asked for,
+// so each decoded as its zero value forever: modelled, read, and always empty.
+// They ride in the one POST the adapter already sends, so the whole enrichment
+// costs no extra request and no extra round trip.
+func TestGemAsksForTheFieldsItAlreadyModels(t *testing.T) {
+	t.Parallel()
+
+	transport := &gemGraphQLTransport{postings: []gemStubPosting{
+		{
+			id: "uuid-1", extID: "abc123", title: "Security Engineer",
+			publishedSec: 1780000000, employmentType: "FULL_TIME",
+			requisitionID: "JR0012345", locationType: "REMOTE", locationRemote: true,
+		},
+		{
+			id: "uuid-2", extID: "def456", title: "Office Manager",
+			employmentType: "PER_DIEM", locationType: "Flexible",
+		},
+	}}
+
+	postings, errs := drain(Gem(t.Context(), &http.Client{Transport: transport}, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	test.Eq(t, "Engineering", postings[0].Department)
+	test.Eq(t, "JR0012345", postings[0].RequisitionID)
+	test.Eq(t, "abc123", postings[0].ExternalID)
+	test.Eq(t, internal.EmploymentTypeFullTime, postings[0].EmploymentType)
+	test.Eq(t, internal.WorkplaceTypeRemote, postings[0].WorkplaceType)
+	test.Eq(t, internal.PostingSource{Platform: gemPlatform, Key: "acme"}, postings[0].Source)
+	test.Eq(t, time.Unix(1780000000, 0).UTC(), postings[0].PostedAt)
+
+	must.NotNil(t, postings[0].Remote)
+	test.True(t, *postings[0].Remote)
+
+	// Vocabulary the canonical set does not recognise is left empty rather than
+	// guessed at, and epoch zero is "never published" rather than 1970.
+	test.Eq(t, internal.EmploymentTypeUnknown, postings[1].EmploymentType)
+	test.Eq(t, internal.WorkplaceTypeUnknown, postings[1].WorkplaceType)
+	test.True(t, postings[1].PostedAt.IsZero())
+	test.Nil(t, postings[1].Remote)
+}
+
+// TestGemJoinsOnlyThePartsTheBoardFilledIn covers a location string that used to
+// be assembled unconditionally, so a posting with no city read "Remote, , US" —
+// a hole for `--location` substring matching to match around.
+func TestGemJoinsOnlyThePartsTheBoardFilledIn(t *testing.T) {
+	t.Parallel()
+
+	test.Eq(t, "Remote, US", joinNonEmpty(", ", "Remote", "", "US"))
+	test.Eq(t, "Austin", joinNonEmpty(", ", "", "Austin", "  "))
+	test.Eq(t, "", joinNonEmpty(", ", "", ""))
 }
 
 // TestGemFallsBackToTheInternalID covers a tenant that publishes a posting with

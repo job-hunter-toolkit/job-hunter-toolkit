@@ -9,14 +9,21 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
+	"unicode"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 )
 
+// workdayPlatform is the ATS family this file registers, and the value that
+// reaches [internal.PostingSource.Platform].
+const workdayPlatform = "workday"
+
 func init() {
-	registerBuiltin("workday", multiJobsFuncNamed(Workday, WorkdayCompanyURLs, workdayCompanyName))
+	registerBuiltin(workdayPlatform, multiJobsFuncNamed(Workday, WorkdayCompanyURLs, workdayCompanyName))
 
 	for _, companyURL := range WorkdayCompanyURLs {
 		WorkdayCompanies = append(WorkdayCompanies, workdayCompanyName(companyURL))
@@ -331,15 +338,9 @@ const (
 )
 
 type workdayInfo struct {
-	Total       int `json:"total"`
-	JobPostings []struct {
-		Title         string   `json:"title"`
-		ExternalPath  string   `json:"externalPath"`
-		LocationsText string   `json:"locationsText"`
-		PostedOn      string   `json:"postedOn"`
-		BulletFields  []string `json:"bulletFields"`
-	} `json:"jobPostings"`
-	Facets []struct {
+	Total       int              `json:"total"`
+	JobPostings []workdayPosting `json:"jobPostings"`
+	Facets      []struct {
 		FacetParameter string `json:"facetParameter"`
 		Descriptor     string `json:"descriptor,omitempty"`
 		Values         []struct {
@@ -349,6 +350,163 @@ type workdayInfo struct {
 		} `json:"values"`
 	} `json:"facets"`
 	UserAuthenticated bool `json:"userAuthenticated"`
+}
+
+// workdayPosting is one opening on a page of a tenant's search results.
+//
+// PostedOn and BulletFields have been decoded since this adapter was written and
+// were never read. Both need interpreting rather than copying, which is why they
+// have helpers of their own below.
+type workdayPosting struct {
+	Title         string `json:"title"`
+	ExternalPath  string `json:"externalPath"`
+	LocationsText string `json:"locationsText"`
+
+	// PostedOn is relative English prose, not a timestamp: "Posted Today",
+	// "Posted 5 Days Ago", "Posted 30+ Days Ago".
+	PostedOn string `json:"postedOn"`
+
+	// BulletFields is whatever the tenant chose to show under a posting's title,
+	// so it is a list of arbitrary strings rather than a typed record. It
+	// commonly leads with the requisition number.
+	BulletFields []string `json:"bulletFields"`
+}
+
+// unlabelledEmploymentTypes are the exact values that mean an employment type
+// when they turn up in a list of strings the board did not label.
+//
+// Two platforms here publish such a list: Workday's per-tenant "bulletFields"
+// and the unnamed cells of a Jobvite search row. Either may hold a job family, a
+// requisition number, a brand, or a time type, in a per-tenant order, so the
+// only way to read one is to recognise its contents.
+//
+// The gate is exact on purpose. [internal.NormalizeEmploymentType] deliberately
+// matches a distinctive word *inside* a value, which is how it reads "Full Time
+// Position" and "Intern (Summer 2026)" — correct when the board has told you the
+// field is an employment type, and wrong the moment it has not: an unfiltered
+// bullet would file a job family named "Contracts Management" as contract work.
+// A wrong employment type is worse than an absent one, because a filter cannot
+// tell it from a right one.
+var unlabelledEmploymentTypes = map[string]bool{
+	"full time":  true,
+	"full-time":  true,
+	"fulltime":   true,
+	"part time":  true,
+	"part-time":  true,
+	"parttime":   true,
+	"intern":     true,
+	"internship": true,
+	"temporary":  true,
+	"seasonal":   true,
+	"contract":   true,
+	"contractor": true,
+	"volunteer":  true,
+}
+
+// employmentTypeFromUnlabelled normalizes one string out of an unlabelled list,
+// reporting false unless it is recognisably an employment type on its own.
+func employmentTypeFromUnlabelled(field string) (internal.EmploymentType, bool) {
+	if !unlabelledEmploymentTypes[strings.ToLower(strings.TrimSpace(field))] {
+		return internal.EmploymentTypeUnknown, false
+	}
+
+	return internal.NormalizeEmploymentType(field)
+}
+
+// workdayEmploymentType reads a tenant's time type out of its bullet fields,
+// returning unknown when none of them is one.
+func workdayEmploymentType(bulletFields []string) internal.EmploymentType {
+	for _, field := range bulletFields {
+		if employment, ok := employmentTypeFromUnlabelled(field); ok {
+			return employment
+		}
+	}
+
+	return internal.EmploymentTypeUnknown
+}
+
+// workdayRequisitionID picks the employer's requisition number out of a
+// posting's bullet fields, returning "" when none of them looks like one.
+//
+// Workday does not label the bullets, so the value has to be recognised by
+// shape. A requisition number holds at least one letter and at least one digit
+// and no whitespace: "JR0012345", "R-00012345", "REQ-4821". That shape excludes
+// the other things tenants put in this list — a time type ("Full time") and a
+// site ("San Francisco, CA") contain spaces, a job family ("Engineering") has no
+// digit, and a bare date ("2024-01-15") has no letter. It also declines
+// all-numeric requisition numbers, which some tenants do use: leaving a field
+// empty is recoverable, filling it with a posting's headcount or its salary band
+// is not.
+func workdayRequisitionID(bulletFields []string) string {
+	for _, field := range bulletFields {
+		field = strings.TrimSpace(field)
+
+		if len(field) < 3 || len(field) > 40 || strings.ContainsFunc(field, unicode.IsSpace) {
+			continue
+		}
+
+		var hasLetter, hasDigit bool
+
+		for _, r := range field {
+			hasLetter = hasLetter || unicode.IsLetter(r)
+			hasDigit = hasDigit || unicode.IsDigit(r)
+		}
+
+		if hasLetter && hasDigit {
+			return field
+		}
+	}
+
+	return ""
+}
+
+// workdayPostedAt converts Workday's relative posting prose into an instant,
+// reporting false when the tenant said nothing that pins one down.
+//
+// Workday publishes "Posted Today", "Posted Yesterday" and "Posted 5 Days Ago"
+// rather than a date, so the only way to get a timestamp is to resolve it
+// against the clock at crawl time; now is passed in so that one crawl dates
+// every posting from a single instant, and so this is testable without a fake
+// clock.
+//
+// Two limits are deliberate. The result is truncated to the day, because that is
+// all the precision the board gave and a to-the-second value would imply more
+// than the source supports. And "Posted 30+ Days Ago" is refused outright: the
+// "+" makes it a lower bound covering everything from a month to three years,
+// and recording it as exactly thirty days would hand [internal.Filter.PostedSince]
+// a date this project made up. An absent PostedAt excludes such a posting from a
+// date filter, which is the same treatment an undisclosed salary gets from a pay
+// floor.
+func workdayPostedAt(raw string, now time.Time) (time.Time, bool) {
+	fields := strings.Fields(strings.ToLower(raw))
+
+	// Every observed value leads with "Posted", but a tenant that renders the
+	// bare phrase is still readable.
+	if len(fields) > 0 && fields[0] == "posted" {
+		fields = fields[1:]
+	}
+
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+
+	switch {
+	case len(fields) == 1 && fields[0] == "today":
+		return day, true
+	case len(fields) == 1 && fields[0] == "yesterday":
+		return day.AddDate(0, 0, -1), true
+	case len(fields) == 3 && (fields[1] == "day" || fields[1] == "days") && fields[2] == "ago":
+		if strings.HasSuffix(fields[0], "+") {
+			return time.Time{}, false
+		}
+
+		days, err := strconv.Atoi(fields[0])
+		if err != nil || days < 0 || days > 3650 {
+			return time.Time{}, false
+		}
+
+		return day.AddDate(0, 0, -days), true
+	}
+
+	return time.Time{}, false
 }
 
 // Workday returns the job postings found at a given Workday URL using the provided HTTP client.
@@ -382,6 +540,12 @@ func Workday(ctx context.Context, httpClient *http.Client, rawURL string) intern
 		ctx, cancel := context.WithCancel(parentCtx)
 		defer cancel()
 
+		// One instant for the whole tenant, taken before any page is fetched, so
+		// that a crawl of a large employer does not date its first page and its
+		// last page against clocks minutes apart. Workday publishes posting age
+		// relative to "now" rather than as a date; see [workdayPostedAt].
+		crawledAt := time.Now().UTC()
+
 		// emit hands one page's postings to the consumer. It reports whether
 		// iteration should continue; a false result means either the consumer
 		// asked to stop or the caller's context was cancelled, and in the latter
@@ -394,12 +558,22 @@ func Workday(ctx context.Context, httpClient *http.Client, rawURL string) intern
 					return false
 				}
 
-				if !yield(&internal.JobPosting{
+				posting := &internal.JobPosting{
 					Title:    job.Title,
 					URL:      fmt.Sprintf("%s%s", rawURL, job.ExternalPath),
 					Location: cmp.Or(job.LocationsText, "unknown"),
 					Company:  company,
-				}, nil) {
+
+					EmploymentType: workdayEmploymentType(job.BulletFields),
+					RequisitionID:  workdayRequisitionID(job.BulletFields),
+					Source:         internal.PostingSource{Platform: workdayPlatform, Key: rawURL},
+				}
+
+				if postedAt, ok := workdayPostedAt(job.PostedOn, crawledAt); ok {
+					posting.PostedAt = postedAt
+				}
+
+				if !yield(posting, nil) {
 					return false
 				}
 			}

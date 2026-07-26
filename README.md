@@ -61,7 +61,13 @@ case-insensitive substring matching against the text the board publishes.
 | `--remote` | only postings that look remote |
 | `--has-pay` | only postings that publish a pay range |
 | `--min-pay` | only postings paying at least this much per year (hourly rates are annualized) |
+| `--department` | only postings whose department or team contains any of these terms |
+| `--employment-type` | `full_time`, `part_time`, `contract`, `internship`, `temporary`, `volunteer`; board spellings like `Full-Time` are accepted |
+| `--workplace-type` | `remote`, `hybrid`, or `onsite` |
+| `--posted-since` | only postings published since a date (`2026-01-31`) or an age (`7d`, `2w`, `72h`) |
 | `--json` / `--csv` | machine-readable output |
+| `--csv-columns` | `core` (the frozen 8 columns), `extended`, or an explicit list |
+| `--csv-header` | write a header row |
 | `--stats` | print a summary to stderr when the crawl finishes |
 | `--concurrency` | how many sources to fetch at once |
 | `--timeout` | overall time budget |
@@ -228,6 +234,19 @@ one-line change rather than a new scraper.
 | Gem | |
 | Jobvite | Mid-size and large enterprises |
 | PeopleForce | Popular in Europe |
+| SAP SuccessFactors | Very large enterprises; one request returns a whole employer's openings |
+| Oracle Cloud HCM | Large enterprises, hospitals, and universities |
+| Teamtailor | Small and mid-size companies, strong in the Nordics |
+| Personio | Small and mid-size companies, strong in Europe |
+| Recruitee | Small and mid-size companies |
+| Pinpoint | Small and mid-size companies |
+
+The six platforms below PeopleForce were added from documented endpoint shapes
+rather than from boards this project has crawled, so each registers a small,
+deliberately conservative set of tenants. Several thousand further candidate
+tenants are staged, unregistered, in `internal/services/testdata/candidates/`;
+they are promoted only once a live `health` run confirms them, because a tenant
+that 404s is indistinguishable in aggregate from an adapter that never worked.
 
 A source is identified two ways: the **key** its platform uses to fetch it (a
 board slug, a Workday tenant URL, a Phenom hostname) and the readable **company

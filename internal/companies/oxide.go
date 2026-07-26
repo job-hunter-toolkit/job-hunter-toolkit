@@ -11,6 +11,60 @@ import (
 	"golang.org/x/net/html"
 )
 
+// DirectPlatform is the platform name the adapters in this package register
+// under, and the value that reaches [jobpostings.PostingSource.Platform].
+//
+// They are not an ATS family: each one talks to a single employer's own careers
+// site, so there is no shared vendor to name. Grouping them under one name still
+// matters, because the crawl interleaves work by platform to keep one backend
+// from consuming every worker.
+const DirectPlatform = "direct"
+
+// oxideCompany is the identifier this employer is crawled and filtered by.
+//
+// Lower case to match every other source in the registry: the company list is
+// sorted case-insensitively but printed verbatim, and `--company oxide` is
+// compared against this string.
+const oxideCompany = "oxide"
+
+// Sources describes the direct-employer adapters in this package so that
+// package services can register them into the crawl.
+//
+// It exists because those adapters were never in the crawl at all. A crawl is
+// assembled from services.Builtin, every entry of which is added by an init in
+// package services, and `grep -rn "internal/companies"` matched nothing outside
+// this package's own tests: Oxide and Uber have been maintained, tested, and
+// completely unreachable from the CLI. Both were dead code in the binary.
+//
+// The registration itself has to happen inside package services, because
+// registerBuiltin is unexported there and this package cannot import it without
+// creating an import cycle. So the naming and the adapters stay here, where they
+// belong, and the services side is a single call.
+func Sources() []Source {
+	return []Source{
+		{Key: oxideCompany, Company: oxideCompany, Jobs: Oxide},
+		{Key: uberCompany, Company: uberCompany, Jobs: Uber},
+	}
+}
+
+// Source is one direct-employer adapter: how it is keyed, how it is named, and
+// how it fetches.
+//
+// It mirrors the fields services.Source needs rather than being that type,
+// which would be an import cycle.
+type Source struct {
+	// Key identifies the employer to its own careers site, and Company is the
+	// name a person would recognise. They are the same string for every adapter
+	// here, and are kept separate anyway because the registry distinguishes
+	// them: conflating the two once put raw tenant URLs into the user-facing
+	// company list and made `--company` silently match nothing.
+	Key     string
+	Company string
+
+	// Jobs fetches this employer's postings.
+	Jobs jobpostings.JobsFunc
+}
+
 // Oxide returns a jobpostings.Jobs function for Oxide Computing.
 // It scrapes the Oxide careers page at "https://oxide.computer/careers"
 // and yields all discovered job postings.
@@ -81,7 +135,8 @@ func Oxide(ctx context.Context, httpClient *http.Client) jobpostings.Jobs {
 			// Extract the location from the last <div> child of the link.
 			jp.Location = extractLastDivText(a)
 			// Set the company field.
-			jp.Company = "Oxide"
+			jp.Company = oxideCompany
+			jp.Source = jobpostings.PostingSource{Platform: DirectPlatform, Key: oxideCompany}
 			if !yield(&jp, nil) {
 				return
 			}

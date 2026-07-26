@@ -5,7 +5,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -49,6 +51,57 @@ func TestJobviteStartsAtPageZero(t *testing.T) {
 	if !strings.Contains(transport.requests[0], "p=0") {
 		t.Errorf("first request = %q, want page zero", transport.requests[0])
 	}
+}
+
+// TestJobviteReadsTheCellsItSteppedOver is a regression test.
+//
+// The walk from a job link to its location advanced exactly three siblings, so
+// the two cells in between were parsed into the document, held in memory, and
+// never looked at. They are read by content rather than by position because the
+// row has no headers and tenants order their columns differently.
+func TestJobviteReadsTheCellsItSteppedOver(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"p=0": `<table>` +
+			`<tr>` +
+			`<td><a href="/acme/job/oQ1Yjfwv">Platform Engineer</a></td>` +
+			`<td>Full-time</td><td>Jan 6, 2026</td><td>Detroit, Michigan</td>` +
+			`</tr>` +
+			`<tr>` +
+			`<td><a href="/acme/job/aB2Zkgxw?src=rss">Contracts Manager</a></td>` +
+			`<td>Contracts Management</td><td>REQ-4821</td><td>Austin, Texas</td>` +
+			`</tr>` +
+			`</table>`,
+		"p=1": `<p ng-non-bindable>No more results</p>`,
+	})
+
+	postings, errs := drain(Jobvite(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	test.Eq(t, internal.EmploymentTypeFullTime, postings[0].EmploymentType)
+	test.Eq(t, time.Date(2026, time.January, 6, 0, 0, 0, 0, time.UTC), postings[0].PostedAt)
+	test.Eq(t, "oQ1Yjfwv", postings[0].ExternalID)
+	test.Eq(t, internal.PostingSource{Platform: jobvitePlatform, Key: "acme"}, postings[0].Source)
+
+	// The location cell is unchanged: still the fourth cell of the row.
+	test.Eq(t, "Detroit, Michigan", postings[0].Location)
+
+	// A job family whose name contains "Contract" must not be read as contract
+	// work. These cells are unlabelled, so the normalizer's substring matching —
+	// right when a board says the field is an employment type — has to be gated
+	// behind an exact match here.
+	test.Eq(t, internal.EmploymentTypeUnknown, postings[1].EmploymentType)
+
+	// A requisition number is not a date, and nothing else in the row is read at
+	// all: "whatever is left over" is as likely to be a brand as a department.
+	test.True(t, postings[1].PostedAt.IsZero())
+	test.Eq(t, "", postings[1].Department)
+
+	// Tracking parameters are not part of the identifier.
+	test.Eq(t, "aB2Zkgxw", postings[1].ExternalID)
 }
 
 // jobviteSearchPage renders the rows of a Jobvite search result the way the

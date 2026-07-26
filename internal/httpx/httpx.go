@@ -339,6 +339,41 @@ type servicePolicy struct {
 	cooldown      time.Duration
 }
 
+// ServicePolicy reports how the client will treat one service, for callers that
+// need to check coverage rather than make a request.
+//
+// It exists because the interesting property is negative: a platform that
+// matches no policy is not obviously broken, it simply runs unpaced, and six
+// platforms were registered that way at once without anything failing. A test
+// over the source registry can now assert every platform is accounted for.
+type ServicePolicy struct {
+	// Key is the limiter identity. Tenants of one shared backend must share it.
+	Key string
+
+	// MaxConcurrent bounds in-flight requests to Key.
+	MaxConcurrent int
+
+	// Interval is the minimum spacing between requests to Key. Zero means the
+	// generic policy matched and no pacing is applied.
+	Interval time.Duration
+
+	// Cooldown is how long a 429 from Key delays its siblings.
+	Cooldown time.Duration
+}
+
+// ServicePolicyForHost reports the policy that would apply to a request to host.
+func ServicePolicyForHost(host string, defaultLimit int) ServicePolicy {
+	req := &http.Request{URL: &url.URL{Scheme: "https", Host: host}}
+	policy := servicePolicyFor(req, defaultLimit)
+
+	return ServicePolicy{
+		Key:           policy.key,
+		MaxConcurrent: policy.maxConcurrent,
+		Interval:      policy.interval,
+		Cooldown:      policy.cooldown,
+	}
+}
+
 // servicePolicyFor captures only platform behavior verified in this project.
 // Unknown hosts get the generic exact-host policy instead of being guessed into
 // a shared bucket.
@@ -398,9 +433,66 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 		policy.maxConcurrent = min(defaultLimit, 4)
 		policy.interval = 25 * time.Millisecond
 		policy.cooldown = 10 * time.Second
+	case strings.HasSuffix(host, ".teamtailor.com"),
+		strings.HasSuffix(host, ".recruitee.com"),
+		strings.HasSuffix(host, ".pinpointhq.com"),
+		strings.HasSuffix(host, ".jobs.personio.de"):
+		// Four SMB platforms that give every tenant its own subdomain on one
+		// shared backend, exactly like bamboohr.com and peopleforce.io above.
+		// The generic policy keys on the exact host, so without this each of
+		// their ~35 tenants would get a private limiter and the platform would
+		// see up to 35*4 concurrent requests from one crawl. That is how 56
+		// Workable boards were rate-limited into looking dead, which is the
+		// incident the shared keys exist to prevent. One key per platform.
+		policy.key = registrableSuffix(host)
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
+	case strings.HasSuffix(host, ".successfactors.com"),
+		strings.HasSuffix(host, ".successfactors.eu"):
+		// SAP serves every RMK tenant from a handful of numbered pods
+		// (career2.successfactors.eu, career5..., and so on), so the generic
+		// exact-host key already groups tenants the way the infrastructure
+		// does: one measured pod carries 17 of the 30 tenants registered here.
+		// The key is therefore left alone deliberately. What the generic policy
+		// does not supply is pacing, and an unpaced burst is precisely what a
+		// pod with 17 tenants behind it would feel, so add spacing and a long
+		// cooldown without collapsing genuinely separate pods together.
+		policy.maxConcurrent = min(defaultLimit, 2)
+		policy.interval = 100 * time.Millisecond
+		policy.cooldown = 30 * time.Second
+	case strings.HasSuffix(host, ".oraclecloud.com"):
+		// Oracle Cloud HCM is the opposite case, and the reason this is not
+		// simply grouped by registrable domain: every tenant has its own host
+		// and, as far as can be told from outside, its own pod. Collapsing them
+		// onto one "oraclecloud.com" key would throttle 30 unrelated employers
+		// to four requests between them, which is the mistake
+		// TestTenantIsolatedBackendsStayIndependent exists to prevent for
+		// Workday and Phenom. Keep the per-host key; add pacing only.
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
 	}
 
 	return policy
+}
+
+// registrableSuffix returns the last two labels of a hostname, which is the
+// limiter key shared by every tenant of a one-backend-many-subdomains platform.
+//
+// It is deliberately naive: it is only ever called from a switch arm that has
+// already matched a specific known platform suffix, so it never has to reason
+// about multi-label public suffixes such as .co.uk. Personio is why it takes the
+// last two labels rather than the matched suffix itself; its tenants live at
+// {slug}.jobs.personio.de, so the matched suffix and the shared backend are not
+// the same string.
+func registrableSuffix(host string) string {
+	labels := strings.Split(host, ".")
+	if len(labels) < 2 {
+		return host
+	}
+
+	return strings.Join(labels[len(labels)-2:], ".")
 }
 
 // state returns the limiter state for a service, creating it on first use.

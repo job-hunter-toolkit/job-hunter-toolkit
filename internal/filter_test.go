@@ -2,10 +2,14 @@ package internal_test
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 func TestIsRemote(t *testing.T) {
@@ -563,4 +567,266 @@ func TestIsRemotePrefersStructuredFlag(t *testing.T) {
 	if !(&internal.JobPosting{Location: "Remote"}).IsRemote() {
 		t.Error("heuristic failed when no structured flag was present")
 	}
+}
+
+// constrainingTerm is a term no posting in these tests contains, so a filter
+// built from it constrains something no matter which field it lands in.
+const constrainingTerm = "zzz-no-posting-says-this"
+
+// constrainingInstant is a non-zero cutoff for time-valued filter fields.
+var constrainingInstant = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// fieldsSatisfiedByAnEmptyPosting names the [internal.Filter] fields whose
+// constraint a posting carrying no data genuinely meets, and says why. Every
+// other field must reject one.
+var fieldsSatisfiedByAnEmptyPosting = map[string]string{
+	"ExcludeTitles": "an exclusion is satisfied by a posting containing none of its terms",
+}
+
+// TestFilterFieldsAreWiredIn is the guard for the trap this filter has already
+// fallen into once.
+//
+// [internal.Filter.Apply] returns its input untouched when IsZero reports true,
+// and IsZero enumerates its fields by hand. A field added to the struct and to
+// the CLI but forgotten in IsZero makes its flag match the entire crawl: no
+// error, no log line, just a wrong answer at 473,000 postings of scale. A field
+// forgotten in Match does the same thing one layer down.
+//
+// So this walks the struct by reflection instead of trusting anyone to remember.
+// A new field fails here until it is wired into both, and a field whose type this
+// test cannot build fails with instructions rather than passing vacuously.
+func TestFilterFieldsAreWiredIn(t *testing.T) {
+	t.Parallel()
+
+	typ := reflect.TypeFor[internal.Filter]()
+
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+
+		t.Run(field.Name, func(t *testing.T) {
+			t.Parallel()
+
+			must.True(t, field.IsExported(), must.Sprintf(
+				"Filter.%s is unexported, so this reflection guard cannot set it; "+
+					"cover it with an equivalent test inside package internal",
+				field.Name))
+
+			value := reflect.New(typ).Elem()
+			value.Field(i).Set(constrainingValue(t, field.Type))
+
+			filter, ok := value.Interface().(internal.Filter)
+			must.True(t, ok)
+
+			must.False(t, filter.IsZero(), must.Sprintf(
+				"Filter.IsZero() ignores %s, so a filter setting only that field would pass "+
+					"straight through Apply and silently match every posting; add %s to IsZero",
+				field.Name, field.Name))
+
+			if why, expected := fieldsSatisfiedByAnEmptyPosting[field.Name]; expected {
+				t.Logf("Filter.%s may match an empty posting: %s", field.Name, why)
+
+				return
+			}
+
+			must.False(t, filter.Match(&internal.JobPosting{}), must.Sprintf(
+				"Filter.Match() ignores %s: a posting with no data satisfied a constraint on it. "+
+					"Wire the field into Match, or record it in fieldsSatisfiedByAnEmptyPosting with a reason",
+				field.Name))
+		})
+	}
+}
+
+// constrainingValue builds a value for a filter field that is guaranteed to
+// constrain something, for whichever type a future field turns out to have.
+func constrainingValue(t *testing.T, typ reflect.Type) reflect.Value {
+	t.Helper()
+
+	// time.Time is a struct with unexported fields, so it needs naming rather
+	// than deriving.
+	if typ == reflect.TypeFor[time.Time]() {
+		return reflect.ValueOf(constrainingInstant)
+	}
+
+	value := reflect.New(typ).Elem()
+
+	switch typ.Kind() {
+	case reflect.Bool:
+		value.SetBool(true)
+	case reflect.String:
+		value.SetString(constrainingTerm)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		value.SetInt(1)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		value.SetUint(1)
+	case reflect.Float32, reflect.Float64:
+		value.SetFloat(1)
+	case reflect.Slice:
+		return reflect.Append(reflect.MakeSlice(typ, 0, 1), constrainingValue(t, typ.Elem()))
+	case reflect.Pointer:
+		pointer := reflect.New(typ.Elem())
+		pointer.Elem().Set(constrainingValue(t, typ.Elem()))
+
+		return pointer
+	default:
+		t.Fatalf("no constraining value known for filter field type %s; "+
+			"teach constrainingValue about it, and check Filter.IsZero and Filter.Match handle it", typ)
+	}
+
+	return value
+}
+
+func TestFilterDepartments(t *testing.T) {
+	t.Parallel()
+
+	// Department and team are searched together because platforms disagree about
+	// which one holds the word a person would type: Lever files "Engineering"
+	// under categories.department and "Platform" under categories.team.
+	byDepartment := &internal.JobPosting{Title: "Engineer", Department: "Engineering", Team: "Platform"}
+	byTeamOnly := &internal.JobPosting{Title: "Engineer", Team: "Security Engineering"}
+	unlabelled := &internal.JobPosting{Title: "Engineer"}
+
+	test.True(t, internal.Filter{Departments: []string{"engineering"}}.Match(byDepartment))
+	test.True(t, internal.Filter{Departments: []string{"platform"}}.Match(byDepartment))
+	test.True(t, internal.Filter{Departments: []string{"engineering"}}.Match(byTeamOnly))
+	test.False(t, internal.Filter{Departments: []string{"marketing"}}.Match(byDepartment))
+
+	// Boards that publish no department cannot satisfy a department filter.
+	test.False(t, internal.Filter{Departments: []string{"engineering"}}.Match(unlabelled))
+
+	// Terms within the flag are OR-ed, and the flag is AND-ed with the others.
+	test.True(t, internal.Filter{Departments: []string{"marketing", "platform"}}.Match(byDepartment))
+	test.False(t, internal.Filter{
+		Departments: []string{"engineering"},
+		Titles:      []string{"recruiter"},
+	}.Match(byDepartment))
+
+	test.False(t, internal.Filter{Departments: []string{"engineering"}}.IsZero())
+	test.True(t, internal.Filter{Departments: []string{"", "  "}}.IsZero())
+}
+
+func TestFilterEmploymentType(t *testing.T) {
+	t.Parallel()
+
+	fullTime := &internal.JobPosting{Title: "Engineer", EmploymentType: internal.EmploymentTypeFullTime}
+	contract := &internal.JobPosting{Title: "Engineer", EmploymentType: internal.EmploymentTypeContract}
+	unlabelled := &internal.JobPosting{Title: "Engineer"}
+
+	onlyContract := internal.Filter{EmploymentTypes: []internal.EmploymentType{internal.EmploymentTypeContract}}
+
+	test.True(t, onlyContract.Match(contract))
+	test.False(t, onlyContract.Match(fullTime))
+
+	// Matching is equality against the normalized vocabulary, never substring:
+	// "contract" is a prefix of "contractor" and "intern" of "internship", so a
+	// substring filter would merge the categories this schema exists to separate.
+	test.False(t, internal.Filter{
+		EmploymentTypes: []internal.EmploymentType{"contractor"},
+	}.Match(contract))
+
+	// A posting whose board published nothing is excluded, following the
+	// precedent MinAnnual sets for undisclosed pay.
+	test.False(t, onlyContract.Match(unlabelled))
+
+	either := internal.Filter{EmploymentTypes: []internal.EmploymentType{
+		internal.EmploymentTypeContract,
+		internal.EmploymentTypeFullTime,
+	}}
+
+	test.True(t, either.Match(fullTime))
+	test.True(t, either.Match(contract))
+
+	test.False(t, onlyContract.IsZero())
+	test.True(t, internal.Filter{EmploymentTypes: []internal.EmploymentType{""}}.IsZero())
+}
+
+func TestFilterWorkplaceType(t *testing.T) {
+	t.Parallel()
+
+	remote := internal.Filter{WorkplaceTypes: []internal.WorkplaceType{internal.WorkplaceTypeRemote}}
+	hybrid := internal.Filter{WorkplaceTypes: []internal.WorkplaceType{internal.WorkplaceTypeHybrid}}
+	onsite := internal.Filter{WorkplaceTypes: []internal.WorkplaceType{internal.WorkplaceTypeOnsite}}
+
+	structuredRemote := &internal.JobPosting{Location: "New York", WorkplaceType: internal.WorkplaceTypeRemote}
+	structuredOnsite := &internal.JobPosting{Location: "Remote-friendly office", WorkplaceType: internal.WorkplaceTypeOnsite}
+
+	// The board's own answer beats the location text, exactly as it does for the
+	// structured remote flag.
+	test.True(t, remote.Match(structuredRemote))
+	test.False(t, onsite.Match(structuredRemote))
+	test.True(t, onsite.Match(structuredOnsite))
+	test.False(t, remote.Match(structuredOnsite))
+
+	// Only a minority of adapters publish the structured field, so remote and
+	// hybrid fall back to the text heuristics rather than reporting almost
+	// nothing across a 1,900-source crawl.
+	test.True(t, remote.Match(&internal.JobPosting{Location: "Remote - US"}))
+	test.True(t, hybrid.Match(&internal.JobPosting{Location: "Hybrid - Austin, TX"}))
+	test.False(t, remote.Match(&internal.JobPosting{Location: "Austin, TX"}))
+
+	// Onsite has no fallback on purpose: the absence of the word "remote" is not
+	// evidence that an employer requires an office.
+	test.False(t, onsite.Match(&internal.JobPosting{Location: "Austin, TX"}))
+
+	test.False(t, remote.IsZero())
+	test.True(t, internal.Filter{WorkplaceTypes: []internal.WorkplaceType{""}}.IsZero())
+}
+
+func TestFilterPostedSince(t *testing.T) {
+	t.Parallel()
+
+	cutoff := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	since := internal.Filter{PostedSince: cutoff}
+
+	fresh := &internal.JobPosting{Title: "Engineer", PostedAt: cutoff.Add(24 * time.Hour)}
+	stale := &internal.JobPosting{Title: "Engineer", PostedAt: cutoff.Add(-24 * time.Hour)}
+	exactly := &internal.JobPosting{Title: "Engineer", PostedAt: cutoff}
+	undated := &internal.JobPosting{Title: "Engineer"}
+
+	test.True(t, since.Match(fresh))
+	test.False(t, since.Match(stale))
+
+	// The cutoff is inclusive, so a posting published exactly at it survives.
+	test.True(t, since.Match(exactly))
+
+	// Most boards publish no date at all. Treating those as recent would quietly
+	// fill a "last week" query with postings of unknown age.
+	test.False(t, since.Match(undated))
+
+	// An update is not a publication: editing a description does not make a
+	// nine-month-old requisition new.
+	test.False(t, since.Match(&internal.JobPosting{Title: "Engineer", UpdatedAt: cutoff.Add(24 * time.Hour)}))
+
+	// Comparison is by instant, not by wall-clock text, so a posting dated in
+	// another zone compares correctly.
+	elsewhere := time.FixedZone("UTC+9", 9*60*60)
+	test.True(t, since.Match(&internal.JobPosting{
+		Title:    "Engineer",
+		PostedAt: cutoff.Add(time.Hour).In(elsewhere),
+	}))
+
+	test.False(t, since.IsZero())
+}
+
+func TestFilterApplyHonoursANewFieldAlone(t *testing.T) {
+	t.Parallel()
+
+	// End-to-end version of the IsZero trap: Apply short-circuits on IsZero, so a
+	// filter carrying only one of the new fields has to actually filter rather
+	// than pass the crawl through untouched.
+	jobs := internal.Jobs(func(yield func(*internal.JobPosting, error) bool) {
+		yield(&internal.JobPosting{Title: "Engineer", EmploymentType: internal.EmploymentTypeInternship}, nil)
+		yield(&internal.JobPosting{Title: "Engineer", EmploymentType: internal.EmploymentTypeFullTime}, nil)
+		yield(&internal.JobPosting{Title: "Engineer"}, nil)
+	})
+
+	filter := internal.Filter{EmploymentTypes: []internal.EmploymentType{internal.EmploymentTypeInternship}}
+
+	var kept []internal.EmploymentType
+	for job, err := range filter.Apply(jobs) {
+		must.NoError(t, err)
+
+		kept = append(kept, job.EmploymentType)
+	}
+
+	must.Eq(t, []internal.EmploymentType{internal.EmploymentTypeInternship}, kept)
 }

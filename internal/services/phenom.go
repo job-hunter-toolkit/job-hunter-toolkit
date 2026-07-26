@@ -8,12 +8,17 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 )
 
+// phenomPlatform is the ATS family this file registers, and the value that
+// reaches [internal.PostingSource.Platform].
+const phenomPlatform = "phenom"
+
 func init() {
-	registerBuiltin("phenom", multiJobsFuncNamed(Phenom, PhenomCompanies, phenomCompanyName))
+	registerBuiltin(phenomPlatform, multiJobsFuncNamed(Phenom, PhenomCompanies, phenomCompanyName))
 }
 
 // phenomPageSize is the number of postings requested per page.
@@ -70,14 +75,61 @@ var PhenomCompanies = []string{
 // client's own search API.
 type phenomSearchResults struct {
 	Data struct {
-		Jobs []struct {
-			Title     string `json:"title"`
-			CityState string `json:"cityState"`
-			Location  string `json:"location"`
-			ApplyURL  string `json:"applyUrl"`
-			JobID     string `json:"jobId"`
-		} `json:"jobs"`
+		Jobs []phenomJob `json:"jobs"`
 	} `json:"data"`
+}
+
+// phenomJob is one opening in the embedded search payload.
+//
+// PostedDate, Type and Category arrive in the same blob the adapter already
+// downloads and parses, so reading them costs nothing: no extra request, no
+// extra byte, no new host. They are typed `any` rather than string because,
+// unlike the four fields above them, no response from a real tenant has been
+// decoded here to confirm their JSON type — this container cannot reach a Phenom
+// site. An `any` cannot fail a decode, and one failed decode here loses the
+// whole page and therefore the whole tenant, which is exactly how a fixed type
+// for Jibe's "meta_data" silently disabled nine large employers.
+type phenomJob struct {
+	Title     string `json:"title"`
+	CityState string `json:"cityState"`
+	Location  string `json:"location"`
+	ApplyURL  string `json:"applyUrl"`
+	JobID     string `json:"jobId"`
+
+	PostedDate any `json:"postedDate"`
+	Type       any `json:"type"`
+	Category   any `json:"category"`
+}
+
+// phenomDateLayouts are the timestamp spellings accepted for "postedDate".
+//
+// Only unambiguous ones. A slash-separated date is deliberately absent: 03/04
+// is the third of April to half the world and the fourth of March to the other
+// half, and there is no field in the payload that says which tenant means which.
+// Guessing would put a date a month wrong into [internal.Filter.PostedSince],
+// where nothing downstream could ever notice; leaving it empty is visible.
+var phenomDateLayouts = []string{
+	time.RFC3339,
+	"2006-01-02T15:04:05",
+	"2006-01-02 15:04:05",
+	"2006-01-02",
+}
+
+// phenomPostedAt converts a posting's "postedDate" to UTC, reporting false when
+// it is missing or in a spelling this does not know.
+func phenomPostedAt(raw any) (time.Time, bool) {
+	text := anyText(raw)
+	if text == "" {
+		return time.Time{}, false
+	}
+
+	for _, layout := range phenomDateLayouts {
+		if posted, err := time.Parse(layout, text); err == nil {
+			return posted.UTC(), true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 // phenomEagerLoadMarker precedes the embedded search payload in a
@@ -220,12 +272,30 @@ func Phenom(ctx context.Context, httpClient *http.Client, company string) intern
 					locationStr = "unknown/remote"
 				}
 
-				if !yield(&internal.JobPosting{
+				posting := &internal.JobPosting{
 					Company:  companyName,
 					URL:      urlStr,
 					Title:    titleStr,
 					Location: locationStr,
-				}, nil) {
+
+					// Phenom's "category" is the job family a tenant files the
+					// posting under, which is what this project calls a
+					// department; it is the field a person means by
+					// `--department engineering` on these boards.
+					Department: anyText(job.Category),
+					ExternalID: job.JobID,
+					Source:     internal.PostingSource{Platform: phenomPlatform, Key: company},
+				}
+
+				if employment, ok := internal.NormalizeEmploymentType(anyText(job.Type)); ok {
+					posting.EmploymentType = employment
+				}
+
+				if posted, ok := phenomPostedAt(job.PostedDate); ok {
+					posting.PostedAt = posted
+				}
+
+				if !yield(posting, nil) {
 					return
 				}
 			}

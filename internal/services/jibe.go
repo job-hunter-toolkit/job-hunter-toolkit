@@ -11,8 +11,12 @@ import (
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 )
 
+// jibePlatform is the ATS family this file registers, and the value that reaches
+// [internal.PostingSource.Platform].
+const jibePlatform = "jibe"
+
 func init() {
-	registerBuiltin("jibe", multiJobsFunc(Jibe, JibeCompanies))
+	registerBuiltin(jibePlatform, multiJobsFunc(Jibe, JibeCompanies))
 }
 
 // jibePageSize is the number of postings requested per page.
@@ -111,6 +115,19 @@ var JibeCompanies = []string{
 // here: some fields are polymorphic across tenants, the top-level "meta_data"
 // is an object for some companies and a bare `false` for others; so decoding
 // them into fixed Go types made every such tenant fail to decode.
+//
+// That extra metadata is still unmodelled after the schema grew a department,
+// an employment type and a posting date, and the reason is worth writing down
+// rather than rediscovering. Nothing in this repository has ever decoded a live
+// Jibe body beyond the four fields below, and this container cannot reach
+// jibeapply.com to capture one. The names a schema.org-derived payload would
+// plausibly use — employmentType, datePosted, jobLocation — are a guess, and a
+// guessed *name* silently yields nothing while a guessed *type* fails the decode
+// and takes the whole tenant with it. That is not hypothetical here: it is
+// exactly what "meta_data" did to nine large employers, including the biggest
+// source in the project. Capture one real response per tenant shape in Actions
+// first (docs/adding-a-source.md), then model against it; the mapping itself is
+// a handful of lines once the body is in hand.
 type jibeJobs struct {
 	Jobs []struct {
 		Data struct {
@@ -229,6 +246,7 @@ func Jibe(ctx context.Context, httpClient *http.Client, company string) internal
 						Title:        titleStr,
 						Location:     locationStr,
 						Compensation: jibeCompensation(item.Data.SalaryMin, item.Data.SalaryMax, item.Data.SalaryCurrency, item.Data.SalaryFrequency),
+						Source:       internal.PostingSource{Platform: jibePlatform, Key: company},
 					}, nil) {
 						return
 					}

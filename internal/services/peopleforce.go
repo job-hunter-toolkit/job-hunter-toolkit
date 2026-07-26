@@ -14,8 +14,12 @@ import (
 	"golang.org/x/net/html"
 )
 
+// peopleForcePlatform is the ATS family this file registers, and the value that
+// reaches [internal.PostingSource.Platform].
+const peopleForcePlatform = "peopleforce"
+
 func init() {
-	registerBuiltin("peopleforce", multiJobsFunc(PeopleForce, PeopleForceCompanies))
+	registerBuiltin(peopleForcePlatform, multiJobsFunc(PeopleForce, PeopleForceCompanies))
 }
 
 // peopleForceMaxPages bounds how many careers pages a single PeopleForce tenant
@@ -136,6 +140,9 @@ func scrapeJobs(ctx context.Context, httpClient *http.Client, pageURL string) ([
 					return nil, doc, fmt.Errorf("parsing relative URL failed: %w", err)
 				}
 				jp.URL = baseURL.ResolveReference(relative).String()
+				// The path segment after /careers/v/ is the board's own id for
+				// the posting, which outlives a URL the tenant may restyle.
+				jp.ExternalID = strings.Trim(strings.TrimPrefix(relative.Path, "/careers/v/"), "/")
 				break
 			}
 		}
@@ -146,15 +153,62 @@ func scrapeJobs(ctx context.Context, httpClient *http.Client, pageURL string) ([
 		if detailsNode := findSiblingDiv(a.Parent); detailsNode != nil {
 			details := strings.TrimSpace(getText(detailsNode))
 			if details != "" {
-				parts := strings.Split(details, ",")
-				// Use the last part as location (after trimming whitespace).
-				jp.Location = strings.TrimSpace(parts[len(parts)-1])
+				peopleForceDetails(&jp, details)
 			}
 		}
 		postings = append(postings, &jp)
 	}
 
 	return postings, doc, nil
+}
+
+// peopleForceDetails reads a posting's details line into the posting.
+//
+// The board renders that line as "<department>, <employment type>, <location>" —
+// the comment above the call site has documented that shape since this adapter
+// was written, and the implementation then kept only the last segment and threw
+// the other two away, after having already parsed them into a string in memory.
+//
+// The department is only taken when there are three or more segments. Two are
+// ambiguous: "Kyiv, Ukraine" is a location that happens to contain a comma, and
+// reading its city as a department would file real postings under a department
+// that does not exist. An employment type is safe to look for in either shape,
+// because a place name does not normalise to one.
+//
+// The location segment is also offered to [internal.NormalizeWorkplaceType],
+// which is the one place this project does that deliberately. PeopleForce puts
+// its structured workplace choice in this slot and renders it as text: "Any -
+// Remote", "Hybrid", "Office". A real place name simply fails to normalise and
+// leaves the field empty, and the "Remote, OR" trap that makes location text
+// untrustworthy elsewhere cannot bite here, because splitting on commas puts the
+// Oregon abbreviation in its own segment.
+func peopleForceDetails(posting *internal.JobPosting, details string) {
+	parts := strings.Split(details, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+
+	posting.Location = parts[len(parts)-1]
+
+	for _, part := range parts[:len(parts)-1] {
+		if part == "" {
+			continue
+		}
+
+		if employment, ok := internal.NormalizeEmploymentType(part); ok && posting.EmploymentType == internal.EmploymentTypeUnknown {
+			posting.EmploymentType = employment
+
+			continue
+		}
+
+		if len(parts) > 2 && posting.Department == "" {
+			posting.Department = part
+		}
+	}
+
+	if workplace, ok := internal.NormalizeWorkplaceType(posting.Location); ok {
+		posting.WorkplaceType = workplace
+	}
 }
 
 // PeopleForce returns a jobpostings.Jobs function that iterates over paginated PeopleForce
@@ -239,6 +293,8 @@ func PeopleForce(ctx context.Context, httpClient *http.Client, company string) i
 				}
 
 				job.Company = company
+				job.Source = internal.PostingSource{Platform: peopleForcePlatform, Key: company}
+
 				if !yield(job, nil) {
 					return
 				}

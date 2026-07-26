@@ -216,7 +216,8 @@ func (s *workdayStub) RoundTrip(req *http.Request) (*http.Response, error) {
 	postings := make([]string, 0, size)
 	for i := range size {
 		postings = append(postings, fmt.Sprintf(
-			`{"title":"Job %[1]d","externalPath":"/job/%[1]d","locationsText":"Remote","postedOn":"Posted Today"}`,
+			`{"title":"Job %[1]d","externalPath":"/job/%[1]d","locationsText":"Remote",`+
+				`"postedOn":"Posted Today","bulletFields":["JR%[1]d","Full time"]}`,
 			offset+i,
 		))
 	}
@@ -477,6 +478,144 @@ func TestWorkdayBoundsPageConcurrency(t *testing.T) {
 	must.LessEq(t, workdayPageFetchers, got.peak,
 		must.Sprintf("peak concurrency %d exceeds the bound of %d", got.peak, workdayPageFetchers))
 	must.GreaterEq(t, 2, got.peak, must.Sprintf("pages were fetched one at a time; the fan-out is not working"))
+}
+
+// TestWorkdayReadsPostedOnAndBulletFields is a regression test.
+//
+// postedOn and bulletFields have been decoded into workdayInfo since this
+// adapter was written and were never read, on every page of every one of the
+// ~216 tenants.
+func TestWorkdayReadsPostedOnAndBulletFields(t *testing.T) {
+	t.Parallel()
+
+	stub := &workdayStub{total: 3, served: 3}
+
+	postings, errs := workdayCollect(t, Workday(t.Context(), &http.Client{Transport: stub}, workdayTestTenant))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 3, postings)
+
+	today := time.Now().UTC()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+
+	for _, posting := range postings {
+		test.Eq(t, today, posting.PostedAt)
+		test.Eq(t, internal.EmploymentTypeFullTime, posting.EmploymentType)
+		test.Eq(t, internal.PostingSource{Platform: workdayPlatform, Key: workdayTestTenant}, posting.Source)
+	}
+
+	test.Eq(t, "JR0", postings[0].RequisitionID)
+}
+
+func TestWorkdayPostedAt(t *testing.T) {
+	t.Parallel()
+
+	// A fixed clock, because the whole point of passing "now" in is that one
+	// crawl dates every posting from a single instant and that this is testable
+	// without a fake clock package.
+	now := time.Date(2026, time.July, 26, 15, 30, 0, 0, time.UTC)
+	day := time.Date(2026, time.July, 26, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		in   string
+		want time.Time
+		ok   bool
+	}{
+		{in: "Posted Today", want: day, ok: true},
+		{in: "Posted Yesterday", want: day.AddDate(0, 0, -1), ok: true},
+		{in: "Posted 5 Days Ago", want: day.AddDate(0, 0, -5), ok: true},
+		{in: "Posted 1 Day Ago", want: day.AddDate(0, 0, -1), ok: true},
+		{in: "posted 5 days ago", want: day.AddDate(0, 0, -5), ok: true},
+		{in: "Today", want: day, ok: true},
+
+		// "30+" is a lower bound covering everything from a month to three
+		// years. Recording it as exactly thirty days would hand
+		// Filter.PostedSince a date this project made up, and no consumer could
+		// tell it from one the employer published.
+		{in: "Posted 30+ Days Ago"},
+
+		{in: ""},
+		{in: "Posted Recently"},
+		{in: "Veröffentlicht vor 5 Tagen"},
+		{in: "Posted 99999 Days Ago"},
+	}
+
+	for _, tt := range tests {
+		t.Run(cmp.Or(tt.in, "empty"), func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := workdayPostedAt(tt.in, now)
+
+			test.Eq(t, tt.ok, ok)
+			test.Eq(t, tt.want, got)
+		})
+	}
+}
+
+func TestWorkdayRequisitionID(t *testing.T) {
+	t.Parallel()
+
+	// Workday does not label its bullets, so the requisition number has to be
+	// recognised by shape. Every rejection below is a real thing tenants put in
+	// this list, and filling the field with one of them would be worse than
+	// leaving it empty: a wrong requisition number is what someone quotes to a
+	// recruiter.
+	tests := []struct {
+		name string
+		in   []string
+		want string
+	}{
+		{name: "none", in: nil},
+		{name: "typical", in: []string{"JR0012345"}, want: "JR0012345"},
+		{name: "hyphenated", in: []string{"R-00012345", "Full time"}, want: "R-00012345"},
+		{name: "after a time type", in: []string{"Full time", "REQ-4821"}, want: "REQ-4821"},
+		{name: "job family", in: []string{"Engineering"}},
+		{name: "time type", in: []string{"Full time"}},
+		{name: "site", in: []string{"San Francisco, CA"}},
+		{name: "bare date", in: []string{"2024-01-15"}},
+		{name: "all digits", in: []string{"1234567"}},
+		{name: "too short", in: []string{"R1"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			test.Eq(t, tt.want, workdayRequisitionID(tt.in))
+		})
+	}
+}
+
+func TestWorkdayEmploymentType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   []string
+		want internal.EmploymentType
+	}{
+		{name: "none", in: nil},
+		{name: "full time", in: []string{"JR001", "Full time"}, want: internal.EmploymentTypeFullTime},
+		{name: "part time", in: []string{"Part time"}, want: internal.EmploymentTypePartTime},
+		{name: "intern", in: []string{"Intern"}, want: internal.EmploymentTypeInternship},
+
+		// The gate exists for this. NormalizeEmploymentType matches a
+		// distinctive word inside a value on purpose, which is right when the
+		// board says the field is an employment type and wrong here, where the
+		// bullet could be anything the tenant chose to display.
+		{name: "job family containing a keyword", in: []string{"Contracts Management"}},
+
+		// Tenure, not hours. A permanent part-time role is an ordinary thing.
+		{name: "tenure", in: []string{"Regular"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			test.Eq(t, tt.want, workdayEmploymentType(tt.in))
+		})
+	}
 }
 
 // TestWorkdayReportsAPageFailure keeps failures attributable: a page that fails

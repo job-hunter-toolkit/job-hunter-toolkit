@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -136,6 +138,153 @@ func TestSmartRecruitersRequestsTheOffsetItAdvancesTo(t *testing.T) {
 	must.SliceNotEmpty(t, postings)
 	test.Eq(t, "https://jobs.smartrecruiters.com/acme/a0", postings[0].URL)
 	test.Eq(t, url.PathEscape("acme"), "acme")
+}
+
+// TestSmartRecruitersReadsTheDocumentedFieldSet covers the enrichment that
+// rides in the list response this adapter already fetches: no extra request, no
+// extra host, one longer struct.
+func TestSmartRecruitersReadsTheDocumentedFieldSet(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"offset=0": `{"totalFound":2,"content":[
+			{
+				"id": "744000012345",
+				"name": "Security Analyst",
+				"refNumber": "REF-8891",
+				"releasedDate": "2026-06-01T09:15:00.000Z",
+				"location": {"city": "Austin", "region": "TX", "country": "us", "remote": true},
+				"department": {"id": "d1", "label": "Information Security"},
+				"function": {"id": "f1", "label": "IT"},
+				"experienceLevel": {"id": "mid", "label": "Mid-Senior Level"},
+				"typeOfEmployment": {"label": "Full-time"}
+			},
+			{
+				"id": "744000067890",
+				"name": "Store Manager",
+				"releasedDate": "2026-05-20",
+				"location": {"city": "Dallas", "region": "TX", "country": "us", "remote": false},
+				"function": {"id": "f2", "label": "Retail"},
+				"typeOfEmployment": {"label": "Permanent"}
+			}
+		]}`,
+	})
+
+	postings, errs := drain(SmartRecruiters(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	test.Eq(t, "Information Security", postings[0].Department)
+	test.Eq(t, "Mid-Senior Level", postings[0].Seniority)
+	test.Eq(t, internal.EmploymentTypeFullTime, postings[0].EmploymentType)
+	test.Eq(t, "REF-8891", postings[0].RequisitionID)
+	test.Eq(t, "744000012345", postings[0].ExternalID)
+	test.Eq(t, internal.PostingSource{Platform: smartRecruitersPlatform, Key: "acme"}, postings[0].Source)
+	test.Eq(t, time.Date(2026, time.June, 1, 9, 15, 0, 0, time.UTC), postings[0].PostedAt)
+
+	must.NotNil(t, postings[0].Remote)
+	test.True(t, *postings[0].Remote)
+	test.Eq(t, internal.WorkplaceTypeRemote, postings[0].WorkplaceType)
+
+	// "function" is the standardised job function rather than the employer's own
+	// org unit, so it stands in only when there is no department. It is not
+	// recorded as a Team, which would claim a hierarchy the board never
+	// published.
+	test.Eq(t, "Retail", postings[1].Department)
+	test.Eq(t, "", postings[1].Team)
+
+	// A bare date still resolves; "Permanent" is tenure rather than hours and is
+	// deliberately not read as full time.
+	test.Eq(t, time.Date(2026, time.May, 20, 0, 0, 0, 0, time.UTC), postings[1].PostedAt)
+	test.Eq(t, internal.EmploymentTypeUnknown, postings[1].EmploymentType)
+
+	// remote=false is not an office requirement, so nothing is claimed.
+	test.Nil(t, postings[1].Remote)
+	test.Eq(t, internal.WorkplaceTypeUnknown, postings[1].WorkplaceType)
+}
+
+// TestSmartRecruitersSurvivesUnexpectedFieldShapes is the guard that matters
+// most about this change.
+//
+// Every enrichment field here comes from vendor documentation rather than from a
+// body this project has decoded, and a field whose real type differs fails the
+// whole decode — which is one tenant's entire posting list, gone, with an error
+// nobody would connect to an enrichment commit. That is precisely what happened
+// when Jibe's "meta_data" was modelled as a struct and turned out to be a bare
+// `false` on some tenants: nine large employers silently disappeared.
+//
+// So: a tenant may send any of these in any shape at all, and the postings must
+// still come through with their core fields intact.
+func TestSmartRecruitersSurvivesUnexpectedFieldShapes(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"offset=0": `{"totalFound":1,"content":[{
+			"id": "1",
+			"name": "Security Analyst",
+			"refNumber": 8891,
+			"releasedDate": 1780000000,
+			"location": {"city": "Austin", "region": "TX", "country": "us", "remote": "true"},
+			"department": "Information Security",
+			"function": ["IT"],
+			"experienceLevel": null,
+			"typeOfEmployment": {"label": ["Full-time"]}
+		}]}`,
+	})
+
+	postings, errs := drain(SmartRecruiters(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	test.Eq(t, "Security Analyst", postings[0].Title)
+	test.Eq(t, "https://jobs.smartrecruiters.com/acme/1", postings[0].URL)
+
+	// A bare string where an object was documented is still a usable label.
+	test.Eq(t, "Information Security", postings[0].Department)
+
+	// A number where a string was documented still reads.
+	test.Eq(t, "8891", postings[0].RequisitionID)
+
+	// A remote flag sent as a string is still an answer.
+	must.NotNil(t, postings[0].Remote)
+	test.True(t, *postings[0].Remote)
+
+	// Shapes with nothing readable in them leave the field empty, which is what
+	// every consumer already treats as "the board did not say".
+	test.Eq(t, "", postings[0].Seniority)
+	test.Eq(t, internal.EmploymentTypeUnknown, postings[0].EmploymentType)
+	test.True(t, postings[0].PostedAt.IsZero())
+}
+
+// TestSmartRecruitersAsksForAFullPage guards the page size.
+//
+// This request sent no "limit" at all, so every tenant was paged at the API's
+// default of ten. A 900-posting employer cost 90 requests against
+// api.smartrecruiters.com — a host shared by all 54 tenants — where 9 would do.
+func TestSmartRecruitersAsksForAFullPage(t *testing.T) {
+	t.Parallel()
+
+	var limits []string
+
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		limits = append(limits, req.URL.Query().Get("limit"))
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     http.StatusText(http.StatusOK),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"totalFound":0,"content":[]}`)),
+			Request:    req,
+		}, nil
+	})}
+
+	_, errs := drain(SmartRecruiters(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Eq(t, []string{strconv.Itoa(smartRecruitersPageSize)}, limits)
+	test.Eq(t, 100, smartRecruitersPageSize, test.Sprintf("100 is the API's documented maximum"))
 }
 
 // roundTripFunc adapts a function to [net/http.RoundTripper].

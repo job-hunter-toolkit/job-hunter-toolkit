@@ -1,0 +1,561 @@
+# ============================================================================
+# CANDIDATES, NOT SOURCES. Nothing in this file is crawled.
+#
+# These 507 Recruitee career-site subdomains were recovered by a research pass
+# in a container with no outbound access to job boards, so not one of them was
+# probed by this project. docs/adding-a-source.md is explicit that a slug nobody
+# has verified must not be registered, and at this project's fan-out a dead
+# tenant is not free: it burns a request every crawl, reports as a failing
+# source, and enough of them together trip the Source Health workflow's
+# 35%-failure alarm, which is the signal that is supposed to mean a real
+# platform broke.
+#
+# 35 slugs from this file's hand-curated head are registered in
+# internal/services/recruitee.go as RecruiteeCompanies. The rest are staged here
+# until a CI job — the only place in this project with real network access — can
+# probe them. The sections merged by "discovery/merge.py" carry "?" or an
+# apply-URL guess where the employer name should be; none of those is
+# registered.
+#
+# Promotion rule, gated on content and not on status code: keep a slug whose
+# https://<slug>.recruitee.com/api/offers/ answers 200 with a JSON object
+# carrying an "offers" array of length above zero.
+#
+# Watch for the ambiguous-slug trap docs/adding-a-source.md documents: this file
+# claims tenants named "zara", "make", "grid", "summit" and "parent", and a
+# single-word slug on a self-service ATS usually belongs to somebody other than
+# the famous holder of the name. Check a couple of job titles before believing
+# an identity.
+#
+# The verification claims and posting counts below are the upstream curator's,
+# dated as annotated. They are recorded as provenance, not endorsed.
+# ============================================================================
+#
+# Recruitee company subdomains to poll (one per line, # = comment).
+# The subdomain is the path segment in a company's careers URL, e.g.
+#   https://greatminds.recruitee.com  -> greatminds
+# Polled by download/fetch_recruitee.py via the public offers API (no auth);
+# the offers response carries the full HTML description (no detail fetch needed).
+#
+# Harvested via site-scoped web search of *.recruitee.com careers URLs, then
+# VERIFIED live against /api/offers/ (kept only count>0, 2026-06-02; ~137 active
+# postings across these 9). Sorted by volume at probe time.
+# To grow: harvest more slugs, re-run the probe, append the live ones.
+intralot
+lomography
+iliabeauty
+greatminds
+snapeda
+petalmd
+thefactory
+newlawbusinessmodel
+elaphepropulsiontechnologies
+# --- added 2026-06-09: bulk keyless tenant-discovery pass (live-verified) ---
+1x
+adj
+aihr
+aikidosecurity
+almavivadebelgique
+appetiser
+car24gmbh
+careermentors
+cce
+ccmeurope
+centreon
+centric
+cerbaresearch
+chgcareers
+consultdss
+creativeclicks
+cvonlinelatvia
+diebayerische
+diegrenze
+doctenasa
+ecconsultants
+elockers
+emergentsoftware
+entyre
+envipco
+equalsmoney
+esportsworldcupfoundation
+evolit
+exeon
+foleon
+framestore
+gainpro
+greenflux
+grid
+holepunch
+hostaway
+hudsonmanpower
+ichoosr
+intent
+iprofilegmbh
+jobse
+jobster
+kaizo
+kodify
+kpsnacks
+kuoksingaporelimited
+legalfly
+lemonwayjobcareers
+limeflight
+lucidgames
+madlergmbh
+mainstream
+make
+makersitegmbh
+mgid
+mobilexpense
+mobilityplus
+momentumdata
+moneyhash
+moveup
+nacardesign
+natuvion
+neoday
+omniconsultcorp
+on2it
+onemobility
+openclassrooms
+oscalabv
+pacmed
+parent
+payconiq
+peopleand
+planeground
+poppy
+primeworks
+rebelmouse
+sequra
+shypple
+sspcs
+strata
+summit
+superlinear
+teamjobsleadprod
+techbizglobal
+technicaelectronics
+technicaengineeringgmbh
+theentouragegroup
+thehoteltaskforce
+thesalescentre
+thollembeek
+tetrixtechniek
+timedoctor
+utilityprofit
+vacancies
+veocareers
+vervegroup
+voltaira
+wallarm
+werkenbijpsyned
+wmreplyjobs
+xebiapoland
+xfive
+
+# --- NL/ES/IT discovery 2026-06-10 (live-probed, count>0 at probe time) ---
+econocomnederland  # Econocom Nederland, NL, 7 active
+werkenbijnlr  # Royal NLR (Netherlands Aerospace Centre), NL, 37 active
+faactechnologies  # FAAC Technologies Nederland, NL, 10 active
+denieuwezaak  # De Nieuwe Zaak, NL, 9 active
+burgbedrijven  # BURG Bedrijven, NL, 6 active
+intersnacknederlandbv  # Intersnack Nederland BV, NL, 19 active
+vlisco  # Vlisco Netherlands, NL, 8 active
+xite  # XITE, NL, 3 active
+deleuropeamsterdam  # De L'Europe Amsterdam, NL, 23 active
+werkenbijflagshipamsterdam  # Flagship Amsterdam, NL, 16 active
+jeffjill  # Jeff & Jill (Horeca uitzendbureau), NL, 21 active
+caretochange  # Care to Change, NL, 1 active
+tacobellnederland  # Taco Bell Nederland, NL, 29 active
+peddler  # Peddler, NL, 7 active
+pizzabeppe  # Pizza Beppe, NL, 5 active
+thesupernicepeople  # The Super Nice People, NL, 22 active
+bauhausnederlandcv  # BAUHAUS Nederland, NL, 39 active
+printenbind  # Print&Bind (Amsterdam), NL, 4 active
+rtl  # RTL Nederland, NL, 7 active
+walibiholland  # Walibi Holland, NL, 27 active
+ockto  # Ockto, NL, 5 active
+jobsdeerns  # Deerns (The Hague), NL, 74 active
+inepro  # inepro, NL, 4 active
+affideaspain  # Affidea Spain, ES, 10 active
+theras  # Theras, IT, 30 active
+switchojob  # Switcho (Milan), IT, 1 active
+affideaitaly  # Affidea Italy, IT, 63 active
+claranetitalia  # Claranet Italia, IT, 1 active
+
+# --- 2026-06-12 NL/ES/IT expansion (live-probed >=1 active) ---
+helloprint  # Helloprint, NL, ~5 active
+channable  # Channable, NL, ~17 active
+sympower  # Sympower, NL, ~3 active
+nmbrs  # Nmbrs, NL, ~5 active
+sendcloud  # Sendcloud, NL, ~1 active
+vandebron  # Vandebron, NL, ~12 active
+greenchoice  # Greenchoice, NL, ~14 active
+incentro  # Incentro, NL, ~25 active
+brenger  # Brenger, NL, ~2 active
+bunq  # bunq, NL, ~28 active
+floryn  # Floryn, NL, ~6 active
+luminis  # Luminis, NL, ~6 active
+codaisseur  # Codaisseur, NL, ~2 active
+linkit  # LINKIT, NL, ~14 active
+dpgmedia  # DPG Media, NL, ~99 active
+agicap  # Agicap (NL office), NL, ~5 active
+holded  # Holded, ES, ~15 active
+zara  # Zara, ES, ~10 active
+
+# --- +12 live-verified 2026-06-18 (skew NL/BE hospitality + staffing; small but live) ---
+thehospitalityrecruiters  # The Hospitality Recruiters, NL staffing, ~79
+odysseyhotelgroup  # Odyssey Hotel Group, NL/BE/DE, ~69
+heidelbergmaterialsbenelux  # Heidelberg Materials Benelux, ~28
+vandervalkhotelvenlo  # Van der Valk Hotel Venlo, NL, ~12
+hotelgorinchem  # Van der Valk Hotel Gorinchem, NL, ~9
+hotelzaltbommel  # Van der Valk Hotel Zaltbommel, NL, ~9
+hoteltexel  # Van der Valk Hotel Texel, NL, ~7
+hoteldrachten  # Van der Valk Hotel Drachten, NL, ~6
+forcyd  # Forcyd, BE/DE consultancy, ~5
+hotelnazareth  # Van der Valk Hotel Nazareth, BE, ~5
+vandervalkamsterdam  # Van der Valk Hotel Amsterdam-Amstel, NL, ~4
+hotelmechelen  # Van der Valk Hotel Mechelen, BE, ~3
+# --- discovered via apply-URL harvest, merged 2026-06-30 (discovery/merge.py) ---
+60secondstonapoli  # ? (80 live jobs; ~108 in our index) [discovered apply-url]
+8advisory  # ? (75 live jobs; ~83 in our index) [discovered apply-url]
+hamelin  # ? (43 live jobs; ~70 in our index) [discovered apply-url]
+matera  # ? (37 live jobs; ~64 in our index) [discovered apply-url]
+machinelearningreply  # ? (13 live jobs; ~61 in our index) [discovered apply-url]
+mcdglobalhealth  # ? (7 live jobs; ~57 in our index) [discovered apply-url]
+secondhomejugendhilfegmbh  # ? (10 live jobs; ~56 in our index) [discovered apply-url]
+jobspeakcoaching  # ? (25 live jobs; ~54 in our index) [discovered apply-url]
+institutminestelecom  # ? (67 live jobs; ~51 in our index) [discovered apply-url]
+tether  # ? (305 live jobs; ~51 in our index) [discovered apply-url]
+partejobs  # ? (16 live jobs; ~46 in our index) [discovered apply-url]
+eurosparcareers  # ? (42 live jobs; ~45 in our index) [discovered apply-url]
+athora  # ? (23 live jobs; ~43 in our index) [discovered apply-url]
+unitedalsaqergroup  # ? (103 live jobs; ~36 in our index) [discovered apply-url]
+hemeriagroup  # ? (34 live jobs; ~34 in our index) [discovered apply-url]
+palazzoversacedubai  # ? (13 live jobs; ~34 in our index) [discovered apply-url]
+igh  # ? (50 live jobs; ~32 in our index) [discovered apply-url]
+boekenvoordeel  # ? (29 live jobs; ~30 in our index) [discovered apply-url]
+clay  # ? (12 live jobs; ~29 in our index) [discovered apply-url]
+gerardbertrand  # ? (26 live jobs; ~29 in our index) [discovered apply-url]
+steinemann  # ? (8 live jobs; ~29 in our index) [discovered apply-url]
+supremesportshospitality  # ? (16 live jobs; ~29 in our index) [discovered apply-url]
+applus  # ? (14 live jobs; ~28 in our index) [discovered apply-url]
+focusentertainment  # ? (10 live jobs; ~28 in our index) [discovered apply-url]
+gardec  # ? (6 live jobs; ~27 in our index) [discovered apply-url]
+skkarriere  # ? (46 live jobs; ~27 in our index) [discovered apply-url]
+affideagreece  # ? (28 live jobs; ~26 in our index) [discovered apply-url]
+currentagruppe  # ? (47 live jobs; ~26 in our index) [discovered apply-url]
+railinnovatorsgroup  # ? (11 live jobs; ~25 in our index) [discovered apply-url]
+biximontreal  # ? (7 live jobs; ~22 in our index) [discovered apply-url]
+bluecrux  # ? (48 live jobs; ~22 in our index) [discovered apply-url]
+fastned  # ? (34 live jobs; ~22 in our index) [discovered apply-url]
+vionfoodgroup  # ? (109 live jobs; ~22 in our index) [discovered apply-url]
+warande  # ? (33 live jobs; ~22 in our index) [discovered apply-url]
+lefebvresdu  # ? (21 live jobs; ~21 in our index) [discovered apply-url]
+polaroid  # ? (11 live jobs; ~21 in our index) [discovered apply-url]
+redsky  # ? (19 live jobs; ~21 in our index) [discovered apply-url]
+evreuxportesdenormandie  # ? (35 live jobs; ~20 in our index) [discovered apply-url]
+greenpeacebelgium  # ? (4 live jobs; ~20 in our index) [discovered apply-url]
+monizze  # ? (8 live jobs; ~20 in our index) [discovered apply-url]
+apoint  # ? (23 live jobs; ~19 in our index) [discovered apply-url]
+dnata  # ? (31 live jobs; ~19 in our index) [discovered apply-url]
+dommelvallei  # ? (9 live jobs; ~19 in our index) [discovered apply-url]
+novacard  # ? (18 live jobs; ~19 in our index) [discovered apply-url]
+baxmetaal  # ? (4 live jobs; ~6 in our index) [discovered apply-url]
+cbsconsulting  # ? (180 live jobs; ~6 in our index) [discovered apply-url]
+churchdesk  # ? (8 live jobs; ~6 in our index) [discovered apply-url]
+clario  # ? (4 live jobs; ~6 in our index) [discovered apply-url]
+dreizen  # ? (8 live jobs; ~6 in our index) [discovered apply-url]
+formelio  # ? (3 live jobs; ~6 in our index) [discovered apply-url]
+forwardearth  # ? (2 live jobs; ~6 in our index) [discovered apply-url]
+germanzeroev  # ? (2 live jobs; ~6 in our index) [discovered apply-url]
+hauptstadtfloss  # ? (13 live jobs; ~6 in our index) [discovered apply-url]
+hygraph  # ? (2 live jobs; ~6 in our index) [discovered apply-url]
+icuitservices  # ? (5 live jobs; ~6 in our index) [discovered apply-url]
+inforsht  # ? (2 live jobs; ~6 in our index) [discovered apply-url]
+internetwerving  # ? (25 live jobs; ~6 in our index) [discovered apply-url]
+jedowski  # ? (6 live jobs; ~6 in our index) [discovered apply-url]
+leydenjar  # ? (5 live jobs; ~6 in our index) [discovered apply-url]
+lg2  # ? (17 live jobs; ~6 in our index) [discovered apply-url]
+loyaltykey  # ? (3 live jobs; ~6 in our index) [discovered apply-url]
+mbio  # ? (3 live jobs; ~6 in our index) [discovered apply-url]
+n2jsoft  # ? (19 live jobs; ~6 in our index) [discovered apply-url]
+nemenergy  # ? (8 live jobs; ~6 in our index) [discovered apply-url]
+nicsystemhausgmbh  # ? (7 live jobs; ~6 in our index) [discovered apply-url]
+oead  # ? (3 live jobs; ~6 in our index) [discovered apply-url]
+sidelineswap  # ? (4 live jobs; ~6 in our index) [discovered apply-url]
+sovak3  # ? (30 live jobs; ~6 in our index) [discovered apply-url]
+stacvalley  # ? (5 live jobs; ~6 in our index) [discovered apply-url]
+strictbv  # ? (5 live jobs; ~6 in our index) [discovered apply-url]
+successday  # ? (1 live jobs; ~6 in our index) [discovered apply-url]
+talk360  # ? (3 live jobs; ~6 in our index) [discovered apply-url]
+tlrbv  # ? (1 live jobs; ~6 in our index) [discovered apply-url]
+tytantechnologiesgmbh  # ? (38 live jobs; ~6 in our index) [discovered apply-url]
+uturn  # ? (3 live jobs; ~6 in our index) [discovered apply-url]
+vebegofacilityservices3  # ? (90 live jobs; ~6 in our index) [discovered apply-url]
+yellowtail  # ? (34 live jobs; ~6 in our index) [discovered apply-url]
+anandaventuresgmbh  # ? (1 live jobs; ~5 in our index) [discovered apply-url]
+aveniq  # ? (17 live jobs; ~5 in our index) [discovered apply-url]
+baeckergoertz  # ? (70 live jobs; ~5 in our index) [discovered apply-url]
+bauersohnegmbhcokg  # ? (3 live jobs; ~5 in our index) [discovered apply-url]
+bloem  # ? (5 live jobs; ~5 in our index) [discovered apply-url]
+buildofarm  # ? (2 live jobs; ~5 in our index) [discovered apply-url]
+carlfriedrik  # ? (6 live jobs; ~5 in our index) [discovered apply-url]
+contextand  # ? (7 live jobs; ~5 in our index) [discovered apply-url]
+themortgagetalentnetwork  # ? (11 live jobs; ~3 in our index) [discovered apply-url]
+tkhomesolutions  # ? (2 live jobs; ~3 in our index) [discovered apply-url]
+vandervalkluxembourg  # ? (8 live jobs; ~3 in our index) [discovered apply-url]
+veaxo  # ? (19 live jobs; ~3 in our index) [discovered apply-url]
+wacomeurope  # ? (1 live jobs; ~3 in our index) [discovered apply-url]
+whello  # ? (8 live jobs; ~3 in our index) [discovered apply-url]
+woonzorgnederland  # ? (8 live jobs; ~3 in our index) [discovered apply-url]
+zensai  # ? (2 live jobs; ~3 in our index) [discovered apply-url]
+ackermansvanhaaren  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+adhese  # ? (1 live jobs; ~2 in our index) [discovered apply-url]
+adstronauts  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+aedifion  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+affideaireland  # ? (17 live jobs; ~2 in our index) [discovered apply-url]
+ascensionisland  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+atostek  # ? (1 live jobs; ~2 in our index) [discovered apply-url]
+autohausduennes  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+azubi  # ? (25 live jobs; ~2 in our index) [discovered apply-url]
+balchem  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+bambuu  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+batitprotect  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+benfatto  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+biqh  # ? (4 live jobs; ~2 in our index) [discovered apply-url]
+biscuitinternational  # ? (19 live jobs; ~2 in our index) [discovered apply-url]
+blueskygroup  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+bluestonelogic  # ? (1 live jobs; ~2 in our index) [discovered apply-url]
+bundl  # ? (6 live jobs; ~2 in our index) [discovered apply-url]
+camelbackventures  # ? (4 live jobs; ~2 in our index) [discovered apply-url]
+carbonbetter  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+careexpert  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+chmedia  # ? (25 live jobs; ~2 in our index) [discovered apply-url]
+comtest  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+confirmo  # ? (6 live jobs; ~2 in our index) [discovered apply-url]
+cordesconsulting  # ? (95 live jobs; ~2 in our index) [discovered apply-url]
+cticc  # ? (1 live jobs; ~2 in our index) [discovered apply-url]
+merkurosiguranjedd  # ? (1 live jobs; ~1 in our index) [discovered apply-url]
+mondaymerch  # ? (22 live jobs; ~1 in our index) [discovered apply-url]
+motena  # ? (1 live jobs; ~1 in our index) [discovered apply-url]
+mumc  # ? (63 live jobs; ~1 in our index) [discovered apply-url]
+namecheap  # ? (1 live jobs; ~1 in our index) [discovered apply-url]
+nikin  # ? (2 live jobs; ~1 in our index) [discovered apply-url]
+pelsrijcken  # ? (2 live jobs; ~1 in our index) [discovered apply-url]
+picard  # ? (10 live jobs; ~1 in our index) [discovered apply-url]
+pladisfrance  # ? (4 live jobs; ~1 in our index) [discovered apply-url]
+pragmaticcoders  # ? (11 live jobs; ~1 in our index) [discovered apply-url]
+protectdemocracy  # ? (10 live jobs; ~1 in our index) [discovered apply-url]
+rcube  # ? (10 live jobs; ~1 in our index) [discovered apply-url]
+royalswinkels  # ? (20 live jobs; ~1 in our index) [discovered apply-url]
+royalwagenborg1  # ? (10 live jobs; ~1 in our index) [discovered apply-url]
+samy1  # ? (24 live jobs; ~1 in our index) [discovered apply-url]
+shopwareag  # ? (11 live jobs; ~1 in our index) [discovered apply-url]
+silverein  # ? (121 live jobs; ~1 in our index) [discovered apply-url]
+sportakademiebaumann  # ? (8 live jobs; ~1 in our index) [discovered apply-url]
+sportschuledefcon  # ? (8 live jobs; ~1 in our index) [discovered apply-url]
+stibbebv  # ? (31 live jobs; ~1 in our index) [discovered apply-url]
+stichtingkwintes  # ? (127 live jobs; ~1 in our index) [discovered apply-url]
+testimonials  # ? (5 live jobs; ~1 in our index) [discovered apply-url]
+thelandbankinggroup  # ? (1 live jobs; ~1 in our index) [discovered apply-url]
+wagenborgnedlift  # ? (13 live jobs; ~1 in our index) [discovered apply-url]
+wagenborgpassagiersdiensten  # ? (1 live jobs; ~1 in our index) [discovered apply-url]
+# --- discovered via apply-URL harvest, merged 2026-07-04 (discovery/merge.py) ---
+maierheiztechnikgmbh  # ? (18 live jobs; ~34 in our index) [discovered apply-url]
+eupagohub  # ? (2 live jobs; ~19 in our index) [discovered apply-url]
+adamsmithinternational1  # ? (5 live jobs; ~18 in our index) [discovered apply-url]
+innovamarketinsights  # ? (10 live jobs; ~18 in our index) [discovered apply-url]
+werkenbijdecantharel  # ? (14 live jobs; ~18 in our index) [discovered apply-url]
+asksuite  # ? (13 live jobs; ~17 in our index) [discovered apply-url]
+enviemholdingbv  # ? (17 live jobs; ~17 in our index) [discovered apply-url]
+epilot  # ? (11 live jobs; ~17 in our index) [discovered apply-url]
+lister  # ? (36 live jobs; ~17 in our index) [discovered apply-url]
+salesup  # ? (9 live jobs; ~17 in our index) [discovered apply-url]
+thesafetynetwork  # ? (25 live jobs; ~17 in our index) [discovered apply-url]
+uhlenhaus  # ? (18 live jobs; ~17 in our index) [discovered apply-url]
+enterprise  # ? (7 live jobs; ~16 in our index) [discovered apply-url]
+merkur  # ? (21 live jobs; ~16 in our index) [discovered apply-url]
+movares  # ? (63 live jobs; ~16 in our index) [discovered apply-url]
+zonnehuisgroepamstelland  # ? (46 live jobs; ~16 in our index) [discovered apply-url]
+anchr  # ? (10 live jobs; ~15 in our index) [discovered apply-url]
+idegogroup  # ? (4 live jobs; ~15 in our index) [discovered apply-url]
+keunecareers  # ? (14 live jobs; ~15 in our index) [discovered apply-url]
+werkenbijvigogroep  # ? (82 live jobs; ~15 in our index) [discovered apply-url]
+advancy  # ? (16 live jobs; ~14 in our index) [discovered apply-url]
+aidigital  # ? (25 live jobs; ~14 in our index) [discovered apply-url]
+barentskrans  # ? (17 live jobs; ~14 in our index) [discovered apply-url]
+claus  # ? (17 live jobs; ~14 in our index) [discovered apply-url]
+cscfi  # ? (1 live jobs; ~14 in our index) [discovered apply-url]
+deluxeholidayhomes  # ? (10 live jobs; ~14 in our index) [discovered apply-url]
+halbersbacherhospitalitygroup  # ? (12 live jobs; ~14 in our index) [discovered apply-url]
+payflows  # ? (11 live jobs; ~14 in our index) [discovered apply-url]
+riverflex  # ? (10 live jobs; ~14 in our index) [discovered apply-url]
+brainstack  # ? (20 live jobs; ~13 in our index) [discovered apply-url]
+cigusgmbh  # ? (44 live jobs; ~13 in our index) [discovered apply-url]
+craftzing  # ? (14 live jobs; ~13 in our index) [discovered apply-url]
+highspiritshospitality  # ? (9 live jobs; ~13 in our index) [discovered apply-url]
+nts  # ? (53 live jobs; ~13 in our index) [discovered apply-url]
+swisselect  # ? (22 live jobs; ~13 in our index) [discovered apply-url]
+timeoutstiftungggmbh  # ? (8 live jobs; ~13 in our index) [discovered apply-url]
+xalution  # ? (16 live jobs; ~13 in our index) [discovered apply-url]
+ballysintralotsa  # bally-s-intralot-sa (44 live jobs; ~12 in our index) [discovered apply-url]
+ecolecentraledelyon  # ? (12 live jobs; ~12 in our index) [discovered apply-url]
+enecoemobility  # ? (4 live jobs; ~12 in our index) [discovered apply-url]
+londiscareers  # ? (53 live jobs; ~12 in our index) [discovered apply-url]
+medmehealth  # ? (4 live jobs; ~12 in our index) [discovered apply-url]
+myrunway  # ? (11 live jobs; ~12 in our index) [discovered apply-url]
+trustedshops  # ? (20 live jobs; ~12 in our index) [discovered apply-url]
+vesper  # ? (2 live jobs; ~7 in our index) [discovered apply-url]
+enseradesign  # ? (13 live jobs; ~2 in our index) [discovered apply-url]
+fastems  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+fieldbuddy  # ? (3 live jobs; ~2 in our index) [discovered apply-url]
+formofoodsgmbh  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+funex  # ? (3 live jobs; ~2 in our index) [discovered apply-url]
+gieskerlaakmann  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+# --- discovered via apply-URL harvest, merged 2026-07-07 (discovery/merge.py) ---
+veratronag  # ? (5 live jobs; ~7 in our index) [discovered apply-url]
+westerhorstmann  # ? (4 live jobs; ~7 in our index) [discovered apply-url]
+wtt  # ? (5 live jobs; ~7 in our index) [discovered apply-url]
+zpvgmbhcokg  # ? (5 live jobs; ~7 in our index) [discovered apply-url]
+academyofdigitalindustries  # ? (7 live jobs; ~6 in our index) [discovered apply-url]
+agaseurope  # ? (10 live jobs; ~6 in our index) [discovered apply-url]
+auditdata  # ? (10 live jobs; ~6 in our index) [discovered apply-url]
+axi  # ? (25 live jobs; ~6 in our index) [discovered apply-url]
+battassocies  # ? (16 live jobs; ~6 in our index) [discovered apply-url]
+cronimetenvirotec  # ? (3 live jobs; ~5 in our index) [discovered apply-url]
+ctscompositetechnologiesystemegmbh  # ? (5 live jobs; ~5 in our index) [discovered apply-url]
+demoupcliplister  # ? (3 live jobs; ~5 in our index) [discovered apply-url]
+elektrosupersaxoag  # ? (4 live jobs; ~5 in our index) [discovered apply-url]
+eluscious  # ? (8 live jobs; ~5 in our index) [discovered apply-url]
+frisbii  # ? (3 live jobs; ~5 in our index) [discovered apply-url]
+gtowizard  # ? (5 live jobs; ~5 in our index) [discovered apply-url]
+hascoinvest  # ? (71 live jobs; ~5 in our index) [discovered apply-url]
+hittechmultin  # ? (2 live jobs; ~5 in our index) [discovered apply-url]
+inretail  # ? (4 live jobs; ~5 in our index) [discovered apply-url]
+justrussel  # ? (9 live jobs; ~5 in our index) [discovered apply-url]
+koklinikgmbh  # ? (20 live jobs; ~5 in our index) [discovered apply-url]
+kravet  # ? (15 live jobs; ~5 in our index) [discovered apply-url]
+layerscaleadvisory  # ? (3 live jobs; ~5 in our index) [discovered apply-url]
+lfeddersenbaugesellschaftmbh  # ? (3 live jobs; ~5 in our index) [discovered apply-url]
+livio  # ? (33 live jobs; ~5 in our index) [discovered apply-url]
+madewithlove  # ? (1 live jobs; ~5 in our index) [discovered apply-url]
+meiarchitectsplanners  # ? (1 live jobs; ~5 in our index) [discovered apply-url]
+mudwtr  # ? (3 live jobs; ~5 in our index) [discovered apply-url]
+nictiz  # ? (5 live jobs; ~5 in our index) [discovered apply-url]
+nvm  # ? (1 live jobs; ~5 in our index) [discovered apply-url]
+o2h  # ? (3 live jobs; ~5 in our index) [discovered apply-url]
+olsamgroup  # ? (4 live jobs; ~5 in our index) [discovered apply-url]
+onlinedialogue  # ? (4 live jobs; ~5 in our index) [discovered apply-url]
+prinsenstichting  # ? (19 live jobs; ~5 in our index) [discovered apply-url]
+properfood  # ? (8 live jobs; ~5 in our index) [discovered apply-url]
+radishlab  # ? (4 live jobs; ~5 in our index) [discovered apply-url]
+rooysewissel  # ? (27 live jobs; ~5 in our index) [discovered apply-url]
+qaamgo  # ? (1 live jobs; ~3 in our index) [discovered apply-url]
+qualifyzegmbh  # ? (9 live jobs; ~3 in our index) [discovered apply-url]
+rebuy  # ? (8 live jobs; ~3 in our index) [discovered apply-url]
+rvibefluides  # ? (1 live jobs; ~3 in our index) [discovered apply-url]
+safesize  # ? (2 live jobs; ~3 in our index) [discovered apply-url]
+sahl  # ? (5 live jobs; ~3 in our index) [discovered apply-url]
+santanagroup  # ? (6 live jobs; ~3 in our index) [discovered apply-url]
+studentworks  # ? (4 live jobs; ~3 in our index) [discovered apply-url]
+theconfigteamcareers  # ? (9 live jobs; ~3 in our index) [discovered apply-url]
+vbtgroep  # ? (21 live jobs; ~3 in our index) [discovered apply-url]
+atasssports  # ? (1 live jobs; ~2 in our index) [discovered apply-url]
+dance  # ? (4 live jobs; ~2 in our index) [discovered apply-url]
+delonghigroup  # ? (3 live jobs; ~2 in our index) [discovered apply-url]
+denjyskehaandvaerkerskole  # ? (3 live jobs; ~2 in our index) [discovered apply-url]
+digitalbeatgmbh  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+dock  # ? (26 live jobs; ~2 in our index) [discovered apply-url]
+energyking  # ? (29 live jobs; ~2 in our index) [discovered apply-url]
+# --- discovered via apply-URL harvest, merged 2026-07-11 (discovery/merge.py) ---
+up42gmbh  # ? (5 live jobs; ~12 in our index) [discovered apply-url]
+vanbeestbv  # ? (6 live jobs; ~12 in our index) [discovered apply-url]
+werkenbijhiltermann  # ? (16 live jobs; ~12 in our index) [discovered apply-url]
+celebratecompany  # ? (7 live jobs; ~11 in our index) [discovered apply-url]
+corygroup  # ? (3 live jobs; ~11 in our index) [discovered apply-url]
+ember  # ? (20 live jobs; ~11 in our index) [discovered apply-url]
+jobsatlanticvcfoodlabs  # ? (16 live jobs; ~11 in our index) [discovered apply-url]
+karriereboeckelsbestede  # ? (29 live jobs; ~11 in our index) [discovered apply-url]
+leaseabike  # ? (8 live jobs; ~11 in our index) [discovered apply-url]
+nyrahealth  # ? (11 live jobs; ~11 in our index) [discovered apply-url]
+opergraz  # ? (5 live jobs; ~11 in our index) [discovered apply-url]
+wakuli  # ? (8 live jobs; ~11 in our index) [discovered apply-url]
+werkenbijdeafm  # ? (12 live jobs; ~11 in our index) [discovered apply-url]
+zelh  # ? (24 live jobs; ~11 in our index) [discovered apply-url]
+gain  # gain (16 live jobs; ~10 in our index) [discovered apply-url]
+admindagency  # ? (5 live jobs; ~10 in our index) [discovered apply-url]
+chowco  # ? (12 live jobs; ~10 in our index) [discovered apply-url]
+depiergroep  # ? (17 live jobs; ~10 in our index) [discovered apply-url]
+eneve  # ? (13 live jobs; ~10 in our index) [discovered apply-url]
+fidusheinenoord  # ? (9 live jobs; ~10 in our index) [discovered apply-url]
+heattransformers  # ? (5 live jobs; ~10 in our index) [discovered apply-url]
+innovativebeautygroup  # ? (10 live jobs; ~10 in our index) [discovered apply-url]
+lessonup  # ? (1 live jobs; ~10 in our index) [discovered apply-url]
+momomedicalbv  # ? (19 live jobs; ~10 in our index) [discovered apply-url]
+reiztech  # ? (2 live jobs; ~10 in our index) [discovered apply-url]
+savantzorg  # ? (59 live jobs; ~10 in our index) [discovered apply-url]
+shippingtechnology  # ? (4 live jobs; ~10 in our index) [discovered apply-url]
+sparcareers  # ? (237 live jobs; ~10 in our index) [discovered apply-url]
+tiugotech  # ? (5 live jobs; ~10 in our index) [discovered apply-url]
+twisto  # ? (8 live jobs; ~10 in our index) [discovered apply-url]
+vertigis  # ? (15 live jobs; ~10 in our index) [discovered apply-url]
+werkenbijons  # ? (15 live jobs; ~10 in our index) [discovered apply-url]
+werkenbijvnoncwmkb  # ? (2 live jobs; ~10 in our index) [discovered apply-url]
+connectpeople  # ? (24 live jobs; ~9 in our index) [discovered apply-url]
+elmleigh  # ? (7 live jobs; ~9 in our index) [discovered apply-url]
+eskandary  # ? (5 live jobs; ~9 in our index) [discovered apply-url]
+farogruppe  # ? (8 live jobs; ~9 in our index) [discovered apply-url]
+gemeentelansingerland  # ? (18 live jobs; ~9 in our index) [discovered apply-url]
+gpvfinland  # ? (1 live jobs; ~9 in our index) [discovered apply-url]
+gpvslovakia  # ? (3 live jobs; ~9 in our index) [discovered apply-url]
+gpvswitzerland  # ? (3 live jobs; ~9 in our index) [discovered apply-url]
+huuuge  # ? (10 live jobs; ~9 in our index) [discovered apply-url]
+intergas  # ? (19 live jobs; ~9 in our index) [discovered apply-url]
+metrocaring  # ? (1 live jobs; ~4 in our index) [discovered apply-url]
+oeadstudenthousing  # ? (1 live jobs; ~4 in our index) [discovered apply-url]
+cb  # ? (9 live jobs; ~3 in our index) [discovered apply-url]
+coppensmetaaltechniek  # ? (2 live jobs; ~3 in our index) [discovered apply-url]
+crunchanalyticscareers  # ? (4 live jobs; ~3 in our index) [discovered apply-url]
+dckgroup  # ? (98 live jobs; ~3 in our index) [discovered apply-url]
+earlyalpineacademy  # ? (3 live jobs; ~3 in our index) [discovered apply-url]
+vebegolandscapingservices  # ? (1 live jobs; ~2 in our index) [discovered apply-url]
+vencomaticgroup  # ? (59 live jobs; ~2 in our index) [discovered apply-url]
+verduurzaamvastgoed1  # ? (2 live jobs; ~2 in our index) [discovered apply-url]
+vertuoza  # ? (7 live jobs; ~2 in our index) [discovered apply-url]
+vicentra  # ? (20 live jobs; ~2 in our index) [discovered apply-url]
+vilgain  # ? (44 live jobs; ~2 in our index) [discovered apply-url]
+virtualresource  # ? (6 live jobs; ~2 in our index) [discovered apply-url]
+viviq  # ? (6 live jobs; ~2 in our index) [discovered apply-url]
+vlyfoods  # ? (7 live jobs; ~2 in our index) [discovered apply-url]
+vpteam  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+webbtraders  # ? (7 live jobs; ~2 in our index) [discovered apply-url]
+wellsterhealthtechgroup  # ? (5 live jobs; ~2 in our index) [discovered apply-url]
+werkenbijstichtingmeerscholen  # ? (10 live jobs; ~2 in our index) [discovered apply-url]
+wizdaa  # ? (7 live jobs; ~2 in our index) [discovered apply-url]
+wjgruppe  # ? (10 live jobs; ~2 in our index) [discovered apply-url]
+woonplusschiedam  # ? (9 live jobs; ~2 in our index) [discovered apply-url]
+zteam  # ? (11 live jobs; ~2 in our index) [discovered apply-url]
+aaff  # ? (339 live jobs; ~1 in our index) [discovered apply-url]
+alliade  # ? (46 live jobs; ~1 in our index) [discovered apply-url]
+auxmerveilleuxcarriere  # ? (2 live jobs; ~1 in our index) [discovered apply-url]
+bakkergoedhartbroodspecialiteiten  # ? (16 live jobs; ~1 in our index) [discovered apply-url]
+ballastnedam  # ? (146 live jobs; ~1 in our index) [discovered apply-url]
+beinguser  # ? (6 live jobs; ~1 in our index) [discovered apply-url]
+bonial  # ? (6 live jobs; ~1 in our index) [discovered apply-url]
+bungemagdeburggmbh  # ? (5 live jobs; ~1 in our index) [discovered apply-url]
+doccheckgroup  # ? (6 live jobs; ~1 in our index) [discovered apply-url]
+elan  # ? (6 live jobs; ~1 in our index) [discovered apply-url]
+eleqtron  # ? (19 live jobs; ~1 in our index) [discovered apply-url]
+festgmbh  # ? (14 live jobs; ~1 in our index) [discovered apply-url]
+growprogress  # ? (1 live jobs; ~1 in our index) [discovered apply-url]
+hardrockdigital  # ? (64 live jobs; ~1 in our index) [discovered apply-url]
+heembouw  # ? (32 live jobs; ~1 in our index) [discovered apply-url]
+infomedijidoo  # ? (25 live jobs; ~1 in our index) [discovered apply-url]
+jobsdrlauterbachklinik  # ? (6 live jobs; ~1 in our index) [discovered apply-url]
+juliusbergerinternationalgmbh  # ? (33 live jobs; ~1 in our index) [discovered apply-url]
+kiesertrainingag  # ? (43 live jobs; ~1 in our index) [discovered apply-url]
+koninklijkeniesternsander  # ? (13 live jobs; ~1 in our index) [discovered apply-url]
+lenskartcareers  # ? (67 live jobs; ~1 in our index) [discovered apply-url]
+mayflower  # ? (45 live jobs; ~1 in our index) [discovered apply-url]
