@@ -42,6 +42,7 @@ type globalFlags struct {
 	timeout     time.Duration
 	concurrency int
 	logLevel    string
+	logFormat   string
 	proxies     []string
 }
 
@@ -51,6 +52,7 @@ func (g *globalFlags) register(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&g.concurrency, "concurrency", internal.DefaultConcurrency,
 		"number of job sources to fetch at once")
 	cmd.Flags().StringVar(&g.logLevel, "log-level", "warn", "log verbosity: debug, info, warn, or error")
+	cmd.Flags().StringVar(&g.logFormat, "log-format", "text", "log encoding: text or json")
 	cmd.Flags().StringArrayVar(&g.proxies, "proxy", nil,
 		"HTTP, HTTPS, or SOCKS5 proxy URL; repeat for sticky load balancing (standard proxy environment variables also work)")
 }
@@ -66,7 +68,12 @@ func (g *globalFlags) logger(w io.Writer) *slog.Logger {
 		level = slog.LevelWarn
 	}
 
-	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: level}))
+	options := &slog.HandlerOptions{Level: level}
+	if strings.EqualFold(g.logFormat, "json") {
+		return slog.New(slog.NewJSONHandler(w, options))
+	}
+
+	return slog.New(slog.NewTextHandler(w, options))
 }
 
 // client builds the shared crawler client, validating an explicit proxy before
@@ -380,14 +387,20 @@ func newCompaniesCommand() *cobra.Command {
 
 // newTotalCommand builds the `total` command.
 func newTotalCommand() *cobra.Command {
-	var flags globalFlags
+	var (
+		flags        globalFlags
+		allowPartial bool
+		manifestPath string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "total",
 		Short: "Count the job postings currently available",
 		Long: "Count the job postings currently available.\n\n" +
-			"Writes a single row of \"DATE POSTINGS COMPANIES\" to stdout and a header\n" +
-			"to stderr, so the row can be appended straight to a record file.",
+			"Writes a single row of \"DATE POSTINGS COMPANIES STATUS\" to stdout and\n" +
+			"a header to stderr, so the row can be appended straight to a record file.\n" +
+			"STATUS is complete, or partial when --allow-partial records a deadline\n" +
+			"snapshot that must remain visibly distinct from a completed crawl.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := flags.logger(cmd.ErrOrStderr())
@@ -400,12 +413,16 @@ func newTotalCommand() *cobra.Command {
 				return err
 			}
 
+			startedAt := time.Now().UTC()
+			sources := services.SourcesMatching(nil)
+			sourceJobs, sourceResults := services.Observe(sources, logger)
+
 			jobs := internal.Dedupe(
 				internal.AllWithConcurrency(
 					ctx,
 					client,
 					flags.concurrency,
-					services.JobsFuncs(services.SourcesMatching(nil))...,
+					sourceJobs...,
 				),
 			)
 
@@ -432,25 +449,54 @@ func newTotalCommand() *cobra.Command {
 			// too, so inspecting individual errors would condemn a perfectly
 			// complete crawl.
 			truncated := ctx.Err() != nil
+			status := "complete"
+			if truncated {
+				status = "partial"
+			}
+
+			finishedAt := time.Now().UTC()
+			manifest := newCrawlManifest(
+				startedAt,
+				finishedAt,
+				flags.timeout,
+				status,
+				total,
+				len(perCompany),
+				sourceResults(),
+			)
+			if manifestPath != "" {
+				if err := writeCrawlManifest(manifestPath, manifest); err != nil {
+					return err
+				}
+			}
 
 			logger.InfoContext(ctx, "crawl finished",
 				slog.Int("postings", total),
 				slog.Int("companies", len(perCompany)),
 				slog.Int("failed_sources", failed),
+				slog.String("status", status),
 				slog.Bool("truncated", truncated),
 			)
 
-			fmt.Fprintf(cmd.ErrOrStderr(), "DATE POSTINGS COMPANIES\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %d %d\n",
-				time.Now().Format("01/02/06"), total, len(perCompany))
+			fmt.Fprintf(cmd.ErrOrStderr(), "DATE POSTINGS COMPANIES STATUS\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %d %d %s\n",
+				time.Now().Format("01/02/06"), total, len(perCompany), status)
 
-			// Recording a truncated crawl as a data point would corrupt the
-			// long-running posting trend, which is this project's only historical
-			// record. Fail loudly instead, so the caller can discard the row.
-			if truncated {
+			// Default to failing closed. Callers that deliberately retain a
+			// deadline snapshot must opt in, and the fourth output field keeps
+			// that observation visibly distinct from a complete crawl.
+			if truncated && !allowPartial {
 				return fmt.Errorf(
 					"crawl did not finish within %s: counted %d postings from %d companies, but this is incomplete and must not be recorded",
 					flags.timeout, total, len(perCompany))
+			}
+
+			if truncated {
+				logger.WarnContext(ctx, "recording partial crawl by explicit request",
+					slog.Int("postings", total),
+					slog.Int("companies", len(perCompany)),
+					slog.Duration("timeout", flags.timeout),
+				)
 			}
 
 			return nil
@@ -458,6 +504,10 @@ func newTotalCommand() *cobra.Command {
 	}
 
 	flags.register(cmd)
+	cmd.Flags().BoolVar(&allowPartial, "allow-partial", false,
+		"return a successful, explicitly partial row when the overall deadline is reached")
+	cmd.Flags().StringVar(&manifestPath, "manifest", "",
+		"write a versioned JSON crawl manifest to this path")
 
 	return cmd
 }

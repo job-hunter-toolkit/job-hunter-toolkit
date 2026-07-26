@@ -22,7 +22,9 @@ crawler's core contracts.
 
 ## Non-negotiable invariants
 
-- A partial crawl is never recorded or graphed as a complete snapshot.
+- A partial crawl is never recorded or graphed **as complete**. A deliberately
+  retained deadline observation carries an explicit partial status everywhere
+  and is excluded from the completed trend line.
 - Sharding must not turn totals into sums that bypass global deduplication.
 - A failed source cannot make all of its previously seen jobs look removed.
 - Source, company, and ATS identity are separate concepts.
@@ -64,6 +66,13 @@ per-source platform, company, key, duration, posting count, and error class
 per-service request, retry, 429, and maximum Retry-After summaries
 whether the artifact is complete and safe to merge
 ```
+
+The first local step is now present: `total --manifest` writes schema version 1
+with per-source lifecycle, duration, raw posting count, error count, and coarse
+error class. `--log-format=json --log-level=info` emits matching
+`source.start`/`source.finish` events. The next iteration should add stable run
+and commit identity plus request/retry/429 aggregates from the shared HTTP
+transport.
 
 Use `platform + key` as the stable integration ID. A separately curated company
 ID can outlive moves from Greenhouse to Ashby or from a branded Phenom front end

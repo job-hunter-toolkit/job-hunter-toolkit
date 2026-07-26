@@ -25,7 +25,10 @@ jobs:
   report_total_jobs:
     name: Record total job postings
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # GitHub-hosted jobs are capped at 360 minutes. The crawler gets 350 so
+    # cancellation can unwind and the manifest, chart, artifact, and commit
+    # still have time to finish.
+    timeout-minutes: 360
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -75,12 +78,17 @@ jobs:
         # `total` writes the header to stderr and the data row to stdout, so
         # only the row lands in the record file.
         #
-        # It exits non-zero if the crawl did not finish inside the time budget.
-        # That row must be discarded rather than recorded: a partial count would
-        # look like a real drop in the trend, which is exactly the kind of silent
-        # data corruption this record has suffered before.
-        if ! ./job-hunter-toolkit total --timeout=75m > total.txt; then
-          echo "::error::crawl did not complete; refusing to record a partial count"
+        # Retain a deadline snapshot only when it is explicitly labelled
+        # partial. The plot renders partial observations as isolated diamonds,
+        # never as part of the completed-crawl trend line.
+        if ! ./job-hunter-toolkit total \
+          --timeout=350m \
+          --allow-partial \
+          --manifest=crawl-manifest.json \
+          --log-level=info \
+          --log-format=json \
+          > total.txt; then
+          echo "::error::crawl failed before it could produce a record"
           cat total.txt || true
           exit 1
         fi
@@ -91,10 +99,18 @@ jobs:
         # data point, a bogus zero would corrupt the trend line permanently.
         POSTINGS=$(awk '{print $2}' total.txt)
         SOURCES=$(awk '{print $3}' total.txt)
+        STATUS=$(awk '{print $4}' total.txt)
 
         if [ -z "$POSTINGS" ] || [ "$POSTINGS" -lt 1000 ]; then
           echo "::error::refusing to record implausible posting count: '$POSTINGS'"
           exit 1
+        fi
+        if [ "$STATUS" != "complete" ] && [ "$STATUS" != "partial" ]; then
+          echo "::error::refusing to record unknown crawl status: '$STATUS'"
+          exit 1
+        fi
+        if [ "$STATUS" = "partial" ]; then
+          echo "::warning::recording a deadline snapshot; the chart will mark it as partial"
         fi
 
         if [ "$PREVIEW" = "true" ]; then
@@ -113,6 +129,66 @@ jobs:
 
         echo "postings=$POSTINGS" >> "$GITHUB_OUTPUT"
         echo "sources=$SOURCES" >> "$GITHUB_OUTPUT"
+        echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+    - name: Summarize crawl diagnostics
+      if: always()
+      run: |
+        if [ ! -f crawl-manifest.json ]; then
+          echo "No crawl manifest was produced." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+
+        python3 - <<'PY'
+        import json
+        import os
+
+        with open("crawl-manifest.json", encoding="utf-8") as stream:
+            manifest = json.load(stream)
+
+        def cell(value):
+            return str(value).replace("|", "\\|").replace("\n", " ")
+
+        duration = manifest["duration_ms"] / 1000
+        counts = manifest["source_counts"]
+        sources = manifest["sources"]
+        slowest = sorted(
+            (source for source in sources if source.get("duration_ms", 0) > 0),
+            key=lambda source: source["duration_ms"],
+            reverse=True,
+        )[:15]
+
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+            summary.write("## Crawl result\n\n")
+            summary.write(
+                f"**{manifest['status']}** — {manifest['postings']:,} postings "
+                f"from {manifest['companies']:,} companies in {duration:,.1f}s.\n\n"
+            )
+            summary.write("| Source outcome | Count |\n| --- | ---: |\n")
+            for status in ("complete", "failed", "truncated", "stopped", "running", "planned"):
+                summary.write(f"| {status} | {counts.get(status, 0):,} |\n")
+
+            summary.write("\n### Slowest sources\n\n")
+            summary.write("| Platform | Company | Status | Seconds | Postings | Errors |\n")
+            summary.write("| --- | --- | --- | ---: | ---: | ---: |\n")
+            for source in slowest:
+                summary.write(
+                    f"| {cell(source['platform'])} | {cell(source['company'])} | "
+                    f"{cell(source['status'])} | {source['duration_ms'] / 1000:,.1f} | "
+                    f"{source['postings']:,} | {source['errors']:,} |\n"
+                )
+        PY
+
+    - name: Upload crawl diagnostics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: crawl-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          crawl-manifest.json
+          total.txt
+        if-no-files-found: warn
+        retention-days: 14
 
     - name: Regenerate historical plot
       if: steps.count.outputs.recorded == 'true'
@@ -130,9 +206,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: jobs-record-preview-${{ steps.count.outputs.artifact_date }}
-        path: |
-          jobs_record-preview.png
-          total.txt
+        path: jobs_record-preview.png
         if-no-files-found: error
         retention-days: 7
 
@@ -142,6 +216,7 @@ jobs:
         DATE: ${{ steps.count.outputs.date }}
         POSTINGS: ${{ steps.count.outputs.postings }}
         SOURCES: ${{ steps.count.outputs.sources }}
+        STATUS: ${{ steps.count.outputs.status }}
       run: |
         set -euo pipefail
 
@@ -157,5 +232,5 @@ jobs:
           exit 0
         fi
 
-        git commit -m "update jobs_record.txt for $DATE with $POSTINGS total jobs from $SOURCES sources"
+        git commit -m "update jobs_record.txt for $DATE with $POSTINGS jobs from $SOURCES sources ($STATUS)"
         git push origin HEAD:master

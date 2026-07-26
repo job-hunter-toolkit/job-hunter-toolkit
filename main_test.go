@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -346,6 +348,19 @@ func TestGlobalFlagsLoggerLevel(t *testing.T) {
 	if !strings.Contains(buf.String(), "a warning") {
 		t.Errorf("fallback level did not log warnings: %q", buf.String())
 	}
+
+	buf.Reset()
+	flags = globalFlags{logLevel: "info", logFormat: "json"}
+	logger = flags.logger(&buf)
+	logger.Info("structured message", slog.String("platform", "workday"))
+
+	var record map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
+		t.Fatalf("JSON logger output = %q: %v", buf.String(), err)
+	}
+	if record["msg"] != "structured message" || record["platform"] != "workday" {
+		t.Errorf("JSON logger record = %#v, want message and platform fields", record)
+	}
 }
 
 func TestGlobalFlagsRejectInvalidProxy(t *testing.T) {
@@ -380,6 +395,55 @@ func TestTotalReportsTruncatedCrawl(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "must not be recorded") {
 		t.Errorf("error = %v, want it to warn against recording the count", err)
+	}
+
+	if !strings.HasSuffix(strings.TrimSpace(stdout.String()), "partial") {
+		t.Errorf("stdout = %q, want an explicitly partial row", stdout.String())
+	}
+}
+
+func TestTotalCanRecordExplicitPartialWithManifest(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"total",
+		"--timeout=1ns",
+		"--allow-partial",
+		"--manifest=" + manifestPath,
+	})
+
+	if err := cmd.ExecuteContext(t.Context()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v, want explicit partial recording to succeed", err)
+	}
+
+	fields := strings.Fields(stdout.String())
+	if len(fields) != 4 || fields[3] != "partial" {
+		t.Fatalf("stdout fields = %q, want DATE POSTINGS COMPANIES partial", fields)
+	}
+
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", manifestPath, err)
+	}
+
+	var manifest crawlManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("Unmarshal(manifest) error = %v", err)
+	}
+	if manifest.SchemaVersion != crawlManifestSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", manifest.SchemaVersion, crawlManifestSchemaVersion)
+	}
+	if manifest.Status != "partial" {
+		t.Errorf("Status = %q, want partial", manifest.Status)
+	}
+	if got := manifest.SourceCounts["planned"]; got == 0 {
+		t.Errorf("planned source count = %d, want sources preserved as not started", got)
 	}
 }
 

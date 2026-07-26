@@ -4,11 +4,18 @@
 since April 2020, recorded by the Track Jobs workflow.
 
 ```
-MM/DD/YY  POSTINGS  SOURCES
+MM/DD/YY  POSTINGS  SOURCES  [STATUS]
 07/25/26  13467     558
 ```
 
 `jobs_record.png` is rendered from it by `jobs_record.gnuplot`.
+
+Rows written before July 26, 2026 have no status field and are treated as
+`complete` for compatibility. New rows are `complete` when every planned source
+had an opportunity to finish, or `partial` when the overall crawl reached its
+deadline. A partial row is still a useful observation, but not an equivalent
+measurement: the chart renders it as an isolated purple diamond and breaks the
+completed-crawl line around it.
 
 ## How to read it, and what not to conclude
 
@@ -54,16 +61,28 @@ joins the points either side, drawing a smooth ramp across the void. Substitutin
 
 ## Why this cannot happen again
 
-`total` now **exits non-zero if the crawl did not finish** inside its time
-budget, and the workflow discards the row rather than recording it. It also
-refuses to record an implausibly low count. A partial or empty count can no
-longer enter the record silently, which is the failure mode that produced both
-outages and the 550 empty rows.
+`total` exits non-zero if the crawl does not finish inside its time budget by
+default. The Track Jobs workflow makes an explicit exception with
+`--allow-partial`: it runs the crawler for up to 350 minutes, records a deadline
+snapshot as `partial`, and leaves ten minutes inside GitHub Actions' six-hour
+job limit for cancellation, diagnostics, charting, and commit. It still refuses
+an implausibly low count.
+
+This is intentionally different from the old failure mode. A partial count can
+no longer masquerade as a completed observation: its quality is in the row, in
+the JSON manifest, in the Actions summary, and in the chart's visual encoding.
 
 Truncation is detected from the crawl context, deliberately not from per-source
 errors: the HTTP client's own timeout produces errors that wrap
 `context.DeadlineExceeded` too, so inspecting individual errors would condemn a
 perfectly complete crawl because one board was slow.
+
+Every Track Jobs run uploads `crawl-manifest.json` and `total.txt` for 14 days.
+The versioned manifest records the overall result and each planned source's
+platform, company, key, status, duration, raw posting count, error count, and a
+coarse error class. The Actions run summary shows outcome counts and the 15
+slowest sources, making a deadline or platform bottleneck visible without
+downloading the artifact.
 
 ## The chart
 
