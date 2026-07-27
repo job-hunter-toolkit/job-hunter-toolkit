@@ -10,7 +10,7 @@ the file can contain:
 MM/DD/YY  POSTINGS  SOURCES  [STATUS]
 07/22/20  ?         537                 <- posting count was lost that day
 07/25/26  13467     558                 <- legacy 3-column row: complete
-07/26/26  473385    1772      partial   <- deadline snapshot
+07/26/26  473404    1772      partial   <- deadline snapshot
 07/27/26  486210    1890      complete
 ```
 
@@ -59,7 +59,7 @@ across one of the boundaries above compares two different measuring instruments.
 ### The July 2026 step change is roughly 35x
 
 This one deserves its own warning because of its size. The last per-company row
-is `07/25/26 13467 558`. The first per-ATS crawl counted **473,385 postings from
+is `07/25/26 13467 558`. The first per-ATS crawl counted **473,404 postings from
 1,772 companies** — about 35 times the postings and about 3 times the sources, in
 a single day-over-day step.
 
@@ -220,7 +220,7 @@ where a non-zero exit discards the day's row.
 - Recording the crawler version or source count alongside each row, so future
   discontinuities are self-describing rather than needing archaeology.
 - Splitting the series at the coverage boundary. This is no longer hypothetical:
-  measured against a 473,385 row, the whole 2020–2026 era including the 131,895
+  measured against a 473,404 row, the whole 2020–2026 era including the 131,895
   peak compresses into roughly the bottom quarter of the postings panel. A second
   chart scoped to the per-ATS era, or a small-multiples layout, would let both
   eras be read properly without truncating either axis.

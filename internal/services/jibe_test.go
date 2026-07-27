@@ -2,6 +2,8 @@ package services
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -156,4 +158,76 @@ func TestJibeStopsWhenTheConsumerDoes(t *testing.T) {
 
 	test.Eq(t, 5, seen)
 	test.Eq(t, 1, transport.requests)
+}
+
+// TestJibeHostAcceptsBothKeyForms is a regression test.
+//
+// This adapter only ever built "{key}.jibeapply.com", but iCIMS serves the
+// identical /api/jobs endpoint from employers' own domains, so every board on a
+// vanity host was invisible to the crawl despite the response shape already
+// being modelled here. The .icims.com host is not an alternative: it 404s on
+// /api/jobs.
+func TestJibeHostAcceptsBothKeyForms(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		key  string
+		host string
+		name string
+	}{
+		{key: "fedex", host: "fedex.jibeapply.com", name: "fedex"},
+		{key: "careers.costco.com", host: "careers.costco.com", name: "costco"},
+		{key: "jobs.jcp.com", host: "jobs.jcp.com", name: "jcp"},
+		{key: "careers.se.com", host: "careers.se.com", name: "se"},
+		{key: "www.cakecareers.com", host: "www.cakecareers.com", name: "cakecareers"},
+		{key: "aus.jibeapply.com", host: "aus.jibeapply.com", name: "aus"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			test.Eq(t, tc.host, jibeHost(tc.key))
+			test.Eq(t, tc.name, jibeCompanyName(tc.key))
+		})
+	}
+}
+
+// TestJibeRequestsTheVanityHost proves the key reaches the wire, since the
+// mapping above is only worth anything if the request actually goes there.
+func TestJibeRequestsTheVanityHost(t *testing.T) {
+	t.Parallel()
+
+	var requested string
+
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requested = req.URL.Host
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     http.StatusText(http.StatusOK),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"totalCount":0,"jobs":[]}`)),
+			Request:    req,
+		}, nil
+	})}
+
+	drain(Jibe(t.Context(), client, "careers.costco.com"))
+
+	test.Eq(t, "careers.costco.com", requested)
+}
+
+// TestJibeVanityHostsAreNotDoubleRegistered guards the company list itself: a
+// vanity host whose derived name duplicates an existing bare slug would crawl
+// the same employer twice and report it twice in the company list.
+func TestJibeVanityHostsAreNotDoubleRegistered(t *testing.T) {
+	t.Parallel()
+
+	seen := map[string]string{}
+
+	for _, key := range JibeCompanies {
+		name := jibeCompanyName(key)
+
+		if previous, ok := seen[name]; ok {
+			t.Errorf("keys %q and %q both resolve to company %q", previous, key, name)
+		}
+
+		seen[name] = key
+	}
 }
