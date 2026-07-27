@@ -1,29 +1,36 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/services"
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/shard"
 )
 
-const crawlManifestSchemaVersion = 1
+// crawlManifestSchemaVersion is the version of the manifest this binary writes.
+//
+// Version 2 adds one optional object, "shard", and changes nothing else: every
+// version 1 field keeps its name, type and meaning. That compatibility is not
+// cosmetic. The nightly workflow's Python summarizer reads this file key by key
+// with no schema negotiation, and a breaking change there reds the job and
+// destroys the day's data row.
+//
+// The version was still bumped, because the meaning of the file changed even
+// though its shape did not. In a version 1 manifest "postings" is a whole
+// crawl. In a version 2 manifest that carries a "shard" object it is one
+// shard's contribution, before global deduplication, and adding those up across
+// shards produces a wrong total — the same posting URL can arrive through two
+// integrations. A reader has to be able to tell those two documents apart, and
+// the schema version is how.
+const crawlManifestSchemaVersion = shard.ManifestSchemaVersion
 
-type crawlManifest struct {
-	SchemaVersion int                  `json:"schema_version"`
-	StartedAt     time.Time            `json:"started_at"`
-	FinishedAt    time.Time            `json:"finished_at"`
-	DurationMS    int64                `json:"duration_ms"`
-	Timeout       string               `json:"timeout"`
-	Status        string               `json:"status"`
-	Postings      int                  `json:"postings"`
-	Companies     int                  `json:"companies"`
-	SourceCounts  map[string]int       `json:"source_counts"`
-	Sources       []services.SourceRun `json:"sources"`
-}
+// crawlManifest is the versioned record of one crawl.
+//
+// It is an alias rather than a copy so that the merge, which reads manifests
+// written by other processes, cannot drift from the writer. Two structs
+// decoding the same file is how a field silently stops being populated.
+type crawlManifest = shard.Manifest
 
 func newCrawlManifest(
 	startedAt time.Time,
@@ -34,52 +41,32 @@ func newCrawlManifest(
 	companies int,
 	sources []services.SourceRun,
 ) crawlManifest {
-	counts := map[string]int{}
-	for _, source := range sources {
-		counts[source.Status]++
-	}
-
-	return crawlManifest{
-		SchemaVersion: crawlManifestSchemaVersion,
-		StartedAt:     startedAt,
-		FinishedAt:    finishedAt,
-		DurationMS:    finishedAt.Sub(startedAt).Milliseconds(),
-		Timeout:       timeout.String(),
-		Status:        status,
-		Postings:      postings,
-		Companies:     companies,
-		SourceCounts:  counts,
-		Sources:       sources,
-	}
+	return shard.NewManifest(startedAt, finishedAt, timeout, status, postings, companies, sources)
 }
 
 func writeCrawlManifest(path string, manifest crawlManifest) error {
-	dir := filepath.Dir(path)
-	temp, err := os.CreateTemp(dir, ".crawl-manifest-*.json")
-	if err != nil {
-		return fmt.Errorf("create crawl manifest beside %q: %w", path, err)
+	return shard.WriteManifest(path, manifest)
+}
+
+// buildCommit reports the VCS revision this binary was built from, or "" when
+// the build did not stamp one (`go build -buildvcs=false`, or `go run` of a
+// file outside a repository).
+//
+// It is recorded in plans and shard manifests so a merge can refuse results
+// that were produced by different builds. It is deliberately not the only such
+// check: shard.SourceSetID compares the actual source registries and still
+// works when this is empty.
+func buildCommit() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
 	}
 
-	tempPath := temp.Name()
-	defer func() {
-		// A successful rename makes this a harmless no-op. On failure, do not
-		// leave a misleading partial manifest behind.
-		_ = os.Remove(tempPath)
-	}()
-
-	enc := json.NewEncoder(temp)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(manifest); err != nil {
-		_ = temp.Close()
-
-		return fmt.Errorf("encode crawl manifest %q: %w", path, err)
-	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close crawl manifest %q: %w", path, err)
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return fmt.Errorf("publish crawl manifest %q: %w", path, err)
+	for _, setting := range info.Settings {
+		if setting.Key == "vcs.revision" {
+			return setting.Value
+		}
 	}
 
-	return nil
+	return ""
 }
