@@ -1,0 +1,1195 @@
+name: Track Jobs (Sharded)
+
+# The sharded sibling of track_jobs.yml. Same output contract, same
+# jobs_record.txt, three phases instead of one runner.
+#
+# Why it exists: on 07/26/26 a full crawl on one runner did NOT finish in 350
+# minutes. It recorded "07/26/26 473404 1772 partial" -- 473,404 postings from
+# 1,772 companies, incomplete -- and the registry has since grown to 2,211
+# sources. One runner is no longer a place a complete crawl fits.
+#
+# WHY THIS IS DISPATCH-ONLY, AND HOW TO CUT OVER.
+# track_jobs.yml is the proven path and stays the scheduled writer. This branch
+# cannot be validated live from the dev container, so the sharded path has to
+# earn the schedule by running beside the single-runner one first:
+#
+#   1. Dispatch this workflow from the default branch with record=false. It
+#      crawls, merges, and reports, but never touches jobs_record.txt.
+#   2. Compare its merged total against the same day's track_jobs.yml row. They
+#      are the same crawl by two routes; a gap is a bug in one of them, and the
+#      merge summary's "before/after global deduplication" line is where to look
+#      first.
+#   3. Repeat until several consecutive days agree and the merge has been seen
+#      to refuse a genuinely broken run (kill one shard job by hand and check
+#      that no row is produced).
+#   4. Cut over in ONE commit: uncomment the schedule below, and comment out the
+#      `schedule:` block in track_jobs.yml. Never leave both scheduled -- they
+#      write the same file, and the loser of that race is a lost day.
+#   5. Keep track_jobs.yml dispatchable for at least a month afterwards. It is
+#      the rollback, and rollback is one uncommented cron away.
+on:
+  # CUTOVER STEP 4 -- uncomment together with commenting out the schedule in
+  # track_jobs.yml. 06:00 UTC leaves the 09:00 slot free during the overlap.
+  # schedule:
+  # - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: How many shards to split the crawl into
+        required: false
+        default: "8"
+        type: string
+      record:
+        description: Write the merged total to jobs_record.txt (default is a dry run)
+        required: false
+        default: false
+        type: boolean
+      allow_partial:
+        description: Let the merge produce an explicitly partial total instead of refusing
+        required: false
+        default: false
+        type: boolean
+      timeout:
+        description: Per-shard crawl budget, as Nm
+        required: false
+        default: "300m"
+        type: string
+      prior_run_id:
+        description: Run id of an earlier sharded run whose merged manifest should weight the plan
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Deliberately NOT cancel-in-progress, for the same reason track_jobs.yml is
+  # not: killing a five-hour crawl at minute 300 throws the whole day away.
+  #
+  # This group is deliberately NOT shared with track-jobs. GitHub allows only one
+  # QUEUED job per concurrency group and cancels the older one when a newer
+  # arrives, so sharing a group with a six-hour crawl would silently discard a
+  # merge that already held every shard's data. The real protection against two
+  # runs writing jobs_record.txt is the fetch-and-recheck loop in the commit
+  # step, which is the same mechanism track_jobs.yml calls authoritative.
+  group: track-jobs-sharded
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan the shard assignment
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Only for `gh run download` of a prior run's merged manifest.
+      actions: read
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+      plan_id: ${{ steps.plan.outputs.plan_id }}
+      source_count: ${{ steps.plan.outputs.source_count }}
+      timeout: ${{ steps.plan.outputs.timeout }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        # Every job pins the same commit. `shard merge` refuses shards whose
+        # binary was built from a different revision than the planner's, so
+        # three jobs each resolving a moving ref would fail the merge after
+        # five hours of crawling rather than in the first minute.
+        ref: ${{ github.sha }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Build
+      # -buildvcs=true rather than the default auto. The merge compares the
+      # plan's commit against every shard's, and an unstamped build produces an
+      # empty commit that compares equal to another empty one -- so a silent
+      # loss of VCS info would disable the check instead of tripping it. This
+      # makes the build fail in minute one if the revision cannot be stamped.
+      run: go build -buildvcs=true -o job-hunter-toolkit .
+
+    - name: Fetch a prior manifest for cost weighting
+      if: inputs.prior_run_id != ''
+      # Non-fatal by design. The cost model is an optimisation: losing it makes
+      # the plan less balanced, while refusing to plan because yesterday's
+      # artifact expired would stop the crawl entirely. `shard plan` already
+      # warns and falls back to uniform weighting for a --prior it cannot read.
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PRIOR_RUN_ID: ${{ inputs.prior_run_id }}
+      run: |
+        set -euo pipefail
+        mkdir -p prior
+        gh run download "$PRIOR_RUN_ID" \
+          --repo "$GITHUB_REPOSITORY" \
+          --name "merged-crawl-$PRIOR_RUN_ID" \
+          --dir prior
+        ls -la prior
+
+    - name: Plan
+      id: plan
+      env:
+        SHARDS: ${{ inputs.shards || '8' }}
+        CRAWL_TIMEOUT: ${{ inputs.timeout || '300m' }}
+      run: |
+        set -euo pipefail
+
+        # Validate before eight runners are launched. A bad --shards is cheap to
+        # catch here and expensive to discover in the crawl matrix.
+        if ! [[ "$SHARDS" =~ ^[0-9]+$ ]] || [ "$SHARDS" -lt 1 ] || [ "$SHARDS" -gt 32 ]; then
+          echo "::error::shards must be an integer between 1 and 32, got '$SHARDS'"
+          exit 1
+        fi
+
+        # Only the Nm form, because the value is also compared against the job's
+        # own timeout-minutes and "2h30m" cannot be compared with [ -lt ].
+        if ! [[ "$CRAWL_TIMEOUT" =~ ^[0-9]+m$ ]]; then
+          echo "::error::timeout must look like 300m, got '$CRAWL_TIMEOUT'"
+          exit 1
+        fi
+
+        TIMEOUT_MINUTES="${CRAWL_TIMEOUT%m}"
+        # The crawl job is capped at 350 minutes below. Leave the crawl a margin
+        # for checkout, toolchain setup, the build, the summary and the upload,
+        # exactly as track_jobs.yml budgets 330m of crawl inside a 360m job.
+        if [ "$TIMEOUT_MINUTES" -lt 1 ] || [ "$TIMEOUT_MINUTES" -gt 320 ]; then
+          echo "::error::timeout must be between 1m and 320m to fit inside the shard job's 350 minute cap, got '$CRAWL_TIMEOUT'"
+          exit 1
+        fi
+
+        # `shard plan` writes the matrix, and only the matrix, to stdout; the
+        # human summary goes to stderr.
+        if [ -f prior/crawl-manifest.json ]; then
+          echo "weighting the plan by prior/crawl-manifest.json"
+          ./job-hunter-toolkit shard plan \
+            --shards "$SHARDS" \
+            --output shard-plan.json \
+            --prior prior/crawl-manifest.json \
+            > shard-matrix.json
+        else
+          ./job-hunter-toolkit shard plan \
+            --shards "$SHARDS" \
+            --output shard-plan.json \
+            > shard-matrix.json
+        fi
+
+        # Exactly one line, for the same reason track_jobs.yml insists on it: a
+        # stray write to stdout would both defeat the check below and push a
+        # multi-line value into GITHUB_OUTPUT, which GitHub rejects as malformed.
+        ROWS=$(awk 'END{print NR}' shard-matrix.json)
+        if [ "$ROWS" -ne 1 ]; then
+          echo "::error::expected exactly one line on shard plan's stdout, got $ROWS"
+          exit 1
+        fi
+
+        MATRIX=$(head -n 1 shard-matrix.json)
+        # fromJSON will happily expand anything; assert the shape before a
+        # matrix is built out of it.
+        if ! [[ "$MATRIX" =~ ^\[[0-9]+(,[0-9]+)*\]$ ]]; then
+          echo "::error::shard plan did not produce a JSON array of indexes: '$MATRIX'"
+          exit 1
+        fi
+
+        echo "shards=$MATRIX" >> "$GITHUB_OUTPUT"
+        echo "shard_count=$SHARDS" >> "$GITHUB_OUTPUT"
+        echo "timeout=$CRAWL_TIMEOUT" >> "$GITHUB_OUTPUT"
+
+        python3 - <<'PY' >> "$GITHUB_OUTPUT"
+        import json
+
+        with open("shard-plan.json", encoding="utf-8") as stream:
+            plan = json.load(stream)
+
+        print(f"plan_id={plan['plan_id']}")
+        print(f"source_count={plan['source_count']}")
+        PY
+
+    - name: Summarize the plan
+      if: always()
+      continue-on-error: true
+      run: |
+        if [ ! -f shard-plan.json ]; then
+          echo "No shard plan was produced." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+
+        python3 - <<'PY'
+        import json
+        import os
+        import traceback
+
+        lines = []
+        try:
+            with open("shard-plan.json", encoding="utf-8") as stream:
+                plan = json.load(stream)
+
+            shards = plan.get("shards") or []
+
+            lines.append("## Shard plan\n\n")
+            lines.append(
+                f"Plan `{plan.get('plan_id', '?')}` over source set "
+                f"`{plan.get('source_set_id', '?')}`: {plan.get('source_count', 0):,} sources "
+                f"in {plan.get('shard_count', 0)} shards, cost model "
+                f"`{plan.get('cost_model', '?')}`.\n\n"
+            )
+            lines.append("| Shard | Sources | Independent backends | Estimated cost |\n")
+            lines.append("| ---: | ---: | ---: | ---: |\n")
+
+            for shard in shards:
+                sources = shard.get("sources") or []
+                keys = shard.get("affinity_keys") or []
+                lines.append(
+                    f"| {shard.get('index', '?')} | {len(sources):,} | {len(keys):,} | "
+                    f"{shard.get('estimated_ms', 0):,} |\n"
+                )
+
+            # A shard holding one backend cannot be split further: every source
+            # in it talks to the same rate-limited service, and that service's
+            # limiter has to stay in one process. Such a shard is the crawl's
+            # critical path, and raising --shards will not shorten it.
+            critical = [s for s in shards if len(s.get("affinity_keys") or []) == 1 and len(s.get("sources") or []) > 100]
+            if critical:
+                lines.append(
+                    "\nCritical path: "
+                    + ", ".join(
+                        f"shard {s.get('index')} ({len(s.get('sources') or []):,} sources on one backend)"
+                        for s in critical
+                    )
+                    + ". More shards will not make these faster.\n"
+                )
+        except Exception:
+            lines = [
+                "## Shard plan\n\n",
+                "Could not summarize shard-plan.json.\n\n",
+                "```\n" + traceback.format_exc() + "```\n",
+            ]
+
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+            summary.writelines(lines)
+        PY
+
+    - name: Upload the plan
+      uses: actions/upload-artifact@v5
+      with:
+        # Named by run id only, without run_attempt. "Re-run failed jobs" keeps
+        # the run id and increments the attempt, so an attempt-scoped name would
+        # leave the second attempt's merge unable to see the first attempt's
+        # successful shards -- it would fail closed on shards that are fine.
+        name: shard-plan-${{ github.run_id }}
+        path: |
+          shard-plan.json
+          shard-matrix.json
+        if-no-files-found: error
+        retention-days: 14
+        overwrite: true
+
+  crawl:
+    name: Crawl shard ${{ matrix.shard }}
+    needs: plan
+    runs-on: ubuntu-latest
+    # Comfortably above the 320m ceiling the plan job enforces on --timeout,
+    # leaving room for setup, the build, the summary and the artifact upload.
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    strategy:
+      # One bad shard must not hide the health of the others: this is a
+      # diagnostic matrix, and cancelling the siblings destroys the evidence.
+      fail-fast: false
+      # Conservative on purpose. Separate hosted runners have separate outbound
+      # IPs, and that is fault isolation, not permission to press harder on a
+      # shared service. Four concurrent shards also keeps the two single-backend
+      # shards (Greenhouse and Ashby, the critical path) in the first wave.
+      max-parallel: 4
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Build
+      run: go build -buildvcs=true -o job-hunter-toolkit .
+
+    - name: Download the plan
+      uses: actions/download-artifact@v5
+      with:
+        name: shard-plan-${{ github.run_id }}
+        path: plan
+
+    - name: Crawl the shard
+      id: crawl
+      env:
+        SHARD: ${{ matrix.shard }}
+        CRAWL_TIMEOUT: ${{ needs.plan.outputs.timeout }}
+      run: |
+        set -euo pipefail
+
+        mkdir -p shards
+
+        # --allow-partial so a shard that runs out of time still exits 0 with a
+        # manifest that says "partial". The matrix is not the gate; the merge is,
+        # and it refuses a partial shard unless the whole run was dispatched
+        # under the explicit-partial policy. A shard failing here is still a red
+        # job, because a red job is honest signal and fail-fast is off.
+        #
+        # --log-level=info keeps the per-source lifecycle events and the WARN
+        # 429/retry-exhaustion events. debug would add one line per retry over
+        # ~2,200 sources, which is a log nobody can read and an artifact nobody
+        # wants to download.
+        CRAWL_STATUS=0
+        if ! ./job-hunter-toolkit shard run \
+          --plan plan/shard-plan.json \
+          --shard "$SHARD" \
+          --output-dir shards \
+          --timeout "$CRAWL_TIMEOUT" \
+          --allow-partial \
+          --log-level=info \
+          --log-format=json \
+          2>&1 | tee "shards/shard-$SHARD.log"; then
+          CRAWL_STATUS=1
+        fi
+
+        echo "crawl_status=$CRAWL_STATUS" >> "$GITHUB_OUTPUT"
+
+        if [ "$CRAWL_STATUS" -ne 0 ]; then
+          echo "::error::shard $SHARD exited non-zero; its artifacts are still uploaded so the merge can say what is missing"
+        fi
+
+        exit "$CRAWL_STATUS"
+
+    - name: Summarize the shard
+      if: always()
+      # Pure diagnostics. It runs after the crawl and before the upload, and it
+      # must never be able to change what the upload carries or what the merge
+      # decides -- the lesson track_jobs.yml records about its own summarizer.
+      continue-on-error: true
+      env:
+        SHARD: ${{ matrix.shard }}
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+        import traceback
+
+        shard = os.environ["SHARD"]
+        manifest_path = f"shards/shard-{shard}.json"
+        log_path = f"shards/shard-{shard}.log"
+
+        def cell(value):
+            return str(value).replace("|", "\\|").replace("\n", " ")
+
+        def number(value, default=0):
+            try:
+                return type(default)(value)
+            except (TypeError, ValueError):
+                return default
+
+        lines = []
+        try:
+            if not os.path.exists(manifest_path):
+                raise FileNotFoundError(
+                    f"{manifest_path} does not exist: the shard died before it could"
+                    " write the manifest it writes before any error return"
+                )
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                manifest = json.load(stream)
+            if not isinstance(manifest, dict):
+                raise TypeError(f"manifest is {type(manifest).__name__}, want object")
+
+            stamp = manifest.get("shard") or {}
+            counts = manifest.get("source_counts") or {}
+            sources = [s for s in (manifest.get("sources") or []) if isinstance(s, dict)]
+            planned = sum(number(v) for v in counts.values()) or len(sources)
+            terminal = sum(
+                number(counts.get(status))
+                for status in ("complete", "failed", "truncated", "stopped")
+            )
+            duration = number(manifest.get("duration_ms"), 0.0) / 1000
+
+            lines.append(f"## Shard {cell(shard)}\n\n")
+            lines.append(
+                f"**{cell(manifest.get('status', 'unknown'))}** — "
+                f"{number(manifest.get('postings')):,} postings (before global deduplication) "
+                f"from {number(manifest.get('companies')):,} companies in {duration:,.1f}s "
+                f"of a {cell(manifest.get('timeout', '?'))} budget. "
+                f"{terminal:,} of {planned:,} planned sources reached a terminal state.\n\n"
+            )
+            lines.append(
+                f"Plan `{cell(stamp.get('plan_id', '?'))}`, shard "
+                f"{number(stamp.get('index'))} of {number(stamp.get('count'))}, commit "
+                f"`{cell(stamp.get('commit', '(unset)'))[:12]}`.\n\n"
+            )
+
+            lines.append("| Source outcome | Count |\n| --- | ---: |\n")
+            for status in ("complete", "failed", "truncated", "stopped", "running", "planned"):
+                lines.append(f"| {status} | {number(counts.get(status)):,} |\n")
+
+            platforms = {}
+            for source in sources:
+                entry = platforms.setdefault(
+                    str(source.get("platform", "")),
+                    {"sources": 0, "complete": 0, "failed": 0, "postings": 0},
+                )
+                entry["sources"] += 1
+                entry["postings"] += number(source.get("postings"))
+                if source.get("status") == "complete":
+                    entry["complete"] += 1
+                elif source.get("status") == "failed":
+                    entry["failed"] += 1
+
+            lines.append("\n### Platforms in this shard\n\n")
+            lines.append("| Platform | Sources | Complete | Failed | Postings (pre-dedupe) |\n")
+            lines.append("| --- | ---: | ---: | ---: | ---: |\n")
+            for name in sorted(platforms):
+                entry = platforms[name]
+                lines.append(
+                    f"| {cell(name or '(unattributed)')} | {entry['sources']:,} | "
+                    f"{entry['complete']:,} | {entry['failed']:,} | {entry['postings']:,} |\n"
+                )
+
+            # Retries and 429s come from the JSON log rather than the manifest,
+            # because the manifest counts source-level errors and a retried
+            # request that eventually succeeded is not one. These two events are
+            # WARN, so they are present at --log-level=info; the per-attempt
+            # "retrying HTTP request" event is DEBUG and is deliberately not
+            # collected, which is why the column below says "exhausted" and not
+            # "retries".
+            pressure = {}
+            parsed = skipped = 0
+            if os.path.exists(log_path):
+                with open(log_path, encoding="utf-8", errors="replace") as stream:
+                    for line in stream:
+                        line = line.strip()
+                        if not line.startswith("{"):
+                            # `shard run` ends with a one-line human summary on
+                            # stderr, which is not JSON and not an error.
+                            skipped += 1
+                            continue
+                        try:
+                            event = json.loads(line)
+                        except ValueError:
+                            skipped += 1
+                            continue
+                        parsed += 1
+                        msg = event.get("msg")
+                        if msg not in (
+                            "shedding requests to a rate-limited service",
+                            "HTTP request failed after retries",
+                            "retrying HTTP request",
+                        ):
+                            continue
+                        entry = pressure.setdefault(
+                            str(event.get("service", "?")),
+                            {"shed": 0, "exhausted": 0, "attempts": 0, "retried": 0, "retry_after": ""},
+                        )
+                        if msg == "shedding requests to a rate-limited service":
+                            entry["shed"] += 1
+                        elif msg == "HTTP request failed after retries":
+                            entry["exhausted"] += 1
+                            entry["attempts"] += number(event.get("attempts"))
+                        else:
+                            entry["retried"] += 1
+                        after = str(event.get("retry_after", "") or "")
+                        if after and len(after) > len(entry["retry_after"]):
+                            entry["retry_after"] = after
+
+            lines.append("\n### HTTP pressure by service\n\n")
+            if pressure:
+                lines.append(
+                    "| Service | 429 shedding windows | Requests that exhausted retries | "
+                    "Attempts spent on them | Retry attempts logged | Longest Retry-After seen |\n"
+                )
+                lines.append("| --- | ---: | ---: | ---: | ---: | --- |\n")
+                for name in sorted(pressure, key=lambda k: -(pressure[k]["shed"] * 1000 + pressure[k]["exhausted"])):
+                    entry = pressure[name]
+                    lines.append(
+                        f"| {cell(name)} | {entry['shed']:,} | {entry['exhausted']:,} | "
+                        f"{entry['attempts']:,} | {entry['retried']:,} | "
+                        f"{cell(entry['retry_after'] or '—')} |\n"
+                    )
+            else:
+                lines.append("No service was shed or exhausted its retries.\n")
+            lines.append(
+                f"\n{parsed:,} log events parsed, {skipped:,} non-JSON lines skipped. "
+                "Per-attempt retries are DEBUG level and are not counted here.\n"
+            )
+
+            slowest = sorted(
+                (s for s in sources if number(s.get("duration_ms")) > 0),
+                key=lambda s: number(s.get("duration_ms")),
+                reverse=True,
+            )[:15]
+            lines.append("\n### Slowest sources\n\n")
+            lines.append("| Platform | Company | Status | Seconds | Postings | Errors |\n")
+            lines.append("| --- | --- | --- | ---: | ---: | ---: |\n")
+            for source in slowest:
+                lines.append(
+                    f"| {cell(source.get('platform'))} | {cell(source.get('company'))} | "
+                    f"{cell(source.get('status'))} | {number(source.get('duration_ms')) / 1000:,.1f} | "
+                    f"{number(source.get('postings')):,} | {number(source.get('errors')):,} |\n"
+                )
+
+            # A source that finished cleanly with nothing to show is either a
+            # company that is not hiring or an adapter that has quietly stopped
+            # reading its board. The roadmap asks for the list because only a
+            # human can tell those apart.
+            empty = [s for s in sources if s.get("status") == "complete" and number(s.get("postings")) == 0]
+            lines.append(
+                f"\n{len(empty):,} sources completed with zero postings"
+                + (": " + ", ".join(f"`{cell(s.get('company'))}`" for s in empty[:25]) if empty else "")
+                + (f", and {len(empty) - 25:,} more" if len(empty) > 25 else "")
+                + ".\n"
+            )
+        except Exception:
+            lines = [
+                f"## Shard {cell(shard)}\n\n",
+                "Could not summarize this shard. The artifacts are uploaded regardless, "
+                "and the merge is what decides whether the crawl is recordable.\n\n",
+                "```\n" + traceback.format_exc() + "```\n",
+            ]
+
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+            summary.writelines(lines)
+        PY
+
+    - name: Upload the shard
+      # ALWAYS. A shard that fails without artifacts is indistinguishable from a
+      # shard that never started, and the merge would have nothing to name.
+      # `shard run` writes its manifest before any error return precisely so
+      # that this upload has something to carry.
+      if: always()
+      uses: actions/upload-artifact@v5
+      with:
+        name: crawl-shard-${{ matrix.shard }}-${{ github.run_id }}
+        path: |
+          shards/shard-${{ matrix.shard }}.json
+          shards/shard-${{ matrix.shard }}.ndjson
+          shards/shard-${{ matrix.shard }}.log
+        if-no-files-found: error
+        retention-days: 7
+        overwrite: true
+
+  merge:
+    name: Merge shards and record the total
+    needs: [plan, crawl]
+    # !cancelled() rather than always(), and gated on the plan having succeeded.
+    #
+    # With a plain `needs`, one failed shard SKIPS this job, and a skipped job is
+    # not a failure -- the run would go green having recorded nothing and said
+    # nothing. The merge has to run precisely when a shard failed, because
+    # naming what is missing is its job. It does not have to run when there is no
+    # plan to verify against, and always() would also resurrect it after a
+    # cancellation.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      # This is the ONLY job in this workflow that can write to the repository,
+      # and the only place jobs_record.txt is ever touched.
+      contents: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Build
+      run: go build -buildvcs=true -o job-hunter-toolkit .
+
+    - name: Download the plan
+      # Non-fatal so the merge step below can report the absence itself, with
+      # the rest of the inventory, instead of the job dying on a download.
+      continue-on-error: true
+      uses: actions/download-artifact@v5
+      with:
+        name: shard-plan-${{ github.run_id }}
+        path: plan
+
+    - name: Download every shard
+      # Also non-fatal: download-artifact fails when its pattern matches nothing,
+      # and "no shard produced anything" is a diagnosis this job exists to
+      # deliver, not a reason for it to die before delivering it.
+      continue-on-error: true
+      uses: actions/download-artifact@v5
+      with:
+        pattern: crawl-shard-*-${{ github.run_id }}
+        # One directory holding every shard-N.json / .ndjson / .log, which is
+        # exactly the layout `shard merge --shards-dir` expects. The file names
+        # are derived from the shard index, never from a path inside a
+        # downloaded file.
+        merge-multiple: true
+        path: shards
+
+    - name: Inventory the artifacts
+      if: always()
+      continue-on-error: true
+      env:
+        SHARD_COUNT: ${{ needs.plan.outputs.shard_count }}
+      run: |
+        set -uo pipefail
+        echo "### Artifacts received" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo '```' >> "$GITHUB_STEP_SUMMARY"
+        ls -la plan shards 2>&1 | head -n 100 >> "$GITHUB_STEP_SUMMARY"
+        echo '```' >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+
+        if ! [[ "$SHARD_COUNT" =~ ^[0-9]+$ ]]; then
+          echo "the plan job reported no shard count; skipping the inventory"
+          exit 0
+        fi
+
+        MISSING=""
+        INDEX=0
+        while [ "$INDEX" -lt "$SHARD_COUNT" ]; do
+          if [ ! -f "shards/shard-$INDEX.json" ]; then
+            MISSING="$MISSING $INDEX"
+          fi
+          INDEX=$(( INDEX + 1 ))
+        done
+
+        if [ -n "$MISSING" ]; then
+          echo "::warning::no manifest arrived for shard(s):$MISSING"
+          echo "No manifest arrived for shard(s):$MISSING" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Merge and verify
+      id: merge
+      env:
+        ALLOW_PARTIAL: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_partial }}
+        # Scheduled runs record; a dispatch has to ask. The dry-run default is
+        # what makes this workflow safe to trial beside track_jobs.yml.
+        RECORD: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.record) }}
+        # Absolute floors, identical to track_jobs.yml. The series has never
+        # legitimately dipped below 537 sources.
+        MIN_POSTINGS: "1000"
+        MIN_SOURCES: "100"
+        # Relative floors, as a percentage of the last recorded value.
+        MIN_POSTINGS_PCT: "50"
+        MIN_SOURCES_PCT: "60"
+        # A shard where every source failed reports status "complete", because
+        # status is decided from the crawl context and a failed source is a
+        # terminal source. `shard merge` will happily turn eight such shards into
+        # "0 0 complete" and exit 0 -- verified locally. Fail-closed on shard
+        # coverage is therefore NOT a guard against mass source failure, and this
+        # is the guard that is.
+        MAX_FAILED_SOURCE_PCT: "40"
+        WARN_FAILED_SOURCE_PCT: "20"
+      run: |
+        set -euo pipefail
+
+        echo "recorded=false" >> "$GITHUB_OUTPUT"
+
+        if [ ! -f plan/shard-plan.json ]; then
+          echo "::error::the shard plan artifact is missing, so nothing can be verified against it"
+          exit 1
+        fi
+
+        if [ ! -d shards ]; then
+          echo "::error::no shard artifacts were downloaded; every shard failed before it could upload"
+          exit 1
+        fi
+
+        # The merge fails closed on a missing, mismatched, short-written or
+        # unfinished shard, and prints NOTHING to stdout when it refuses. total
+        # is therefore empty exactly when there is no recordable crawl.
+        MERGE_STATUS=0
+        if [ "$ALLOW_PARTIAL" = "true" ]; then
+          echo "::warning::merging under an explicit partial policy; a deadline snapshot can be recorded, labelled partial"
+          ./job-hunter-toolkit shard merge \
+            --plan plan/shard-plan.json \
+            --shards-dir shards \
+            --manifest crawl-manifest.json \
+            --allow-partial \
+            > total.txt 2> merge.err || MERGE_STATUS=$?
+        else
+          ./job-hunter-toolkit shard merge \
+            --plan plan/shard-plan.json \
+            --shards-dir shards \
+            --manifest crawl-manifest.json \
+            > total.txt 2> merge.err || MERGE_STATUS=$?
+        fi
+
+        cat merge.err
+
+        if [ "$MERGE_STATUS" -ne 0 ]; then
+          echo "::error::the merge refused to produce a total; nothing will be recorded"
+          if [ -s total.txt ]; then
+            echo "::error::the merge also wrote to stdout while refusing, which contradicts its contract; refusing to trust any of it"
+            cat total.txt
+          fi
+          exit 1
+        fi
+
+        cat total.txt
+
+        ROWS=$(awk 'END{print NR}' total.txt)
+        if [ "$ROWS" -ne 1 ]; then
+          echo "::error::expected exactly one row on the merge's stdout, got $ROWS lines"
+          exit 1
+        fi
+
+        ROW_DATE=$(awk 'NR==1{print $1}' total.txt)
+        POSTINGS=$(awk 'NR==1{print $2}' total.txt)
+        SOURCES=$(awk 'NR==1{print $3}' total.txt)
+        STATUS=$(awk 'NR==1{print $4}' total.txt)
+
+        # Match the digits explicitly before any arithmetic comparison. `[ "$X"
+        # -lt N ]` exits 2 on non-numeric input, and a non-zero exit inside an
+        # `if` condition does not trip `set -e` -- so a guard written that way
+        # skips itself on exactly the garbage it exists to reject.
+        if ! [[ "$ROW_DATE" =~ ^[0-9]{2}/[0-9]{2}/[0-9]{2}$ ]]; then
+          echo "::error::refusing to record a malformed record date: '$ROW_DATE'"
+          exit 1
+        fi
+        if ! [[ "$POSTINGS" =~ ^[0-9]+$ ]]; then
+          echo "::error::refusing to record a non-numeric posting count: '$POSTINGS'"
+          exit 1
+        fi
+        if ! [[ "$SOURCES" =~ ^[0-9]+$ ]]; then
+          echo "::error::refusing to record a non-numeric source count: '$SOURCES'"
+          exit 1
+        fi
+        if [ "$STATUS" != "complete" ] && [ "$STATUS" != "partial" ]; then
+          echo "::error::refusing to record unknown crawl status: '$STATUS'"
+          exit 1
+        fi
+
+        if [ "$POSTINGS" -lt "$MIN_POSTINGS" ]; then
+          echo "::error::refusing to record implausible posting count: $POSTINGS < $MIN_POSTINGS"
+          exit 1
+        fi
+        if [ "$SOURCES" -lt "$MIN_SOURCES" ]; then
+          echo "::error::refusing to record implausible source count: $SOURCES < $MIN_SOURCES"
+          exit 1
+        fi
+
+        # The guard `shard merge` cannot provide, because a failed source is a
+        # terminal source and a shard of nothing but failures is "complete".
+        python3 - <<'PY'
+        import json
+        import os
+        import sys
+
+        with open("crawl-manifest.json", encoding="utf-8") as stream:
+            manifest = json.load(stream)
+
+        counts = manifest.get("source_counts") or {}
+        planned = sum(int(v) for v in counts.values()) or len(manifest.get("sources") or [])
+        failed = int(counts.get("failed", 0))
+        if planned <= 0:
+            print("::error::the merged manifest lists no sources at all")
+            sys.exit(1)
+
+        pct = failed / planned * 100
+        ceiling = float(os.environ["MAX_FAILED_SOURCE_PCT"])
+        warn = float(os.environ["WARN_FAILED_SOURCE_PCT"])
+
+        print(f"failed sources: {failed} of {planned} ({pct:.1f}%)")
+
+        if pct > ceiling:
+            print(
+                f"::error::{failed} of {planned} sources failed ({pct:.1f}% > {ceiling:.0f}%). "
+                "The merge accepts this because a failed source is a terminal source, so "
+                "every shard reports 'complete'. Recording it would draw a real collapse "
+                "in the job market that did not happen."
+            )
+            sys.exit(1)
+
+        if pct > warn:
+            print(f"::warning::{failed} of {planned} sources failed ({pct:.1f}%)")
+        PY
+
+        # Coverage floor against the last row that actually carried a number.
+        # 550 historical rows carry `?` for postings, and a row for this same
+        # date is excluded because we may be superseding it.
+        PREV_POSTINGS=$(awk -v d="$ROW_DATE" '$1 != d && $2 ~ /^[0-9]+$/ {v=$2} END{print v+0}' jobs_record.txt)
+        PREV_SOURCES=$(awk -v d="$ROW_DATE" '$1 != d && $3 ~ /^[0-9]+$/ {v=$3} END{print v+0}' jobs_record.txt)
+
+        if [ "$PREV_SOURCES" -gt 0 ]; then
+          FLOOR=$(( PREV_SOURCES * MIN_SOURCES_PCT / 100 ))
+          if [ "$SOURCES" -lt "$FLOOR" ]; then
+            echo "::error::coverage collapsed: $SOURCES sources against $PREV_SOURCES recorded previously (floor $FLOOR)"
+            exit 1
+          fi
+        fi
+        if [ "$PREV_POSTINGS" -gt 0 ]; then
+          FLOOR=$(( PREV_POSTINGS * MIN_POSTINGS_PCT / 100 ))
+          if [ "$POSTINGS" -lt "$FLOOR" ]; then
+            echo "::error::postings collapsed: $POSTINGS against $PREV_POSTINGS recorded previously (floor $FLOOR)"
+            exit 1
+          fi
+        fi
+
+        echo "date=$ROW_DATE" >> "$GITHUB_OUTPUT"
+        echo "postings=$POSTINGS" >> "$GITHUB_OUTPUT"
+        echo "sources=$SOURCES" >> "$GITHUB_OUTPUT"
+        echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+        if [ "$RECORD" != "true" ]; then
+          echo "::notice::dry run: $ROW_DATE $POSTINGS $SOURCES $STATUS was verified but not recorded"
+          exit 0
+        fi
+
+        # "Only for a complete, verified crawl." A partial total is recordable
+        # only when the dispatcher asked for the explicit-partial policy, which
+        # is the same rule `total --allow-partial` follows today.
+        if [ "$STATUS" != "complete" ] && [ "$ALLOW_PARTIAL" != "true" ]; then
+          echo "::error::refusing to record a $STATUS crawl; dispatch with allow_partial to retain a deadline snapshot"
+          exit 1
+        fi
+
+        if [ "$STATUS" = "partial" ]; then
+          echo "::warning::recording a deadline snapshot; the chart will mark it as partial"
+        fi
+
+        echo "recorded=true" >> "$GITHUB_OUTPUT"
+
+    - name: Summarize the merged crawl
+      if: always()
+      continue-on-error: true
+      env:
+        SHARD_COUNT: ${{ needs.plan.outputs.shard_count }}
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+        import re
+        import traceback
+
+        def cell(value):
+            return str(value).replace("|", "\\|").replace("\n", " ")
+
+        def number(value, default=0):
+            try:
+                return type(default)(value)
+            except (TypeError, ValueError):
+                return default
+
+        lines = []
+        try:
+            expected = number(os.environ.get("SHARD_COUNT"), 0)
+
+            shards = []
+            for index in range(expected):
+                path = f"shards/shard-{index}.json"
+                if not os.path.exists(path):
+                    shards.append((index, None))
+                    continue
+                try:
+                    with open(path, encoding="utf-8") as stream:
+                        shards.append((index, json.load(stream)))
+                except Exception:
+                    shards.append((index, None))
+
+            lines.append("## Merged crawl\n\n")
+
+            merged = None
+            if os.path.exists("crawl-manifest.json"):
+                with open("crawl-manifest.json", encoding="utf-8") as stream:
+                    merged = json.load(stream)
+
+            raw = sum(
+                number(manifest.get("postings"))
+                for _, manifest in shards
+                if isinstance(manifest, dict)
+            )
+
+            if merged:
+                deduped = number(merged.get("postings"))
+                lines.append(
+                    f"**{cell(merged.get('status', 'unknown'))}** — "
+                    f"{deduped:,} postings from {number(merged.get('companies')):,} companies "
+                    f"in {number(merged.get('duration_ms'), 0.0) / 1000 / 60:,.1f} minutes of wall time "
+                    f"(first shard start to last shard finish).\n\n"
+                )
+                lines.append(
+                    f"Postings **before** global deduplication: {raw:,}. "
+                    f"**After**: {deduped:,}. "
+                    f"{raw - deduped:,} postings arrived through more than one shard, which is "
+                    "the size of the error that adding the per-shard counts would have made.\n\n"
+                )
+            else:
+                lines.append(
+                    "No merged manifest was produced: the merge refused, so there is no total. "
+                    f"The shards reported {raw:,} postings between them, which is NOT a crawl "
+                    "total -- it is a sum that has not been globally deduplicated.\n\n"
+                )
+
+            lines.append("### Shards\n\n")
+            lines.append("| Shard | Status | Sources | Unfinished | Postings (pre-dedupe) | Wall time |\n")
+            lines.append("| ---: | --- | ---: | ---: | ---: | ---: |\n")
+            for index, manifest in shards:
+                if not isinstance(manifest, dict):
+                    lines.append(f"| {index} | **missing** | — | — | — | — |\n")
+                    continue
+                sources = manifest.get("sources") or []
+                terminal = {"complete", "failed", "truncated", "stopped"}
+                unfinished = sum(1 for s in sources if s.get("status") not in terminal)
+                lines.append(
+                    f"| {index} | {cell(manifest.get('status', '?'))} | {len(sources):,} | "
+                    f"{unfinished:,} | {number(manifest.get('postings')):,} | "
+                    f"{number(manifest.get('duration_ms'), 0.0) / 1000 / 60:,.1f}m |\n"
+                )
+
+            # Deduplicated per-platform counts exist only on the merge's stderr;
+            # the manifest's per-source postings are raw. Parse them if the merge
+            # produced them, and say so rather than silently mixing the two.
+            deduped_platform = {}
+            if os.path.exists("merge.err"):
+                with open("merge.err", encoding="utf-8", errors="replace") as stream:
+                    for line in stream:
+                        match = re.match(r"^ {2}(\S+): (\d+) postings$", line.rstrip("\n"))
+                        if match:
+                            deduped_platform[match.group(1)] = int(match.group(2))
+
+            platforms = {}
+            for _, manifest in shards:
+                if not isinstance(manifest, dict):
+                    continue
+                for source in manifest.get("sources") or []:
+                    if not isinstance(source, dict):
+                        continue
+                    entry = platforms.setdefault(
+                        str(source.get("platform", "")),
+                        {"sources": 0, "complete": 0, "failed": 0, "raw": 0},
+                    )
+                    entry["sources"] += 1
+                    entry["raw"] += number(source.get("postings"))
+                    if source.get("status") == "complete":
+                        entry["complete"] += 1
+                    elif source.get("status") == "failed":
+                        entry["failed"] += 1
+
+            lines.append("\n### Platforms\n\n")
+            lines.append("| Platform | Sources | Complete | Failed | Postings before dedupe | Postings after dedupe |\n")
+            lines.append("| --- | ---: | ---: | ---: | ---: | ---: |\n")
+            for name in sorted(platforms):
+                entry = platforms[name]
+                after = deduped_platform.get(name if name else "(unattributed)")
+                after_cell = f"{after:,}" if after is not None else "—"
+                lines.append(
+                    f"| {cell(name or '(unattributed)')} | {entry['sources']:,} | {entry['complete']:,} | "
+                    f"{entry['failed']:,} | {entry['raw']:,} | {after_cell} |\n"
+                )
+
+            pressure = {}
+            for index, _ in shards:
+                path = f"shards/shard-{index}.log"
+                if not os.path.exists(path):
+                    continue
+                with open(path, encoding="utf-8", errors="replace") as stream:
+                    for line in stream:
+                        line = line.strip()
+                        if not line.startswith("{"):
+                            continue
+                        try:
+                            event = json.loads(line)
+                        except ValueError:
+                            continue
+                        msg = event.get("msg")
+                        if msg not in (
+                            "shedding requests to a rate-limited service",
+                            "HTTP request failed after retries",
+                        ):
+                            continue
+                        entry = pressure.setdefault(
+                            str(event.get("service", "?")), {"shed": 0, "exhausted": 0, "shards": set()}
+                        )
+                        entry["shards"].add(index)
+                        if msg == "shedding requests to a rate-limited service":
+                            entry["shed"] += 1
+                        else:
+                            entry["exhausted"] += 1
+
+            lines.append("\n### HTTP pressure by service\n\n")
+            if pressure:
+                lines.append("| Service | 429 shedding windows | Exhausted retries | Shards that touched it |\n")
+                lines.append("| --- | ---: | ---: | --- |\n")
+                for name in sorted(pressure, key=lambda k: -(pressure[k]["shed"] * 1000 + pressure[k]["exhausted"])):
+                    entry = pressure[name]
+                    touched = sorted(entry["shards"])
+                    # A shared backend reached from more than one shard is the
+                    # thing the affinity plan exists to prevent. It is not
+                    # automatically a bug -- a platform whose tenants really are
+                    # on separate hosts is split on purpose -- but it is the
+                    # first place to look if a board starts rate-limiting.
+                    flag = " ⚠" if len(touched) > 1 else ""
+                    lines.append(
+                        f"| {cell(name)}{flag} | {entry['shed']:,} | {entry['exhausted']:,} | "
+                        f"{', '.join(str(i) for i in touched)} |\n"
+                    )
+            else:
+                lines.append("No service was shed or exhausted its retries.\n")
+
+            slowest = []
+            for _, manifest in shards:
+                if isinstance(manifest, dict):
+                    slowest.extend(s for s in (manifest.get("sources") or []) if isinstance(s, dict))
+            slowest = sorted(
+                (s for s in slowest if number(s.get("duration_ms")) > 0),
+                key=lambda s: number(s.get("duration_ms")),
+                reverse=True,
+            )[:20]
+            lines.append("\n### Slowest sources across every shard\n\n")
+            lines.append("| Platform | Company | Status | Seconds | Postings | Errors |\n")
+            lines.append("| --- | --- | --- | ---: | ---: | ---: |\n")
+            for source in slowest:
+                lines.append(
+                    f"| {cell(source.get('platform'))} | {cell(source.get('company'))} | "
+                    f"{cell(source.get('status'))} | {number(source.get('duration_ms')) / 1000:,.1f} | "
+                    f"{number(source.get('postings')):,} | {number(source.get('errors')):,} |\n"
+                )
+
+            if os.path.exists("merge.err"):
+                with open("merge.err", encoding="utf-8", errors="replace") as stream:
+                    verbatim = stream.read()[:8000]
+                lines.append("\n<details><summary>Merge output</summary>\n\n```\n")
+                lines.append(verbatim)
+                lines.append("\n```\n\n</details>\n")
+        except Exception:
+            lines = [
+                "## Merged crawl\n\n",
+                "Could not summarize the merge. Whether a row was recorded is decided by the "
+                "merge step, not by this one.\n\n",
+                "```\n" + traceback.format_exc() + "```\n",
+            ]
+
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+            summary.writelines(lines)
+        PY
+
+    - name: Upload the merged crawl
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@v5
+      with:
+        # This name is what `prior_run_id` downloads to weight a later plan.
+        name: merged-crawl-${{ github.run_id }}
+        path: |
+          crawl-manifest.json
+          total.txt
+          merge.err
+        if-no-files-found: warn
+        retention-days: 30
+        overwrite: true
+
+    - name: Install gnuplot
+      if: steps.merge.outputs.recorded == 'true'
+      # Installed only when there is a row to chart, and after the crawl, so
+      # apt-get never spends minutes inside a crawl budget. gnuplot-nox is the
+      # headless build; the plain metapackage drags in the Qt/X11 chain.
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y gnuplot-nox
+        gnuplot --version
+
+    - name: Commit and push
+      if: steps.merge.outputs.recorded == 'true'
+      env:
+        ROW_DATE: ${{ steps.merge.outputs.date }}
+        POSTINGS: ${{ steps.merge.outputs.postings }}
+        SOURCES: ${{ steps.merge.outputs.sources }}
+        STATUS: ${{ steps.merge.outputs.status }}
+        PLAN_ID: ${{ needs.plan.outputs.plan_id }}
+        SHARD_COUNT: ${{ needs.plan.outputs.shard_count }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+
+        # During the trust period this workflow is dispatched by hand, and a
+        # dispatch can name any branch. A row computed from a feature branch's
+        # adapters must never land on master's series: the numbers would be a
+        # different crawl wearing the same date.
+        if [ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]; then
+          echo "::error::refusing to record from '$GITHUB_REF_NAME'; jobs_record.txt is only written from '$DEFAULT_BRANCH'"
+          exit 1
+        fi
+
+        git config user.name "Job Hunter Toolkit Bot"
+        git config user.email "job-hunter-toolkit@users.noreply.github.com"
+
+        # This step owns the whole write, exactly as track_jobs.yml's does. The
+        # row exists only in total.txt on this runner until the push lands, so
+        # the merge into the file, the chart and the push all live here where a
+        # failure can be retried instead of silently discarding the day.
+        for attempt in 1 2 3 4 5; do
+          git fetch --quiet origin "$DEFAULT_BRANCH"
+
+          # Rebuild the change on top of the fetched tip rather than rebasing:
+          # the row is a pure function of (branch tip, total.txt), and a rebase
+          # would have to three-way-merge a 100 KB PNG. reset --hard keeps the
+          # untracked total.txt and crawl-manifest.json, the only inputs needed.
+          git reset --quiet --hard FETCH_HEAD
+
+          # THE authoritative duplicate check, against the real tip milliseconds
+          # before the write. track_jobs.yml may have recorded this same date
+          # while this crawl was running, and during the overlap period that is
+          # the expected case, not an exception.
+          EXISTING=$(awk -v d="$ROW_DATE" '$1 == d {print ($4 == "" ? "complete" : $4)}' jobs_record.txt | tail -n 1)
+          if [ "$EXISTING" = "complete" ]; then
+            echo "::notice::$ROW_DATE is already recorded as complete; leaving it alone"
+            exit 0
+          fi
+          if [ "$EXISTING" = "partial" ] && [ "$STATUS" != "complete" ]; then
+            echo "::notice::$ROW_DATE is already recorded as partial and this crawl is $STATUS too; leaving it alone"
+            exit 0
+          fi
+
+          # A complete crawl supersedes a partial row for the same date. Drop the
+          # old row rather than appending a second one for the day.
+          awk -v d="$ROW_DATE" '$1 != d' jobs_record.txt > jobs_record.txt.new
+          cat total.txt >> jobs_record.txt.new
+          mv jobs_record.txt.new jobs_record.txt
+
+          # Render to a side file and swap it in only on success. The chart is
+          # derived and reproducible; the number is neither.
+          if gnuplot -e "outputfile='jobs_record.png.new'" jobs_record.gnuplot; then
+            mv jobs_record.png.new jobs_record.png
+          else
+            rm -f jobs_record.png.new
+            echo "::error::gnuplot failed; committing $ROW_DATE without refreshing the chart"
+          fi
+
+          git add jobs_record.txt jobs_record.png
+
+          if git diff --cached --quiet; then
+            echo "no changes to commit"
+            exit 0
+          fi
+
+          git commit --quiet -m "update jobs_record.txt for $ROW_DATE with $POSTINGS jobs from $SOURCES sources ($STATUS)" \
+            -m "Merged from shard plan $PLAN_ID across $SHARD_COUNT shards."
+
+          if git push --quiet origin "HEAD:$DEFAULT_BRANCH"; then
+            echo "recorded $ROW_DATE: $POSTINGS postings from $SOURCES sources ($STATUS)"
+            exit 0
+          fi
+
+          echo "::warning::push rejected on attempt $attempt; refetching and rebuilding the row"
+          sleep $(( attempt * 15 ))
+        done
+
+        echo "::error::could not push the row for $ROW_DATE after 5 attempts; the count was $POSTINGS from $SOURCES sources ($STATUS)"
+        exit 1

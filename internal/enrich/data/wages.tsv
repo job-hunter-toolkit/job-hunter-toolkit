@@ -1,0 +1,22 @@
+# wages.tsv -- GENERATED, and EMPTY: no wage generator exists yet.
+#
+# Framework only. The intended contents are offline aggregations of two key-free
+# US government datasets, restricted to employers already matched in
+# employers.tsv:
+#
+#   * DOL OFLC LCA/PERM disclosure files (source=oflc): what an employer
+#     certified it would pay for a role in a state, aggregated to
+#     (employer, soc, area) -> {n, p25, p50, p75} annualized USD.
+#   * BLS OEWS flat files (source=oews): survey estimates by occupation and
+#     area, national and state tiers only. Metro is ~330k rows and does not
+#     belong in a portable binary.
+#
+# THESE ARE NOT PAY. A benchmark row is a third party's statement about an
+# occupation or about somebody else's visa application. It must never be written
+# into JobPosting.Compensation and must never satisfy --min-pay; see
+# docs/compensation.md ("Nothing blends sources") and the WageBenchmark doc
+# comment in internal/enrich/enrich.go.
+#
+# Raw disclosure files are hundreds of thousands of rows per fiscal year and are
+# never shipped: only the aggregate lands here.
+platform	key	soc	occupation	area	source	n	p25	p50	p75	as_of

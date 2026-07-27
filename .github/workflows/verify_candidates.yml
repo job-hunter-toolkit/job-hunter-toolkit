@@ -1,0 +1,525 @@
+name: Verify Candidate Sources
+
+# Wave 2 added six platforms and staged ~4,958 further tenant slugs under
+# internal/services/testdata/candidates/ WITHOUT registering them. They were
+# recovered by a research pass in a container with no outbound access to a job
+# board, so not one of them has ever been confirmed to exist. Registering them
+# unprobed would have put thousands of unverified boards into every nightly
+# crawl, where a dead slug costs four retries and a live one nobody expected
+# costs an unbudgeted hour.
+#
+# This workflow is the missing half of that arrangement: it stages ONE BOUNDED
+# BATCH into the registry inside the runner's working copy, checks it with the
+# same `health` command, client and rate limiter a crawl uses, and reports which
+# slugs are real. It never commits. Promotion is a human reading the report and
+# editing the registry, because "this board answered once" and "this board
+# belongs in the nightly crawl" are different judgements.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which candidate list to check
+        required: true
+        type: choice
+        options:
+        - recruitee
+        - teamtailor
+        - personio
+        - pinpoint
+        - successfactors
+        - oraclecloud
+        - jibe
+      offset:
+        description: Skip this many UNREGISTERED candidates before the batch
+        required: false
+        default: "0"
+        type: string
+      limit:
+        description: How many candidates to check (1-400)
+        required: false
+        default: "100"
+        type: string
+      timeout:
+        description: Time budget for the whole check, as Nm
+        required: false
+        default: "20m"
+        type: string
+      concurrency:
+        description: How many candidates to check at once (1-16)
+        required: false
+        default: "8"
+        type: string
+      per_host_limit:
+        description: Concurrent requests to the shared backend (1-4)
+        required: false
+        default: "2"
+        type: string
+
+permissions:
+  # Read only, and deliberately so. This workflow must not be able to promote a
+  # candidate even by accident: an unverified slug entering the registry without
+  # a human deciding is exactly the failure it exists to prevent.
+  contents: read
+
+concurrency:
+  # One batch at a time per platform. Two dispatches against the same platform
+  # would be two runners pointed at one shared backend, which is precisely the
+  # pressure increase the crawl's affinity design refuses to make.
+  group: verify-candidates-${{ inputs.platform }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Check ${{ inputs.limit }} ${{ inputs.platform }} candidates from ${{ inputs.offset }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Validate the batch
+      env:
+        OFFSET: ${{ inputs.offset || '0' }}
+        LIMIT: ${{ inputs.limit || '100' }}
+        CHECK_TIMEOUT: ${{ inputs.timeout || '20m' }}
+        CHECK_CONCURRENCY: ${{ inputs.concurrency || '8' }}
+        PER_HOST_LIMIT: ${{ inputs.per_host_limit || '2' }}
+      run: |
+        set -euo pipefail
+
+        if ! [[ "$OFFSET" =~ ^[0-9]+$ ]]; then
+          echo "::error::offset must be a non-negative integer, got '$OFFSET'"
+          exit 1
+        fi
+
+        # Bounded, never all 4,958. The Go shim clamps to the same ceiling, so
+        # this bound holds even if the workflow is edited and this check is not.
+        if ! [[ "$LIMIT" =~ ^[0-9]+$ ]] || [ "$LIMIT" -lt 1 ] || [ "$LIMIT" -gt 400 ]; then
+          echo "::error::limit must be between 1 and 400, got '$LIMIT'"
+          exit 1
+        fi
+
+        if ! [[ "$CHECK_TIMEOUT" =~ ^[0-9]+m$ ]] || [ "${CHECK_TIMEOUT%m}" -lt 1 ] || [ "${CHECK_TIMEOUT%m}" -gt 45 ]; then
+          echo "::error::timeout must look like 20m and fit inside the job's 60 minute cap, got '$CHECK_TIMEOUT'"
+          exit 1
+        fi
+
+        if ! [[ "$CHECK_CONCURRENCY" =~ ^[0-9]+$ ]] || [ "$CHECK_CONCURRENCY" -lt 1 ] || [ "$CHECK_CONCURRENCY" -gt 16 ]; then
+          echo "::error::concurrency must be between 1 and 16, got '$CHECK_CONCURRENCY'"
+          exit 1
+        fi
+
+        # A crawl's --per-host-limit of 4 is shared across a diverse source set.
+        # A verification batch points every one of its sources at ONE backend, so
+        # this limit is the only thing between the batch and a hundred concurrent
+        # requests to a single service. It may be lowered and never raised:
+        # a dedicated runner with its own IP is not permission to press harder.
+        if ! [[ "$PER_HOST_LIMIT" =~ ^[0-9]+$ ]] || [ "$PER_HOST_LIMIT" -lt 1 ] || [ "$PER_HOST_LIMIT" -gt 4 ]; then
+          echo "::error::per_host_limit must be between 1 and 4; a verification pass may be politer than a crawl, never pushier. Got '$PER_HOST_LIMIT'"
+          exit 1
+        fi
+
+    - name: Stage the candidate batch
+      # The staged sources exist ONLY in this runner's working copy. They are
+      # written as a Go file rather than probed with curl so that a candidate is
+      # checked through the very adapter that would crawl it: the URL shape,
+      # pagination, headers and error handling are the adapter's, not a
+      # reimplementation in shell that could call a live board dead.
+      run: |
+        set -euo pipefail
+
+        cat > zz_candidate_probe.go <<'GO'
+        // Code generated by .github/workflows/verify_candidates.yml. DO NOT EDIT, DO NOT COMMIT.
+        //
+        // This file exists only inside one on-demand verification run's working
+        // copy. internal/services/testdata/candidates/ holds ~4,958 tenant slugs
+        // recovered by a research pass in a container that could not reach a job
+        // board, so not one of them has ever been confirmed to exist.
+        // Registering them for real would put thousands of unverified boards
+        // into every nightly crawl; staging a bounded batch here probes them
+        // through exactly the same client, limiter and adapter a crawl would
+        // use, and leaves promotion to a human reading the report.
+        package main
+
+        import (
+        	"bufio"
+        	"context"
+        	"fmt"
+        	"net/http"
+        	"os"
+        	"strconv"
+        	"strings"
+
+        	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
+        	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/services"
+        )
+
+        // candidatePrefix is prepended to a staged source's display name so that
+        // `health --company candidate:` selects the batch and nothing else.
+        // Matching on the ATS key would also select what is already registered,
+        // and the slugs that are already registered are the ones this pass has
+        // nothing to learn about.
+        const candidatePrefix = "candidate:"
+
+        // candidateBatchCap is the most sources one dispatch may stage,
+        // regardless of what it asked for. The workflow validates its own input
+        // too; this is the backstop that keeps a fat-fingered dispatch from
+        // pointing 4,958 probes at one shared backend.
+        const candidateBatchCap = 400
+
+        // candidateAdapter is one platform's staging recipe: the exported fetch
+        // function and the candidate file it draws from. Only exported API is
+        // used, so a rename of an unexported registry helper cannot break this
+        // shim without the compiler saying so.
+        type candidateAdapter struct {
+        	fetch func(context.Context, *http.Client, string) internal.Jobs
+        	file  string
+        }
+
+        var candidateAdapters = map[string]candidateAdapter{
+        	"jibe":           {services.Jibe, "jibe_vanity_hosts.txt"},
+        	"oraclecloud":    {services.OracleCloud, "oracle_orc_tenants.txt"},
+        	"personio":       {services.Personio, "personio_slugs.txt"},
+        	"pinpoint":       {services.Pinpoint, "pinpoint_tenants.txt"},
+        	"recruitee":      {services.Recruitee, "recruitee_slugs.txt"},
+        	"successfactors": {services.SuccessFactors, "successfactors_tenants.txt"},
+        	"teamtailor":     {services.Teamtailor, "teamtailor_slugs.txt"},
+        }
+
+        func init() {
+        	platform := os.Getenv("CANDIDATE_PLATFORM")
+        	if platform == "" {
+        		return
+        	}
+
+        	adapter, ok := candidateAdapters[platform]
+        	if !ok {
+        		candidateFail("unknown platform %q", platform)
+        	}
+
+        	path := os.Getenv("CANDIDATE_DIR") + "/" + adapter.file
+
+        	all, err := readCandidateFile(path)
+        	if err != nil {
+        		candidateFail("%v", err)
+        	}
+
+        	// Package main's init runs after every imported package's, so Builtin
+        	// is fully populated here and this only ever appends to it.
+        	registered := make(map[string]bool, len(services.Builtin))
+        	for _, source := range services.Builtin {
+        		if source.Platform == platform {
+        			registered[source.Key] = true
+        		}
+        	}
+
+        	// Filter BEFORE slicing. The registered tenants are a subset of the
+        	// candidate file and cluster at its top, so slicing the raw file
+        	// spends the batch re-probing sources whose status is already known:
+        	// offset 0 limit 4 over recruitee_slugs.txt staged nothing at all.
+        	open := make([]string, 0, len(all))
+
+        	for _, key := range all {
+        		if !registered[key] {
+        			open = append(open, key)
+        		}
+        	}
+
+        	offset := candidateInt("CANDIDATE_OFFSET", 0)
+        	limit := candidateInt("CANDIDATE_LIMIT", 100)
+
+        	if offset < 0 || offset >= len(open) {
+        		candidateFail("offset %d is outside the %d unregistered %s candidates", offset, len(open), platform)
+        	}
+
+        	if limit < 1 {
+        		candidateFail("limit %d must be at least 1", limit)
+        	}
+
+        	if limit > candidateBatchCap {
+        		fmt.Fprintf(os.Stderr, "candidate probe: clamping limit %d to %d\n", limit, candidateBatchCap)
+
+        		limit = candidateBatchCap
+        	}
+
+        	batch := open[offset:min(offset+limit, len(open))]
+
+        	for _, key := range batch {
+        		services.Builtin = append(services.Builtin, services.Source{
+        			Platform: platform,
+        			Key:      key,
+        			Company:  candidatePrefix + key,
+        			Jobs:     candidateJobs(adapter.fetch, key),
+        		})
+        	}
+
+        	// The next offset is printed rather than left to the caller: it is
+        	// the only thing a human needs to walk the whole list one safe batch
+        	// at a time.
+        	fmt.Fprintf(os.Stderr,
+        		"candidate probe: %s has %d candidates, %d already registered, %d open; staged %d at offset %d; next offset %d\n",
+        		platform, len(all), len(all)-len(open), len(open), len(batch), offset, offset+len(batch))
+        }
+
+        // candidateJobs mirrors the closure the real registry builds, including
+        // its context check: an adapter that kept yielding after cancellation
+        // would run past the verification pass's deadline.
+        func candidateJobs(fetch func(context.Context, *http.Client, string) internal.Jobs, key string) internal.JobsFunc {
+        	return func(ctx context.Context, client *http.Client) internal.Jobs {
+        		return func(yield func(*internal.JobPosting, error) bool) {
+        			for posting, err := range fetch(ctx, client, key) {
+        				if ctx.Err() != nil {
+        					yield(nil, ctx.Err())
+
+        					return
+        				}
+
+        				if !yield(posting, err) {
+        					return
+        				}
+        			}
+        		}
+        	}
+        }
+
+        // readCandidateFile parses a candidate list with the same rule the
+        // registry tests use: everything from the first '#' is a comment, and
+        // blank lines are skipped. Drifting from that rule would stage a slug
+        // that no test has ever compared against the registry.
+        func readCandidateFile(path string) ([]string, error) {
+        	file, err := os.Open(path)
+        	if err != nil {
+        		return nil, fmt.Errorf("open candidate file %q: %w", path, err)
+        	}
+        	defer file.Close()
+
+        	var keys []string
+
+        	scanner := bufio.NewScanner(file)
+        	for scanner.Scan() {
+        		line, _, _ := strings.Cut(scanner.Text(), "#")
+
+        		if line = strings.TrimSpace(line); line != "" {
+        			keys = append(keys, line)
+        		}
+        	}
+
+        	if err := scanner.Err(); err != nil {
+        		return nil, fmt.Errorf("read candidate file %q: %w", path, err)
+        	}
+
+        	return keys, nil
+        }
+
+        func candidateInt(name string, fallback int) int {
+        	raw := strings.TrimSpace(os.Getenv(name))
+        	if raw == "" {
+        		return fallback
+        	}
+
+        	value, err := strconv.Atoi(raw)
+        	if err != nil {
+        		candidateFail("%s=%q is not a number", name, raw)
+        	}
+
+        	return value
+        }
+
+        // candidateFail exits before cobra ever runs. A verification pass that
+        // staged the wrong batch must not go on to report on it.
+        func candidateFail(format string, args ...any) {
+        	fmt.Fprintf(os.Stderr, "candidate probe: "+format+"\n", args...)
+        	os.Exit(1)
+        }
+        GO
+
+        # gofmt is the cheapest possible check that the heredoc above survived
+        # YAML block-scalar indentation intact.
+        UNFORMATTED=$(gofmt -l zz_candidate_probe.go)
+        if [ -n "$UNFORMATTED" ]; then
+          echo "::error::the generated probe is not gofmt-clean; the heredoc was mangled"
+          gofmt -d zz_candidate_probe.go
+          exit 1
+        fi
+
+    - name: Build with the batch staged
+      run: |
+        set -euo pipefail
+        go vet .
+        go build -o job-hunter-toolkit .
+
+    - name: Check the candidates
+      id: check
+      env:
+        CANDIDATE_PLATFORM: ${{ inputs.platform }}
+        CANDIDATE_DIR: internal/services/testdata/candidates
+        CANDIDATE_OFFSET: ${{ inputs.offset || '0' }}
+        CANDIDATE_LIMIT: ${{ inputs.limit || '100' }}
+        CHECK_TIMEOUT: ${{ inputs.timeout || '20m' }}
+        CHECK_CONCURRENCY: ${{ inputs.concurrency || '8' }}
+        PER_HOST_LIMIT: ${{ inputs.per_host_limit || '2' }}
+      run: |
+        # -e deliberately present: source_health.yml records what happened when
+        # it was absent -- the binary crashed, health.json was left empty, every
+        # derived number came back blank, and the run went green having checked
+        # nothing at all.
+        set -euo pipefail
+
+        # `health --company candidate:` selects exactly the staged batch. The
+        # prefix lives in the display name, never in the ATS key, so nothing
+        # already registered can match it.
+        if ! ./job-hunter-toolkit health \
+          --json \
+          --company "candidate:" \
+          --timeout="$CHECK_TIMEOUT" \
+          --concurrency="$CHECK_CONCURRENCY" \
+          --per-host-limit="$PER_HOST_LIMIT" \
+          --log-level=warn \
+          > candidates.json 2> candidates-stderr.txt; then
+          echo "::error::the health check exited non-zero; no candidate census was produced"
+          tail -n 40 candidates-stderr.txt || true
+          exit 1
+        fi
+
+        cat candidates-stderr.txt
+
+        if [ ! -s candidates.json ]; then
+          echo "::error::candidates.json is empty; the census did not complete"
+          exit 1
+        fi
+
+        # The probe prints the window it staged and the offset to dispatch next.
+        grep "candidate probe:" candidates-stderr.txt >> "$GITHUB_STEP_SUMMARY" || true
+
+    - name: Report which candidates are real
+      if: always()
+      continue-on-error: true
+      env:
+        CANDIDATE_PLATFORM: ${{ inputs.platform }}
+        CANDIDATE_OFFSET: ${{ inputs.offset || '0' }}
+      run: |
+        if [ ! -s candidates.json ]; then
+          echo "No candidate census was produced." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+
+        python3 - <<'PY'
+        import json
+        import os
+        import traceback
+
+        platform = os.environ["CANDIDATE_PLATFORM"]
+        offset = os.environ["CANDIDATE_OFFSET"]
+
+        def cell(value):
+            return str(value).replace("|", "\\|").replace("\n", " ")
+
+        lines = []
+        try:
+            with open("candidates.json", encoding="utf-8") as stream:
+                results = json.load(stream)
+            if not isinstance(results, list):
+                raise TypeError(f"candidates.json is {type(results).__name__}, want array")
+
+            for result in results:
+                # The staged display name carries the marker; the key is the
+                # slug a human would paste into the registry.
+                result["slug"] = result.get("key") or str(result.get("company", "")).removeprefix("candidate:")
+
+            live = sorted((r for r in results if r.get("status") == "ok"), key=lambda r: -int(r.get("postings") or 0))
+            empty = sorted((r for r in results if r.get("status") == "empty"), key=lambda r: r["slug"])
+            failed = sorted((r for r in results if r.get("status") == "failed"), key=lambda r: r["slug"])
+
+            lines.append(f"## {platform} candidates from offset {offset}\n\n")
+            lines.append(
+                f"{len(results)} checked: **{len(live)} answered with postings**, "
+                f"{len(empty)} reachable but empty, {len(failed)} unreachable.\n\n"
+            )
+            lines.append(
+                "Nothing here has been committed, and this workflow cannot commit: it runs with "
+                "`contents: read`. Promotion is a human edit to the registry, because "
+                "\"this board answered once\" and \"this board belongs in the nightly crawl\" "
+                "are different judgements.\n\n"
+            )
+
+            if live:
+                lines.append("### Answered with postings — promotable\n\n")
+                lines.append("| Slug | Postings |\n| --- | ---: |\n")
+                for result in live:
+                    capped = "+" if result.get("capped") else ""
+                    lines.append(f"| `{cell(result['slug'])}` | {int(result.get('postings') or 0):,}{capped} |\n")
+                lines.append(
+                    "\nPostings are capped at the health command's 100-posting sample, so a "
+                    "`100+` is a floor and not a size.\n"
+                )
+                lines.append("\n<details><summary>Paste-ready registry lines</summary>\n\n```go\n")
+                for result in live:
+                    lines.append(f"\t{json.dumps(result['slug'])},\n")
+                lines.append("```\n\n</details>\n")
+
+            if empty:
+                lines.append("\n### Reachable but empty — NOT promotable on this evidence\n\n")
+                lines.append(
+                    "An empty board is a company that is not hiring, or a dead tenant whose ATS "
+                    "answers 200 with an empty list. The two are indistinguishable from one "
+                    "sample. Re-check on another day before promoting any of these; "
+                    "docs/source-backlog.md records that BambooHR answers an unknown tenant with "
+                    "a redirect and Workday serves a maintenance page, so a platform's idea of "
+                    "\"missing\" is rarely a 404.\n\n"
+                )
+                lines.append("| Slug |\n| --- |\n")
+                for result in empty[:100]:
+                    lines.append(f"| `{cell(result['slug'])}` |\n")
+                if len(empty) > 100:
+                    lines.append(f"\nand {len(empty) - 100} more.\n")
+
+            if failed:
+                lines.append("\n### Unreachable\n\n| Slug | Error |\n| --- | --- |\n")
+                for result in failed[:100]:
+                    lines.append(f"| `{cell(result['slug'])}` | {cell(result.get('error', ''))[:180]} |\n")
+                if len(failed) > 100:
+                    lines.append(f"\nand {len(failed) - 100} more.\n")
+        except Exception:
+            lines = [
+                f"## {platform} candidates\n\n",
+                "Could not summarize candidates.json. The raw census is attached as an artifact.\n\n",
+                "```\n" + traceback.format_exc() + "```\n",
+            ]
+
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+            summary.writelines(lines)
+        PY
+
+    - name: Assert nothing was modified
+      if: always()
+      # The whole arrangement rests on candidates staying unregistered until a
+      # human promotes them. Prove it rather than assert it in a comment: the
+      # only thing this run may leave behind is the untracked generated probe.
+      run: |
+        set -euo pipefail
+        rm -f zz_candidate_probe.go
+
+        CHANGED=$(git status --porcelain -- . ':!candidates.json' ':!candidates-stderr.txt' ':!job-hunter-toolkit')
+        if [ -n "$CHANGED" ]; then
+          echo "::error::this run modified tracked files, which it must never do:"
+          echo "$CHANGED"
+          exit 1
+        fi
+
+        echo "working tree clean: no candidate was promoted by this run"
+
+    - name: Upload the census
+      if: always()
+      uses: actions/upload-artifact@v5
+      with:
+        name: candidates-${{ inputs.platform }}-${{ inputs.offset }}-${{ github.run_id }}
+        path: |
+          candidates.json
+          candidates-stderr.txt
+        if-no-files-found: warn
+        retention-days: 90

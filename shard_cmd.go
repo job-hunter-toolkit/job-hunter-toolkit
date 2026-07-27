@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
@@ -99,7 +99,7 @@ func newShardPlanCommand() *cobra.Command {
 			}
 
 			if matrixPath != "" {
-				if err := writeJSONFile(matrixPath, plan.MatrixIndexes()); err != nil {
+				if err := writeShardMatrixFile(matrixPath, plan.MatrixIndexes()); err != nil {
 					return fmt.Errorf("write shard matrix %q: %w", matrixPath, err)
 				}
 			}
@@ -381,7 +381,7 @@ func shardOutputPaths(dir string, index int, manifestPath, postingsPath string) 
 	return manifestPath, postingsPath
 }
 
-func writeJSONFile(path string, value any) error {
+func writeShardMatrixFile(path string, value any) error {
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("encode %q: %w", path, err)
@@ -390,15 +390,15 @@ func writeJSONFile(path string, value any) error {
 	return os.WriteFile(path, append(encoded, '\n'), 0o644)
 }
 
-// sortedKeys returns a map's keys in a stable order, so summaries do not
+// sortedPlatformNames returns a map's keys in a stable order, so summaries do not
 // reorder themselves between runs.
-func sortedKeys[V any](values map[string]V) []string {
+func sortedPlatformNames[V any](values map[string]V) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
 	}
 
-	sort.Strings(keys)
+	slices.Sort(keys)
 
 	return keys
 }

@@ -18,10 +18,11 @@ import (
 // series.
 func newShardMergeCommand() *cobra.Command {
 	var (
-		planPath     string
-		shardsDir    string
-		manifestPath string
-		allowPartial bool
+		planPath       string
+		shardsDir      string
+		manifestPath   string
+		allowPartial   bool
+		maxFailedRatio float64
 	)
 
 	cmd := &cobra.Command{
@@ -46,7 +47,7 @@ func newShardMergeCommand() *cobra.Command {
 				return err
 			}
 
-			result, err := shard.MergeDir(shardsDir, plan, shard.MergeOptions{AllowPartial: allowPartial})
+			result, err := shard.MergeDir(shardsDir, plan, shard.MergeOptions{AllowPartial: allowPartial, MaxFailedSourceRatio: maxFailedRatio})
 			if err != nil {
 				return err
 			}
@@ -84,6 +85,8 @@ func newShardMergeCommand() *cobra.Command {
 		"directory holding every shard's shard-N.json and shard-N.ndjson")
 	cmd.Flags().StringVar(&manifestPath, "manifest", "",
 		"write the merged whole-crawl manifest to this path")
+	cmd.Flags().Float64Var(&maxFailedRatio, "max-failed-sources", shard.DefaultMaxFailedSourceRatio,
+		"refuse to call the total complete when more than this share of sources failed; a source that failed has\nfinished, so without this one dead runner's worth of failures merges as a complete but short total. Negative disables")
 	cmd.Flags().BoolVar(&allowPartial, "allow-partial", false,
 		"merge shards that reached their deadline, labelling the total partial; it never labels an incomplete crawl complete, and it does not excuse a missing or mismatched shard")
 
@@ -111,7 +114,7 @@ func writeMergeSummary(stderr io.Writer, plan shard.Plan, result shard.MergeResu
 	fmt.Fprintf(stderr, "  postings: %d before global deduplication, %d after (%d duplicates across shards)\n",
 		raw, result.Manifest.Postings, result.CrossShardDuplicates)
 
-	for _, platform := range sortedKeys(result.PostingsPerPlatform) {
+	for _, platform := range sortedPlatformNames(result.PostingsPerPlatform) {
 		name := platform
 		if name == "" {
 			name = "(unattributed)"

@@ -15,15 +15,19 @@ fixture-backed test.
 | McDonald's | <https://jobs.mchire.com/jobs?page_size=10&page_number=1&sort_by=headline&sort_order=ASC> | JSON API with explicit paging params. |
 | Memgraph | <https://join.com/companies/memgraph> | Hosted on join.com, worth a shared `join.com` service adapter instead. |
 | PlanetScale | <https://planetscale.com/careers> | |
-| SurrealDB | <https://surrealdb.pinpointhq.com> | Hosted on Pinpoint, worth a shared `pinpointhq` service adapter. |
+| ~~SurrealDB~~ | <https://surrealdb.pinpointhq.com> | **Done.** The `pinpoint` adapter covers it and 33 other tenants. |
 | Bending Spoons | <https://jobs.bendingspoons.com/> | |
 
 ## Preferred approach
 
-Two of these (Memgraph, SurrealDB) are on shared ATS platforms, join.com and
-Pinpoint. Adding those as `internal/services` adapters covers every other
-company on the same platform for the same effort, which is the pattern that
-makes the rest of this project scale. Prefer that over one-off company scrapers.
+This worked, and it is the reason SurrealDB is struck above. Both entries that
+were on a shared platform justified a service adapter instead of a company
+scraper: Pinpoint is now an `internal/services` adapter carrying 34 tenants,
+where a SurrealDB scraper would have carried one. join.com is the same argument
+still unspent, and Memgraph is still the only reason to make it.
+
+Prefer a service adapter over a one-off company scraper wherever the choice
+exists. It is the pattern that makes the rest of this project scale.
 
 ## Unsupported ATS platforms
 
@@ -35,24 +39,74 @@ those industries are under-represented.
 These were identified by fingerprinting live careers sites, so the platform
 attributions are evidence-based rather than guessed:
 
-| Platform | Confirmed employers | Confidence |
+| Platform | Confirmed employers | Status |
 | --- | --- | --- |
-| **Phenom People** | Southwest Airlines, Lowe's | Confirmed (`cdn.phenompeople.com` assets) |
-| **SAP SuccessFactors** | ExxonMobil | Confirmed (`rmkcdn.successfactors.com`) |
-| **Oracle Taleo** | Kaiser Permanente | Confirmed (`kp.taleo.net/careersection`) |
-| **Oracle Cloud HCM** | Mayo Clinic | Confirmed (`fa.ocs.oraclecloud.com/hcmUI/CandidateExperience`) |
-| **IBM BrassRing / Kenexa** | Lockheed Martin, Home Depot (hourly roles) | Confirmed (`sjobs.brassring.com`) |
-| **iCIMS proper** (no Jibe wrapper) | Charles Schwab, Costco | Confirmed |
-| **Avature** | Ally Financial, Lockheed Martin (talent network) | Confirmed |
-| **Radancy** | Kroger | Tentative, URL pattern only (`/sites/CX_NNNN`) |
-| Proprietary | Walmart | Confirmed no third-party fingerprint; needs a bespoke scraper |
+| ~~**Phenom People**~~ | Southwest Airlines, Lowe's | **Done**, 15 tenants registered. |
+| ~~**SAP SuccessFactors**~~ | ExxonMobil | **Done**, 30 tenants registered, 744 staged. |
+| **Oracle Taleo** | Kaiser Permanente | Still missing (`kp.taleo.net/careersection`). |
+| ~~**Oracle Cloud HCM**~~ | Mayo Clinic | **Done** as `oraclecloud`, 30 tenants registered, 1,552 staged. |
+| **IBM BrassRing / Kenexa** | Lockheed Martin, Home Depot (hourly roles) | Still missing (`sjobs.brassring.com`). |
+| **iCIMS proper** (no Jibe wrapper) | Charles Schwab, Costco | Still missing. The Jibe-wrapped variant is covered: 127 tenants. |
+| **Avature** | Ally Financial, Lockheed Martin (talent network) | Still missing. |
+| ~~**Radancy**~~ | Kroger | **Misattributed.** `/sites/CX_NNNN` is Oracle Recruiting Cloud's own URL shape, not Radancy's. Kroger is staged as the Oracle Cloud tenant `kroger,eluq.fa.us2.oraclecloud.com,CX_2001`, the largest candidate in that file at roughly 16,300 postings. There is no evidence left for a Radancy adapter. |
+| Proprietary | Walmart | Confirmed no third-party fingerprint; needs a bespoke scraper. |
 
-Phenom, SuccessFactors, and iCIMS-proper look like the highest-value additions:
-each covers many very large employers, and one adapter unlocks all of them.
+Two of the three "highest-value additions" this table used to name — Phenom and
+SuccessFactors — are now adapters. **iCIMS proper is the remaining one**, and
+BrassRing and Avature are the next largest gaps: each covers many very large
+employers, and one adapter unlocks all of them.
+
+Platforms added since this table was written, none of which it anticipated:
+Recruitee (35 registered), Teamtailor (34), Pinpoint (34), Personio (37), plus
+the Jibe vanity-host variant. The registry now spans 19 applicant tracking
+systems and 2,211 sources.
 
 Also unresolved, worth a follow-up fingerprinting pass: Best Buy, Johns Hopkins
 Medicine, Union Pacific, and most Class I freight rail and major airlines, none
 were found on any currently supported platform.
+
+## Staged candidates
+
+A research pass recovered far more tenants per platform than were registered.
+None of them could be probed: the container that found them has no outbound
+access to a job board. They are staged, unregistered, one per line with
+provenance headers, under `internal/services/testdata/candidates/`:
+
+| File | Candidates | Registered | Open |
+| --- | ---: | ---: | ---: |
+| `oracle_orc_tenants.txt` | 1,552 | 30 | 1,522 |
+| `teamtailor_slugs.txt` | 1,037 | 34 | 1,003 |
+| `personio_slugs.txt` | 999 | 37 | 962 |
+| `successfactors_tenants.txt` | 744 | 30 | 714 |
+| `recruitee_slugs.txt` | 507 | 35 | 472 |
+| `pinpoint_tenants.txt` | 119 | 33 | 86 |
+| `jibe_vanity_hosts.txt` | 206 | — | 206 |
+
+The six platform files hold 4,958 candidates between them; the Jibe file adds
+206 employer-owned career hostnames beyond the 127 already registered.
+
+**Why they are not registered.** An unverified slug is not free. A dead one
+costs four retry attempts against a shared backend on every nightly crawl, and
+a live one nobody expected can be enormous — the largest staged Oracle tenant
+alone claims roughly 16,300 postings, which is a third of a crawl budget for a
+company nobody chose. Registering ~4,958 unprobed slugs would multiply the
+registry by three on the strength of a directory listing.
+
+**How to promote one.** Dispatch
+`.github/workflows/verify_candidates.yml` with a platform, an `offset` and a
+`limit`. It stages exactly that batch into the registry *inside the runner's
+working copy*, checks it with the same `health` command, HTTP client and rate
+limiter a crawl uses, and reports which slugs answered. It runs with
+`contents: read` and cannot commit; it prints the next offset so the list can
+be walked one bounded batch at a time. Promotion is a human editing the
+registry afterwards.
+
+Read the report carefully. `ok` means the board answered with postings and is
+promotable. `empty` is **not** evidence: a company that is not hiring and a dead
+tenant whose ATS answers 200 with an empty list look identical from one sample,
+and the adapter limitations below are a list of platforms whose idea of
+"missing" is not a 404. The registry tests assert that every registered tenant
+appears in its candidate file, so a promotion that skips the file will fail CI.
 
 ## Known adapter limitations
 

@@ -148,6 +148,10 @@ func newRootCommand() *cobra.Command {
 		newCompaniesCommand(),
 		newTotalCommand(),
 		newHealthCommand(),
+
+		// newShardCommand attaches its own plan/run/merge subcommands.
+		newShardCommand(),
+		newCompanyCommand(),
 	)
 
 	return root
@@ -167,6 +171,11 @@ func newPostingsCommand() *cobra.Command {
 		employmentType []string
 		workplaceType  []string
 		postedSince    string
+
+		// enrichJobs is assigned by registerEnrichmentFlags below, after the
+		// command exists to hang its flags on, and is only called once the
+		// command runs.
+		enrichJobs func(internal.Jobs) (internal.Jobs, error)
 	)
 
 	cmd := &cobra.Command{
@@ -244,6 +253,15 @@ func newPostingsCommand() *cobra.Command {
 
 			jobs = postingFilterFor(filter).Apply(jobs)
 
+			// Employer filters run after the posting filters because they are
+			// the expensive ones to be wrong about: they consult a reviewed
+			// table rather than the posting's own text. The decorator is the
+			// identity function when no employer flag was given, so an ordinary
+			// crawl is unchanged.
+			if jobs, err = enrichJobs(jobs); err != nil {
+				return err
+			}
+
 			var found, failed int
 
 			for jobPosting, err := range jobs {
@@ -283,6 +301,8 @@ func newPostingsCommand() *cobra.Command {
 	}
 
 	flags.register(cmd)
+
+	enrichJobs = registerEnrichmentFlags(cmd)
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output newline-delimited JSON")
 	cmd.Flags().BoolVar(&asCSV, "csv", false, "output CSV (company,title,location,url,pay_min,pay_max,currency,period) with no header")

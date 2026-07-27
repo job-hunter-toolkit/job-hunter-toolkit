@@ -1,0 +1,24 @@
+# employers.tsv -- GENERATED. Do not hand-edit; use manual.tsv instead.
+#
+# Regenerate with:
+#   go run ./tools/enrichgen -out internal/enrich/data -contact you@example.com
+#
+# The generator rewrites this file wholesale, so any correction made here is
+# reverted by the next refresh. Corrections belong in manual.tsv, which is
+# overlaid on top of this file at load time and which the generator never writes.
+#
+# Only unambiguous matches (match_confidence=high) are written here. Everything
+# weaker lands in candidates.tsv for a human to review and promote by hand. An
+# unmatched company is a correct and expected answer: most companies this
+# project crawls are private and SEC EDGAR does not know they exist.
+#
+# THIS FILE HAS NO ROWS YET. No generator run against the live sources has
+# happened: it needs outbound network access, which only GitHub Actions has.
+# Rows will not be invented to make the file look populated -- a fabricated CIK
+# or headcount is indistinguishable from a real one once it is in the table.
+#
+# Columns: see internal/enrich/table.go employerColumns.
+#   public     true, false, or empty for "nobody has established this"
+#   employees  headcount at `retrieved`, empty when unknown
+#   retrieved  YYYY-MM-DD the upstream facts were fetched
+platform	key	company	legal_name	cik	ticker	exchange	sic	industry	public	employees	founded	headquarters	parent	wikidata_id	match_method	match_confidence	data_sources	retrieved

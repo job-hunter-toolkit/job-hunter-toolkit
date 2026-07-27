@@ -42,7 +42,31 @@ type MergeOptions struct {
 	// short-written shard is still refused, because the resulting number would
 	// be not merely low but unattributable.
 	AllowPartial bool
+
+	// MaxFailedSourceRatio is the share of a crawl's sources that may fail
+	// before the total stops being called complete. Zero selects
+	// [DefaultMaxFailedSourceRatio]; a negative value disables the check.
+	//
+	// This exists because "failed" is a terminal state, so a shard whose every
+	// source failed has genuinely finished and would otherwise merge as
+	// complete. Unsharded that hardly mattered: a failure broad enough to do it
+	// took the whole crawl down at once and was obvious. Sharded it is the most
+	// dangerous failure this design can have, because one dead runner out of
+	// sixteen loses only its own sources, so the day's total is short by a
+	// sixteenth and is still labelled complete, appended to jobs_record.txt and
+	// graphed, where it is indistinguishable from the market moving.
+	MaxFailedSourceRatio float64
 }
+
+// DefaultMaxFailedSourceRatio is the failure share above which a merged total
+// is no longer called complete.
+//
+// Individual boards are retired constantly, so some failures are normal and a
+// zero-tolerance threshold would refuse every real crawl. The scheduled source
+// health check already treats 35% as "an adapter broke rather than boards being
+// retired"; this is deliberately stricter, because that check exists to be read
+// by a person whereas this number is committed to a trend line unattended.
+const DefaultMaxFailedSourceRatio = 0.20
 
 // ShardSummary reports one shard's contribution, for the workflow summary.
 type ShardSummary struct {
@@ -172,6 +196,23 @@ func Merge(plan Plan, shards []ShardArtifacts, opts MergeOptions) (MergeResult, 
 			return MergeResult{}, fmt.Errorf(
 				"merge shards: %d of %d shards did not finish (%s): a partial crawl must not be merged into a total that looks complete",
 				len(incomplete), plan.ShardCount, strings.Join(incomplete, "; "))
+		}
+
+		status = StatusPartial
+	}
+
+	// A source that failed has finished, so a shard that lost every source is
+	// "complete" in the lifecycle sense while having crawled nothing. Refuse to
+	// call that a complete crawl: the resulting total is short by whatever that
+	// shard covers, and nothing downstream could tell it from a real fall in
+	// hiring.
+	failed, ratio := failedSourceRatio(allSources)
+	if limit := opts.maxFailedSourceRatio(); limit >= 0 && ratio > limit {
+		if !opts.AllowPartial {
+			return MergeResult{}, fmt.Errorf(
+				"merge shards: %d of %d sources failed (%.1f%%, above the %.1f%% limit): "+
+					"a crawl that lost this much coverage must not be recorded as complete",
+				failed, len(allSources), ratio*100, limit*100)
 		}
 
 		status = StatusPartial
@@ -388,11 +429,14 @@ func decodePostingKey(encoded string) ([PostingKeyBytes]byte, error) {
 		return key, fmt.Errorf("posting key %q is %d characters, want %d", encoded, len(encoded), PostingKeyBytes*2)
 	}
 
-	for i := 0; i < PostingKeyBytes; i++ {
-		high, lowErr := hexNibble(encoded[i*2])
-		low, highErr := hexNibble(encoded[i*2+1])
+	// Decoded by hand rather than through encoding/hex because that would need a
+	// []byte(string) conversion per line, and this runs once for every posting
+	// in every shard — approaching two million allocations for nothing.
+	for i := range PostingKeyBytes {
+		high, highErr := hexNibble(encoded[i*2])
+		low, lowErr := hexNibble(encoded[i*2+1])
 
-		if err := errors.Join(lowErr, highErr); err != nil {
+		if err := errors.Join(highErr, lowErr); err != nil {
 			return key, fmt.Errorf("posting key %q is not hexadecimal: %w", encoded, err)
 		}
 
@@ -476,4 +520,30 @@ func orNone(value string) string {
 	}
 
 	return value
+}
+
+// maxFailedSourceRatio resolves the configured failure limit, where zero means
+// "use the default" and a negative value disables the check.
+func (o MergeOptions) maxFailedSourceRatio() float64 {
+	if o.MaxFailedSourceRatio == 0 {
+		return DefaultMaxFailedSourceRatio
+	}
+
+	return o.MaxFailedSourceRatio
+}
+
+// failedSourceRatio reports how many sources failed, and their share of the
+// crawl. A crawl with no sources has no failures rather than all of them.
+func failedSourceRatio(sources []services.SourceRun) (failed int, ratio float64) {
+	if len(sources) == 0 {
+		return 0, 0
+	}
+
+	for _, source := range sources {
+		if source.Status == "failed" {
+			failed++
+		}
+	}
+
+	return failed, float64(failed) / float64(len(sources))
 }

@@ -509,6 +509,83 @@ func TestMergedManifestSummarizesEveryShardsSources(t *testing.T) {
 	}, names)
 }
 
+// TestShardedTotalEqualsUnshardedTotal is the whole point of the package: a
+// crawl split over N runners has to produce the number a single process would
+// have produced from the same postings. Anything else turns a scheduling change
+// into an apparent change in the job market, which jobs_record.txt records
+// permanently.
+func TestShardedTotalEqualsUnshardedTotal(t *testing.T) {
+	t.Parallel()
+
+	var (
+		dir  = t.TempDir()
+		plan = twoShardPlan(t)
+		all  []*internal.JobPosting
+	)
+
+	perShard := map[int][]*internal.JobPosting{}
+
+	for _, planned := range plan.Shards {
+		for i, ref := range planned.Sources {
+			for job := range 3 {
+				// Every third posting is republished under an identity another
+				// shard also produces, which is what a company registered on two
+				// ATSs looks like from here.
+				company := ref.Company
+				url := "https://jobs.example.com/" + ref.Key + "/" + string(rune('a'+job))
+
+				if job == 2 {
+					company = "Shared Employer"
+					url = "https://jobs.example.com/shared/" + string(rune('a'+i%2))
+				}
+
+				p := posting(company, url)
+				perShard[planned.Index] = append(perShard[planned.Index], p)
+				all = append(all, p)
+			}
+		}
+	}
+
+	for _, planned := range plan.Shards {
+		writeShard(t, dir, plan, planned.Index, shardFixture{postings: perShard[planned.Index]})
+	}
+
+	result, err := MergeDir(dir, plan, MergeOptions{})
+	must.NoError(t, err)
+
+	// What a single-process crawl would have counted over the same postings.
+	seq := func(yield func(*internal.JobPosting, error) bool) {
+		for _, job := range all {
+			if !yield(job, nil) {
+				return
+			}
+		}
+	}
+
+	var (
+		unsharded int
+		companies = map[string]struct{}{}
+	)
+
+	for job := range internal.Dedupe(seq) {
+		unsharded++
+		companies[job.Company] = struct{}{}
+	}
+
+	must.Eq(t, unsharded, result.Manifest.Postings)
+	must.Eq(t, len(companies), result.Manifest.Companies)
+
+	// And prove the naive alternative really would have been wrong, so this
+	// test cannot pass vacuously on a fixture with no cross-shard overlap.
+	summed := 0
+	for _, summary := range result.Shards {
+		summed += summary.Postings
+	}
+
+	test.Greater(t, result.Manifest.Postings, summed,
+		test.Sprint("fixture must contain postings that arrive through two shards"))
+}
+
 func TestMergeRejectsAPathTraversalInAPostingsName(t *testing.T) {
 	t.Parallel()
 
@@ -518,4 +595,80 @@ func TestMergeRejectsAPathTraversalInAPostingsName(t *testing.T) {
 	test.Eq(t, "shard-3.json", ManifestFileName(3))
 	test.Eq(t, "shard-3.ndjson", PostingsFileName(3))
 	test.False(t, strings.Contains(ManifestFileName(3), ".."))
+}
+
+// TestMergeRefusesWhenTooManySourcesFailed is a regression test.
+//
+// "failed" is a terminal source state, so a shard whose every source failed has
+// genuinely finished, and Complete() said so: a merge accepted it and produced
+// status "complete" with zero postings. Unsharded that was survivable, because a
+// failure broad enough to do it took the whole crawl down and was obvious.
+// Sharded it is this design's worst failure: one dead runner out of sixteen
+// loses only its own sources, so the day's total is short by a sixteenth, is
+// still labelled complete, and is appended to jobs_record.txt and graphed, where
+// nothing distinguishes it from hiring actually falling.
+func TestMergeRefusesWhenTooManySourcesFailed(t *testing.T) {
+	t.Parallel()
+
+	var (
+		dir  = t.TempDir()
+		plan = twoShardPlan(t)
+	)
+
+	// One whole shard's sources fail, which is the dead-runner case.
+	writeShard(t, dir, plan, 0, shardFixture{sourceStatus: "failed"})
+	writeShard(t, dir, plan, 1, shardFixture{postings: []*internal.JobPosting{
+		posting("Acme", "https://jobs.example.com/acme/1"),
+	}})
+
+	_, err := MergeDir(dir, plan, MergeOptions{})
+
+	must.Error(t, err)
+	test.StrContains(t, err.Error(), "must not be recorded as complete")
+}
+
+// TestMergeRecordsAMassFailureAsPartial covers the deliberate-override path: an
+// operator who asks for the number anyway gets it labelled partial, never
+// complete, so the chart keeps it off the trend line.
+func TestMergeRecordsAMassFailureAsPartial(t *testing.T) {
+	t.Parallel()
+
+	var (
+		dir  = t.TempDir()
+		plan = twoShardPlan(t)
+	)
+
+	writeShard(t, dir, plan, 0, shardFixture{sourceStatus: "failed"})
+	writeShard(t, dir, plan, 1, shardFixture{postings: []*internal.JobPosting{
+		posting("Acme", "https://jobs.example.com/acme/1"),
+	}})
+
+	result, err := MergeDir(dir, plan, MergeOptions{AllowPartial: true})
+
+	must.NoError(t, err)
+	test.Eq(t, StatusPartial, result.Manifest.Status)
+}
+
+// TestMergeToleratesTheOrdinaryFailureRate guards the other direction: boards
+// are retired constantly, so a handful of failures is normal and must not
+// refuse a real crawl.
+func TestMergeToleratesTheOrdinaryFailureRate(t *testing.T) {
+	t.Parallel()
+
+	var (
+		dir  = t.TempDir()
+		plan = twoShardPlan(t)
+	)
+
+	writeShard(t, dir, plan, 0, shardFixture{postings: []*internal.JobPosting{
+		posting("Acme", "https://jobs.example.com/acme/1"),
+	}})
+	writeShard(t, dir, plan, 1, shardFixture{postings: []*internal.JobPosting{
+		posting("Beta", "https://jobs.example.com/beta/1"),
+	}})
+
+	result, err := MergeDir(dir, plan, MergeOptions{})
+
+	must.NoError(t, err)
+	test.Eq(t, StatusComplete, result.Manifest.Status)
 }

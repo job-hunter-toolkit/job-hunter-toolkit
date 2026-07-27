@@ -1,0 +1,16 @@
+# manual.tsv -- HUMAN-AUTHORED. The generator never writes this file.
+#
+# Rows here are overlaid on top of the generated employers.tsv, keyed by
+# platform+key, so a row here wins and survives every refresh. This is where a
+# reviewer records:
+#
+#   * a match the generator refused because the name was ambiguous, after
+#     confirming it by hand (set match_method=manual, match_confidence=high);
+#   * a correction to a row the generator got wrong;
+#   * a company whose facts came from a source the generator does not read.
+#
+# Every row must say where its facts came from in data_sources and when they
+# were retrieved. A row nobody can audit is a row nobody can fix.
+#
+# Same schema as employers.tsv.
+platform	key	company	legal_name	cik	ticker	exchange	sic	industry	public	employees	founded	headquarters	parent	wikidata_id	match_method	match_confidence	data_sources	retrieved
