@@ -476,6 +476,19 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 		policy.maxConcurrent = min(defaultLimit, 4)
 		policy.interval = 25 * time.Millisecond
 		policy.cooldown = 10 * time.Second
+	case strings.HasSuffix(host, ".eightfold.ai"):
+		// Every Eightfold tenant is a subdomain of one backend — the registered
+		// tenants resolve to a handful of shared addresses — so this is the
+		// bamboohr.com shape, not the oraclecloud.com one, and gets one key.
+		// It also pages harder than any other platform here: the list API caps a
+		// page at ten postings whatever "num" asks for, so HSBC alone is ~150
+		// sequential requests and the registered tenants together are ~800. That
+		// is exactly the traffic shape a shared key and an interval exist to
+		// spread out.
+		policy.key = registrableSuffix(host)
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
 	case strings.HasSuffix(host, ".successfactors.com"),
 		strings.HasSuffix(host, ".successfactors.eu"):
 		// SAP serves every RMK tenant from a handful of numbered pods

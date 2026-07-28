@@ -32,6 +32,7 @@ Each platform has a public endpoint you can check directly:
 | Jobvite | `https://jobs.jobvite.com/<slug>/search?nl=1&p=1` |
 | PeopleForce | `https://<slug>.peopleforce.io/careers` |
 | Workday | full tenant URL, e.g. `https://<tenant>.wd1.myworkdayjobs.com/<site-id>` |
+| Eightfold | `https://<slug>.eightfold.ai/api/apply/v2/jobs?start=0&num=10` |
 
 ```console
 $ curl -sS -o /dev/null -w '%{http_code}\n' \
@@ -60,6 +61,17 @@ confirmed more than once so a transient blip does not delete real coverage.
 **An HTTP 429 is not a dead source either.** It usually means the crawl was too
 aggressive, not that the board is gone. In one measured run, 93 of 106 apparent
 failures were self-inflicted 429s.
+
+## Eightfold gates most tenants, and a 403 there is permanent
+
+Eightfold is the one platform here where a live, hiring employer routinely
+refuses the API. A gated tenant answers `HTTP 403` with
+`{"message": "Not authorized for PCSX"}`; of 133 live tenants probed, 109 did.
+Unlike a 429 this is not pacing, and unlike a 404 it is not a missing tenant, so
+neither retrying nor changing the User-Agent, the proxy, the `domain` parameter
+or the host will move it. Register a slug only if it answers `200` with a
+non-empty `positions` array, and confirm on a second run. The full probed list
+is `internal/services/testdata/candidates/eightfold_slugs.txt`.
 
 ## A 200 does not always mean the tenant exists
 

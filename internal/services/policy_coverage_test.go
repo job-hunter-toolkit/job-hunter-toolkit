@@ -143,7 +143,7 @@ func TestSubdomainPerTenantPlatformsShareALimiterKey(t *testing.T) {
 
 	// Platforms whose tenants live at {tenant}.{backend}, where the backend is
 	// one service and must therefore be one limiter key.
-	sharedBackends := []string{"peopleforce", "bamboohr", "teamtailor", "recruitee", "pinpoint", "personio"}
+	sharedBackends := []string{"peopleforce", "bamboohr", "teamtailor", "recruitee", "pinpoint", "personio", "eightfold"}
 
 	for _, platform := range sharedBackends {
 		t.Run(platform, func(t *testing.T) {

@@ -58,8 +58,8 @@ employers, and one adapter unlocks all of them.
 
 Platforms added since this table was written, none of which it anticipated:
 Recruitee (35 registered), Teamtailor (34), Pinpoint (34), Personio (37), plus
-the Jibe vanity-host variant. The registry now spans 19 applicant tracking
-systems and 2,211 sources.
+the Jibe vanity-host variant, plus Eightfold (18 registered). The registry now
+spans 20 applicant tracking systems.
 
 Also unresolved, worth a follow-up fingerprinting pass: Best Buy, Johns Hopkins
 Medicine, Union Pacific, and most Class I freight rail and major airlines, none
@@ -116,10 +116,26 @@ appears in its candidate file, so a promotion that skips the file will fail CI.
   postings because of the template, not because they are empty. A growing blind
   spot; these tenants were deliberately not added, since they would contribute
   nothing.
-- **Eightfold** was removed entirely. Its public jobs API returns
-  `{"message": "Not authorized for PCSX"}` even when replaying a real browser
-  session's cookies, CSRF token, and Referer, an authorization wall, not
-  something a User-Agent change defeats.
+- **Eightfold** gates its list API per tenant, and only a minority of tenants
+  leave it open. A gated tenant answers `HTTP 403` with
+  `{"message": "Not authorized for PCSX"}`, and that wall is not something a
+  User-Agent change, a proxy, or a replayed browser session defeats — cookies,
+  CSRF token and Referer were all tried. What the earlier note got wrong is that
+  the wall is **per-tenant, not platform-wide**: of 133 live tenants probed,
+  21 answered with postings and 18 of those are registered in
+  `internal/services/eightfold.go` (Bayer, Freeport-McMoRan and NetApp are left
+  to SuccessFactors, which already covers them more cheaply), 109 are gated, and
+  3 answer but publish nothing. It depends on neither the
+  `domain` query parameter nor the branded careers host; the same slug answers
+  the same way through `jobs.<employer>.com` as through `eightfold.ai`. The full
+  probed list, with each tenant's answer, is
+  `internal/services/testdata/candidates/eightfold_slugs.txt`. The route that
+  would reach the gated 109 is the sitemap at
+  `{slug}.eightfold.ai/careers/sitemap.xml` plus the schema.org JSON-LD on each
+  job page, at roughly one request per posting; that stays deferred behind the
+  shared `jsonld.go` helper `docs/research/ats-platform-survey.md` recommends.
+  The list API is also the slowest-paging platform here: it caps a page at ten
+  postings whatever `num` asks for.
 - **Workday** serves a maintenance redirect (to `/wday/drs/outage` or
   `community.workday.com/maintenance-page`) for tenants whose pod is down. That is
   indistinguishable from a dead tenant in the current error text, so a health
