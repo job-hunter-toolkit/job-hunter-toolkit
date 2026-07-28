@@ -111,6 +111,7 @@ var WorkdayCompanyURLs = []string{
 	"https://choicehotels.wd5.myworkdayjobs.com/HotelExternal",
 	"https://chop.wd108.myworkdayjobs.com/CHOPExternalCareers",
 	"https://cigna.wd5.myworkdayjobs.com/cignacareers/",
+	"https://cisco.wd5.myworkdayjobs.com/Cisco_Careers",
 	"https://citi.wd5.myworkdayjobs.com/2",
 	"https://citrix.wd1.myworkdayjobs.com/CitrixCareers",
 	"https://coke.wd1.myworkdayjobs.com/coca-cola-careers",
