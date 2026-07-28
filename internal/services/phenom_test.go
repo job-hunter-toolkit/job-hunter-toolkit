@@ -118,15 +118,68 @@ func TestPhenomReadsTheRestOfTheEmbeddedPayload(t *testing.T) {
 	test.Eq(t, "Legal", postings[2].Department)
 }
 
+// TestPhenomPostedAtReadsTheSpellingsTenantsActuallyPublish pins the timestamp
+// format every registered tenant was observed serving.
+//
+// This is a regression test for a silent one: [phenomDateLayouts] began with
+// only time.RFC3339, which rejects a zone offset written without its colon.
+// Every tenant in [PhenomCompanies] publishes exactly that — "+0000" — so the
+// platform's entire PostedAt column was empty, and `--posted-since` quietly
+// excluded every Phenom posting instead of filtering it. Nothing failed, no
+// error was logged, and the count of postings was unaffected, which is why it
+// survived until someone decoded a live body.
+func TestPhenomPostedAtReadsTheSpellingsTenantsActuallyPublish(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		in   string
+		want time.Time
+	}{
+		// Observed live. The colonless offset is the common case: it is what a
+		// Phenom site fed by a Workday back end emits.
+		{"colonless offset, milliseconds", "2026-07-16T00:00:00.000+0000", time.Date(2026, time.July, 16, 0, 0, 0, 0, time.UTC)},
+		{"colonless offset, wall clock", "2026-07-20T15:54:35.731+0000", time.Date(2026, time.July, 20, 15, 54, 35, 731_000_000, time.UTC)},
+		{"colonless offset, no fraction", "2026-07-20T09:09:28+0000", time.Date(2026, time.July, 20, 9, 9, 28, 0, time.UTC)},
+
+		// A non-UTC colonless offset must still normalise to UTC rather than
+		// being read as if the digits were already UTC.
+		{"colonless offset, not UTC", "2026-07-20T09:00:00-0500", time.Date(2026, time.July, 20, 14, 0, 0, 0, time.UTC)},
+
+		// Still accepted, so adding the layout above widened the set rather
+		// than replacing it.
+		{"rfc3339", "2026-05-15T08:00:00Z", time.Date(2026, time.May, 15, 8, 0, 0, 0, time.UTC)},
+		{"date only", "2026-06-01", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			posted, ok := phenomPostedAt(testCase.in)
+
+			must.True(t, ok)
+			test.Eq(t, testCase.want, posted)
+		})
+	}
+
+	// An ambiguous or unreadable date stays unreadable. Guessing puts a wrong
+	// date somewhere nothing downstream can notice it.
+	for _, unreadable := range []string{"", "June 1st", "03/04/2026"} {
+		if _, ok := phenomPostedAt(unreadable); ok {
+			t.Errorf("phenomPostedAt(%q) parsed a date, want none", unreadable)
+		}
+	}
+}
+
 // TestPhenomSurvivesUnexpectedFieldShapes is the guard on the risk this
 // enrichment takes.
 //
-// No live Phenom body has ever been decoded here, so postedDate, type and
-// category are documented rather than observed. A wrong field *name* costs an
-// empty column; a wrong field *type* fails the page decode, which is the whole
-// tenant. Modelling them as `any` is what makes the second outcome impossible —
-// the same failure that took out nine large Jibe employers when "meta_data"
-// turned out to be a bare `false`.
+// Live bodies from every tenant in [PhenomCompanies] have since been decoded,
+// and postedDate, type and category were strings in all of them. The `any` is
+// kept anyway because Phenom is a per-tenant template rather than one shared
+// API: a wrong field *name* costs an empty column, but a wrong field *type*
+// fails the page decode, which is the whole tenant. Modelling them as `any` is
+// what makes the second outcome impossible — the same failure that took out
+// nine large Jibe employers when "meta_data" turned out to be a bare `false`.
 func TestPhenomSurvivesUnexpectedFieldShapes(t *testing.T) {
 	t.Parallel()
 

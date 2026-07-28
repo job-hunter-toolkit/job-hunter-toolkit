@@ -83,12 +83,16 @@ type phenomSearchResults struct {
 //
 // PostedDate, Type and Category arrive in the same blob the adapter already
 // downloads and parses, so reading them costs nothing: no extra request, no
-// extra byte, no new host. They are typed `any` rather than string because,
-// unlike the four fields above them, no response from a real tenant has been
-// decoded here to confirm their JSON type — this container cannot reach a Phenom
-// site. An `any` cannot fail a decode, and one failed decode here loses the
-// whole page and therefore the whole tenant, which is exactly how a fixed type
-// for Jibe's "meta_data" silently disabled nine large employers.
+// extra byte, no new host.
+//
+// All three were JSON strings in a first page from each of the 15 tenants in
+// [PhenomCompanies] (1,398 postings, decoded live), so the `any` is no longer
+// there because the shape is unknown. It stays because one failed decode loses
+// the whole page and therefore the whole tenant, and Phenom is a per-tenant
+// template rather than one API: a single employer switching "type" to an object
+// would take its whole board down. That is exactly how a fixed type for Jibe's
+// "meta_data" silently disabled nine large employers. An `any` cannot fail a
+// decode, and [anyText] narrows it at the point of use.
 type phenomJob struct {
 	Title     string `json:"title"`
 	CityState string `json:"cityState"`
@@ -110,6 +114,20 @@ type phenomJob struct {
 // where nothing downstream could ever notice; leaving it empty is visible.
 var phenomDateLayouts = []string{
 	time.RFC3339,
+
+	// RFC 3339 but with a colonless zone offset, which is what Phenom tenants
+	// actually publish: "2026-07-16T00:00:00.000+0000". time.RFC3339 rejects
+	// that offset outright, so without this a posting reaches
+	// [internal.Filter.PostedSince] undated.
+	//
+	// This is not a rare spelling to tolerate, it is the only one observed:
+	// every postedDate on a first page from all 15 tenants in [PhenomCompanies]
+	// was written this way, so until this layout existed the platform's whole
+	// PostedAt column was empty. Go's parser accepts a fractional second the
+	// layout does not mention, so this one entry covers the ".000" and
+	// bare-seconds spellings both.
+	"2006-01-02T15:04:05-0700",
+
 	"2006-01-02T15:04:05",
 	"2006-01-02 15:04:05",
 	"2006-01-02",
