@@ -8,12 +8,16 @@
 // The order of work is the order of safety:
 //
 //  1. Fetch one seed file listing every SEC filer. One request, not 2,131.
-//  2. Resolve crawled sources to filers offline, accepting only matches that
-//     are unique in both directions and writing everything else to the
-//     candidates file for review.
-//  3. Fetch registration facts for the accepted matches only, paced under
+//  2. Fetch, in one query, every official website Wikidata publishes against a
+//     CIK. This is corroboration rather than decoration, so it has to arrive
+//     before the matching decision rather than after it.
+//  3. Resolve crawled sources to filers offline, accepting only matches that
+//     are unique in both directions *and* rest on a name long enough to
+//     identify somebody, and writing everything else to the candidates file
+//     for review.
+//  4. Fetch registration facts for the accepted matches only, paced under
 //     EDGAR's published 10 requests per second.
-//  4. Decorate those rows from Wikidata by CIK, never by name.
+//  5. Decorate those rows from Wikidata by CIK, never by name.
 //
 // Nothing in this package is reachable from the CLI's import graph.
 package gen
@@ -49,6 +53,10 @@ const (
 	// exists so a person can see what was rejected and why, and promote the
 	// rows they can confirm into manual.tsv by hand.
 	CandidatesFile = "candidates.tsv"
+
+	// BlankCheckSIC is EDGAR's industry code for a shell company formed to
+	// hold a listing until it acquires an operating business.
+	BlankCheckSIC = "6770"
 )
 
 // Options configures a generator run.
@@ -91,7 +99,9 @@ type Result struct {
 type Stats struct {
 	Sources          int
 	Filers           int
+	FilerWebsites    int
 	Matched          int
+	Shells           int
 	Candidates       int
 	SubmissionsOK    int
 	SubmissionsFail  int
@@ -101,9 +111,10 @@ type Stats struct {
 
 // String renders the stats as one line for a log or a workflow summary.
 func (s Stats) String() string {
-	return fmt.Sprintf("%d/%d sources matched (%d filers seen, %d candidates for review), "+
+	return fmt.Sprintf("%d/%d sources matched (%d filers seen, %d with a corroborating website, "+
+		"%d shells refused, %d candidates for review), "+
 		"%d submissions fetched, %d failed, %d decorated from Wikidata of %d asked",
-		s.Matched, s.Sources, s.Filers, s.Candidates,
+		s.Matched, s.Sources, s.Filers, s.FilerWebsites, s.Shells, s.Candidates,
 		s.SubmissionsOK, s.SubmissionsFail, s.WikidataMatched, s.WikidataAttempts)
 }
 
@@ -150,9 +161,27 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
+	// Before matching, not after: a short name is only committed when an
+	// identifier the filer owns agrees with it, and the resolver cannot ask
+	// that question with an empty websites map. A nil Wikidata client is
+	// therefore not merely "skip the decoration" any more — it also means every
+	// short-name match goes to the review queue, which is the safe direction.
+	websites := map[string][]string{}
+
+	if opts.Wikidata != nil {
+		if websites, err = wikidata.Websites(ctx, opts.Wikidata); err != nil {
+			return nil, err
+		}
+	}
+
 	entities := make([]resolve.Entity, 0, len(filers))
 	for _, filer := range filers {
-		entities = append(entities, resolve.Entity{ID: filer.CIK, Name: filer.Name, Ticker: filer.Ticker})
+		entities = append(entities, resolve.Entity{
+			ID:       filer.CIK,
+			Name:     filer.Name,
+			Ticker:   filer.Ticker,
+			Websites: websites[filer.CIK],
+		})
 	}
 
 	resolved := resolve.Sources(sources, entities)
@@ -160,10 +189,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	result := &Result{
 		Candidates: resolved.Candidates,
 		Stats: Stats{
-			Sources:    len(sources),
-			Filers:     len(filers),
-			Matched:    len(resolved.Matches),
-			Candidates: len(resolved.Candidates),
+			Sources:       len(sources),
+			Filers:        len(filers),
+			FilerWebsites: len(websites),
+			Matched:       len(resolved.Matches),
+			Candidates:    len(resolved.Candidates),
 		},
 	}
 
@@ -210,6 +240,27 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		} else {
 			result.Stats.SubmissionsOK++
 
+			// A blank-check company is a registered shell with no operations
+			// and no staff, filed to hold a listing until a merger fills it.
+			// Whatever board carries this name, it is not that entity's, and
+			// the name is the only reason the two were joined. Measured on the
+			// 2026-07-28 run: 1 of 263 matches carried SIC 6770, personio's
+			// "dynamix" matched to a SPAC, and no correct match carried it.
+			if submission.SIC == BlankCheckSIC {
+				result.Stats.Shells++
+
+				result.Candidates = append(result.Candidates, resolve.Candidate{
+					Source:     match.Source,
+					Entity:     match.Entity,
+					Method:     match.Method,
+					Confidence: enrich.ConfidenceMedium,
+					Why: "blank-check shell: " + submission.Name + " files under SIC " + BlankCheckSIC +
+						", which is a listing waiting for a merger rather than an employer with a job board",
+				})
+
+				continue
+			}
+
 			employer.LegalName = cmp.Or(submission.Name, employer.LegalName)
 			employer.SIC = submission.SIC
 			employer.Industry = submission.SICDescription
@@ -226,6 +277,12 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 		result.Employers = append(result.Employers, employer)
 	}
+
+	// Counted from what survived rather than from what was proposed: the shell
+	// check above runs after the fetch, so the numbers a reviewer reads at the
+	// top of the table have to be taken after it.
+	result.Stats.Matched = len(result.Employers)
+	result.Stats.Candidates = len(result.Candidates)
 
 	// A run where most submission fetches failed is a blocked run, and its table
 	// would be a full set of rows with every industry blank. Committing that

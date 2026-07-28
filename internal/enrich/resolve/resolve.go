@@ -51,8 +51,19 @@ type Entity struct {
 	// Name is the entity's name as the upstream dataset spells it.
 	Name string
 
-	// Ticker is carried through to the table when present.
+	// Ticker is carried through to the table when present, and is one of the
+	// two corroborating identifiers [Corroborated] will accept for a name too
+	// short to stand on its own.
 	Ticker string
+
+	// Websites are URLs published as this entity's own site by a source that
+	// keys on an identifier rather than on a name — Wikidata's P856, reached
+	// through P5531, in the only implementation today.
+	//
+	// They are evidence about identity, not facts to put in the table: a
+	// registered domain is chosen once, by the entity, and cannot be occupied
+	// by a second company the way a three-letter name can. See [Corroborated].
+	Websites []string
 }
 
 // Match is a resolution confident enough to commit to the table.
@@ -178,6 +189,140 @@ func trimTenantDigits(squashed string) string {
 	return trimmed
 }
 
+// MinDistinctiveLength is how long a one-word name has to be before equality
+// with it is evidence on its own.
+//
+// Measured, on the 2026-07-28 run of the generator against 8,173 crawled
+// sources and 8,017 SEC filers. That run proposed 263 matches, of which a hand
+// audit against the live boards found 14 wrong, and 13 of the 14 were names
+// that reduced to a single word. Requiring [Corroborated] evidence for every
+// single-word name would have removed 13 of them — and refused 79 correct
+// matches to do it, which is not a trade worth making. Bucketed by the length
+// of that word, counting only the matches nothing corroborates:
+//
+//	length <= 6   7 of the 14 wrong, 28 right
+//	length <= 5   the same 7 wrong, 12 right
+//	length <= 4   the same 7 wrong, 1 right
+//
+// Below five characters, then, is where the wrong matches are concentrated and
+// the right ones are not. It is also where they come from: a two- or
+// three-letter name is an abbreviation, and abbreviations are reused —
+// "WF Holding Ltd" of Malaysia and Wells Fargo, "ESG Inc." and European Sales
+// Group, "MKS INC" and MKS PAMP, "NMI Holdings" and the NMI payments gateway.
+// A longer word is a word somebody chose, and two companies choosing the same
+// long word is rarer than two companies abbreviating to the same three letters.
+const MinDistinctiveLength = 5
+
+// genericHostLabels are the parts of a hostname that identify nobody.
+var genericHostLabels = map[string]bool{
+	"www": true, "com": true, "net": true, "org": true, "co": true,
+	"io": true, "jobs": true, "careers": true, "corporate": true,
+}
+
+// Distinctive reports whether equality with this normalized name is evidence on
+// its own.
+//
+// Two words are: "beam therapeutics" and "palo alto networks" are not names two
+// unrelated companies land on by accident, and a slug that squashes to one of
+// them was written by somebody who meant that company. One short word is not;
+// see [MinDistinctiveLength].
+func Distinctive(normalized string) bool {
+	if normalized == "" {
+		return false
+	}
+
+	if strings.ContainsRune(normalized, ' ') {
+		return true
+	}
+
+	return len(normalized) >= MinDistinctiveLength
+}
+
+// Corroborated reports whether an identifier the entity owns, rather than a
+// name anybody can be spelled with, agrees with the matched name — and names
+// the one that did, for the audit trail.
+//
+// Two are accepted, both keyed to the entity rather than derived from its name:
+//
+//   - the trading symbol. A short name that is also the entity's ticker is that
+//     entity's market identity, not an abbreviation it happens to share: RH
+//     trades as RH, CSX as CSX, AON as AON. The wrong short matches measured on
+//     2026-07-28 trade as WFF, ESGH, MKSI, NMIH, GLOH, EVEX, CHSCP and DYNC —
+//     the abbreviation is precisely what the exchange did *not* give them.
+//   - a registered domain. Wikidata publishes official websites (P856) against
+//     the CIK (P5531), so the join is by identifier and the answer is a name
+//     nobody else can occupy. Post Holdings publishes postholdings.com, NMI
+//     Holdings nationalmi.com, Sinclair sbgi.net; none of them is the "post",
+//     "nmi" or "sinclair" the board belongs to.
+//
+// Ticker corroboration is deliberately allowed to rescue "post" -> Post
+// Holdings, which is wrong: POST really is Post Holdings' symbol. That is the
+// measured price of keeping rh, oklo, ionq, cae, coty, aes, kbr and twenty-odd
+// other correct short matches, and it is paid knowingly rather than hidden —
+// the one bad row it lets through is refuted by hand in data/manual.tsv.
+func Corroborated(entity Entity, normalized string) (string, bool) {
+	if normalized == "" {
+		return "", false
+	}
+
+	if ticker := Squash(entity.Ticker); ticker != "" && ticker == Squash(normalized) {
+		return "ticker " + entity.Ticker, true
+	}
+
+	for _, site := range entity.Websites {
+		for _, label := range hostLabels(site) {
+			if label == Squash(normalized) {
+				return "website " + site, true
+			}
+		}
+	}
+
+	return "", false
+}
+
+// hostLabels returns the identifying dot-separated parts of a URL's host.
+//
+// Written with string operations rather than net/url so that a bare hostname, a
+// full URL and a URL with a port all behave the same: these values are typed
+// into Wikidata by hand and arrive in all three shapes.
+func hostLabels(raw string) []string {
+	host := strings.TrimSpace(strings.ToLower(raw))
+
+	if scheme := strings.Index(host, "://"); scheme >= 0 {
+		host = host[scheme+3:]
+	}
+
+	host = strings.TrimSuffix(host, ".")
+
+	if cut := strings.IndexAny(host, "/?#"); cut >= 0 {
+		host = host[:cut]
+	}
+
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		host = host[at+1:]
+	}
+
+	if colon := strings.Index(host, ":"); colon >= 0 {
+		host = host[:colon]
+	}
+
+	labels := make([]string, 0, 3)
+
+	for _, label := range strings.Split(host, ".") {
+		// Squashed for the same reason names are: "at-t.com" and "att.com" must
+		// not be two different answers to the same question.
+		label = Squash(label)
+
+		if label == "" || genericHostLabels[label] {
+			continue
+		}
+
+		labels = append(labels, label)
+	}
+
+	return labels
+}
+
 // proposal is one source's reading of one entity, before uniqueness is checked.
 type proposal struct {
 	entity     int
@@ -187,7 +332,7 @@ type proposal struct {
 
 // Sources resolves crawled sources against external entities.
 //
-// The acceptance rule has two halves, and both are needed:
+// The acceptance rule has three parts, and all three are needed:
 //
 //  1. The source must propose exactly one entity. A slug that normalizes to a
 //     name three SEC filers share is not evidence about any of them.
@@ -196,6 +341,14 @@ type proposal struct {
 //     on Workday is still one company — so sharing an entity is only a conflict
 //     when the display names disagree. That is the roadmap's "source, company
 //     and ATS identity are separate concepts" applied to matching.
+//  3. The name they agreed on must be evidence. The first two parts were
+//     written against no data at all, and the live runs showed what they miss:
+//     14 wrong matches in 263, every one of them unique in both directions and
+//     half of them a two-to-four letter name that two unrelated companies can
+//     both be spelled with. So a name too short to identify
+//     anybody has to be [Corroborated] by an identifier the entity owns before
+//     it is committed. See [MinDistinctiveLength] for the measurement that
+//     picked the threshold.
 //
 // Everything else becomes a candidate carrying the reason, so the reviewer sees
 // the ambiguity rather than the guess.
@@ -278,6 +431,24 @@ func Sources(sources []Source, entities []Entity) Result {
 				})
 
 				continue
+			}
+
+			// Uniqueness is not the same thing as evidence. Every wrong match in
+			// the audited run was unique in both directions and still wrong,
+			// because the name it was unique on was two or three letters long.
+			if name := NormalizeName(entities[p.entity].Name); !Distinctive(name) {
+				if _, ok := Corroborated(entities[p.entity], name); !ok {
+					result.Candidates = append(result.Candidates, Candidate{
+						Source:     source,
+						Entity:     entities[p.entity],
+						Method:     p.method,
+						Confidence: enrich.ConfidenceMedium,
+						Why: "uncorroborated short name: " + entities[p.entity].Name + " reduces to " +
+							name + ", which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer",
+					})
+
+					continue
+				}
 			}
 
 			result.Matches = append(result.Matches, Match{

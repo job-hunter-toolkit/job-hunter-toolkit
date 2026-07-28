@@ -339,3 +339,64 @@ func TestCoverageCountsWhatIsKnown(t *testing.T) {
 	must.Eq(t, 1, matched)
 	must.Eq(t, 2, total, must.Sprint("a source with no identity is not a source that could have matched"))
 }
+
+// TestRefutedRowsRemoveTheGeneratedOne is the correction for the one mistake
+// the generator actually makes.
+//
+// Its wrong rows are name collisions — a board called "post" resolved to the
+// cereal company — and the fix is not better facts about the wrong company. It
+// is no facts, and no coverage credit either, because a source counted as
+// covered while serving nothing is the same wrong answer somewhere quieter.
+func TestRefutedRowsRemoveTheGeneratedOne(t *testing.T) {
+	t.Parallel()
+
+	columns := enrich.EmployerColumns()
+
+	table, err := enrich.LoadFS(tableFS(
+		header(columns)+employerRow(nil)+employerRow(map[string]string{"key": "other"}),
+		header(columns)+row(columns, map[string]string{
+			"platform":         "greenhouse",
+			"key":              "acme",
+			"company":          "acme",
+			"match_method":     "refuted",
+			"match_confidence": "high",
+			"data_sources":     "acme.example",
+			"retrieved":        "2026-07-28",
+		}),
+		header(enrich.WageColumns()),
+	))
+	must.NoError(t, err)
+
+	_, ok := table.For(internal.PostingSource{Platform: "greenhouse", Key: "acme"})
+	must.False(t, ok, must.Sprint("a refuted source must serve no employer at all"))
+
+	matched, total := table.Coverage([]internal.PostingSource{
+		{Platform: "greenhouse", Key: "acme"},
+		{Platform: "greenhouse", Key: "other"},
+	})
+	must.Eq(t, 1, matched)
+	must.Eq(t, 2, total)
+	must.Eq(t, 1, table.Len())
+}
+
+// TestCommittedManualRowsAreRefutationsOrConfirmations guards the real file:
+// every row in it must be a decision a person made, not a generated row that
+// drifted in.
+func TestCommittedManualRowsAreRefutationsOrConfirmations(t *testing.T) {
+	t.Parallel()
+
+	table, err := enrich.Default()
+	must.NoError(t, err)
+
+	for _, employer := range table.All() {
+		if employer.Match.Method != enrich.MethodManual {
+			continue
+		}
+
+		must.NotEq(t, "", employer.Match.DataSources[0],
+			must.Sprintf("%s/%s: a hand-written row must say where its facts came from",
+				employer.Source.Platform, employer.Source.Key))
+		must.NotEq(t, "", employer.Match.RetrievedAt,
+			must.Sprintf("%s/%s: a hand-written row must say when", employer.Source.Platform, employer.Source.Key))
+	}
+}
