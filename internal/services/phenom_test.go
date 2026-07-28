@@ -413,3 +413,75 @@ func TestPhenomCompanyName(t *testing.T) {
 		})
 	}
 }
+
+// TestPhenomYieldsTheTenantsOwnURLNotTheApplyURL pins the fix for the largest
+// dedupe defect this project has measured.
+//
+// A Phenom career site is a front end onto another ATS, and "applyUrl" points at
+// that other system. Reading the first page of all 14 registered tenants on
+// 2026-07-28: 9 published a Workday URL, 2 SuccessFactors, 1 Taleo, and only 2
+// published no applyUrl at all. [internal.Dedupe] keys on URL, and a Phenom
+// applyUrl onto Workday is the Workday posting URL with "/apply" appended, so
+// the two routes to one opening never collapsed -- 5,103 postings on Lowe's and
+// a further 1,556 on KBR, whose Workday tenant is registered right now.
+//
+// The two cases below are exactly those two shapes: a posting whose applyUrl is
+// a foreign ATS must not carry it, and a posting with no applyUrl at all must
+// still get a link.
+func TestPhenomYieldsTheTenantsOwnURLNotTheApplyURL(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"careers.acme.com": phenomFixturePage(strings.Join([]string{
+			// The Lowe's and KBR shape: applyUrl is a Workday posting URL with
+			// "/apply" on the end, for a tenant this project also crawls
+			// through Workday.
+			`{"title":"HVAC Technician","cityState":"Dallas, TX","jobId":"R2123021",
+			  "applyUrl":"https://acme.wd5.myworkdayjobs.com/Acme_Careers/job/Dallas-TX/HVAC-Technician_R2123021/apply"}`,
+			// A tenant that takes applications on the Phenom site itself
+			// publishes no applyUrl. It must still carry a link.
+			`{"title":"Detection Engineer","cityState":"Remote","jobId":"R2123022","applyUrl":""}`,
+		}, ",")),
+	})
+
+	postings, errs := drain(Phenom(t.Context(), client, "careers.acme.com"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	test.Eq(t, "https://careers.acme.com/us/en/job/R2123021", postings[0].URL)
+	test.Eq(t, "https://careers.acme.com/us/en/job/R2123022", postings[1].URL)
+
+	for _, posting := range postings {
+		test.StrNotContains(t, posting.URL, "myworkdayjobs.com",
+			test.Sprintf("posting %q carries another ATS's URL; its Source says phenom and "+
+				"Dedupe keys on URL, so the two routes to this opening would both be counted", posting.Title))
+		test.StrNotHasSuffix(t, "/apply", posting.URL)
+	}
+}
+
+// TestPhenomFallsBackToApplyURLWithoutAJobID keeps the change above from
+// deleting postings.
+//
+// Every tenant published a jobId on every row of a 100-row page when this was
+// measured, so the fallback is not expected to fire. It exists because this
+// project's contract is that a posting always carries a URL a person can open,
+// and a tenant that ever stops sending jobId should lose the canonical link
+// rather than the posting.
+func TestPhenomFallsBackToApplyURLWithoutAJobID(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"careers.acme.com": phenomFixturePage(
+			`{"title":"Field Engineer","cityState":"Reston, VA","jobId":"",
+			  "applyUrl":"https://career4.successfactors.com/career?company=Acme&career_job_req_id=292628"}`,
+		),
+	})
+
+	postings, errs := drain(Phenom(t.Context(), client, "careers.acme.com"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	test.Eq(t, "https://career4.successfactors.com/career?company=Acme&career_job_req_id=292628", postings[0].URL)
+}

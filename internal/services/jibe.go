@@ -532,11 +532,40 @@ func jibeCompensation(posting jibePosting) *internal.Compensation {
 	}
 }
 
+// jibeApplyURL returns a posting's link, resolved against the board it came from
+// when the board published a relative one.
+//
+// "apply_url" is usually absolute, and usually points at a different system:
+// iCIMS for most tenants, but also Workday, BrassRing, Taleo, Oracle Cloud and
+// ADP. That is the platform's shape and this adapter has no alternative, since
+// the search payload carries no link of its own — "slug" is the requisition
+// number, not a path.
+//
+// A minority are root-relative. Measured on 2026-07-28 across a 685,000-posting
+// crawl, 4,249 postings — every one of them FedEx — carried "apply_url" as
+// "/freight-apply/apply/POSTING-3-958978" with no scheme or host. Those were
+// stored verbatim, so this project published 4,249 postings whose URL cannot be
+// opened at all, breaking the contract that every posting carries a link a
+// person can follow. Nothing noticed, because a relative path is neither empty
+// nor a duplicate: it passes the guard below and is unique in [internal.Dedupe].
+//
+// The board's own host is the right base, verified live: the FedEx path above
+// answers 200 at https://fedex.jibeapply.com and 404 at careers.fedex.com.
+func jibeApplyURL(key, applyURL string) string {
+	link := strings.TrimSpace(strings.ReplaceAll(applyURL, "http://", "https://"))
+
+	if strings.HasPrefix(link, "/") && !strings.HasPrefix(link, "//") {
+		return "https://" + jibeHost(key) + link
+	}
+
+	return link
+}
+
 // jibePosting converts one decoded search result into a posting, reporting false
 // when the board left out something a job seeker needs.
 func jibeJobPosting(company, key string, item jibePosting) (*internal.JobPosting, bool) {
 	var (
-		link     = strings.TrimSpace(strings.ReplaceAll(item.ApplyURL, "http://", "https://"))
+		link     = jibeApplyURL(key, item.ApplyURL)
 		title    = strings.TrimSpace(item.Title)
 		location = strings.TrimSpace(item.FullLocation)
 	)

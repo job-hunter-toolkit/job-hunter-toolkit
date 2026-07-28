@@ -45,6 +45,19 @@ const (
 	// says the registry under-represents.
 	sameEmployerDisjointBoards
 
+	// sameEmployerPartialOverlap means one employer's two boards share some
+	// postings and not others, so neither deleting a route nor keeping both is
+	// free.
+	//
+	// Both are kept, because the arithmetic favours it: AT&T publishes 2,171
+	// postings on Radancy and 1,271 on Workday sharing 366 title+location pairs,
+	// so deleting the smaller route removes about 900 postings that exist
+	// nowhere else in order to stop counting 366 twice. The overlap is recorded
+	// as a number rather than a judgement so that it can be watched: a pair
+	// drifting towards total overlap is a route that has become a mirror and
+	// should be re-decided.
+	sameEmployerPartialOverlap
+
 	// unmeasured means the comparison has not been run. New entries start here.
 	unmeasured
 )
@@ -106,7 +119,6 @@ var reviewedDoubleCounts = map[string]struct {
 	// Unrelated companies that share a name. Both belong here.
 	"extend":    {differentEmployers, "ashby 9, greenhouse 18, no shared title"},
 	"justworks": {differentEmployers, "greenhouse 98, smartrecruiters 7, no shared title"},
-	"kbr":       {differentEmployers, "oraclecloud 2, personio 7, no shared title"},
 	"ledger":    {differentEmployers, "ashby 10, lever 1, no shared title"},
 	"radar":     {differentEmployers, "ashby 18, greenhouse 17, no shared title"},
 	"reach":     {differentEmployers, "ashby 3, greenhouse 5, no shared title"},
@@ -129,6 +141,34 @@ var reviewedDoubleCounts = map[string]struct {
 	"bechtel": {sameEmployerDisjointBoards, "brassring 433 craft trades (Carpenter, Hydraulic Crane Operator), " +
 		"phenom 1,018 professional roles (Field Engineer, Prime Contracts Manager); no shared title"},
 	"unitypoint": {sameEmployerDisjointBoards, "brassring 282, jibe 1,362, zero shared URLs and zero shared titles"},
+	"walgreens": {sameEmployerDisjointBoards, "brassring 5,500 and radancy 10,000 (of 21,232, capped by " +
+		"radancyMaxWindow). Zero shared URLs and zero shared title+location pairs across 4,397 and 7,593 " +
+		"distinct pairs -- the cleanest split measured: two systems carrying entirely different Walgreens work"},
+	"sanofi": {sameEmployerDisjointBoards, "radancy 1,015, workday 1,067, zero shared URLs and zero shared " +
+		"title+location pairs across 977 and 1,021. Near-identical board sizes with nothing in common"},
+	"wegmans": {sameEmployerDisjointBoards, "radancy 499, workday 481, zero shared URLs and zero shared " +
+		"title+location pairs across 476 and 479"},
+	"veolia": {sameEmployerDisjointBoards, "radancy 2,962, successfactors 91, zero shared URLs and zero " +
+		"shared title+location pairs"},
+	"carnival": {sameEmployerDisjointBoards, "oraclecloud 229, radancy 128, zero shared URLs, 14 of radancy's " +
+		"124 title+location pairs shared -- 11% of the smaller board, and both carry work the other does not"},
+
+	// One employer, two boards that partly mirror each other. Both kept, and the
+	// overlap is recorded as a number so it can be watched.
+	"att": {sameEmployerPartialOverlap, "radancy 2,171, workday 1,271, zero shared URLs, 366 of workday's " +
+		"1,108 title+location pairs shared (33%). Deleting workday would drop ~900 postings that exist " +
+		"nowhere else to stop counting 366 twice"},
+	"citi": {sameEmployerPartialOverlap, "radancy 3,484, workday 2,000, zero shared URLs, 825 of workday's " +
+		"1,900 title+location pairs shared (43%) -- the highest overlap that is still not a mirror; " +
+		"workday keeps ~1,075 pairs radancy does not carry"},
+	"disney": {sameEmployerPartialOverlap, "radancy 798, workday 668, zero shared URLs, 161 of workday's " +
+		"628 title+location pairs shared (26%)"},
+	"chipotle": {sameEmployerDisjointBoards, "radancy 7,659 restaurant roles on jobs.chipotle.com, workday 181 on " +
+		"chipotle.wd5. Zero shared URLs, and the 52-of-55 shared TITLES are the trap this file warns about: " +
+		"compared as title+location, only 12 of workday's 178 distinct pairs appear in radancy, because " +
+		"'General Manager' recurs at thousands of restaurants. 166 workday postings exist nowhere else, and " +
+		"radancy carries 7,600 workday does not, so the 12 overlaps are 0.15% of the pair and deleting either " +
+		"route would lose thousands of real postings to save twelve duplicates"},
 
 	// Re-measured 2026-07-28 and reclassified out of sameEmployer. The earlier
 	// row read "2 of 2 titles shared" and concluded smartrecruiters was a
@@ -195,6 +235,12 @@ var reviewedDoubleCounts = map[string]struct {
 // cheaper-platform tie-break would have saved is 1.3 s per 1,000 postings, which
 // over 267 postings is about a third of a second.
 var deletedDoubleCountRoutes = map[string]string{
+	"phenom/careers.kbr.com": "measured 2026-07-28: 1,556 of careers.kbr.com's 1,558 distinct URLs are " +
+		"exactly a registered kbr.wd5.myworkdayjobs.com URL with \"/apply\" appended, and zero match one as " +
+		"written, so internal.Dedupe never collapsed them. Same shape as Lowe's: the Phenom site is a front " +
+		"end onto the Workday tenant this project already crawls. Kept workday. This row also corrects an " +
+		"earlier verdict of differentEmployers for \"kbr\", which was measured with `--company kbr` -- " +
+		"substring matching, so it compared two unrelated tenants and never looked at phenom or workday at all",
 	"greenhouse/amplitude": "measured 2026-07-28: ashby 46 postings, greenhouse 46, 41 of 41 titles " +
 		"shared, zero shared URLs. Kept ashby: equal coverage, and ashby carried department, " +
 		"employment type and remote on all 46 plus pay on 34 where greenhouse carried none",

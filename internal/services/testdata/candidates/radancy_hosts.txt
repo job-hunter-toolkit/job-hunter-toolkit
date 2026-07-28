@@ -1,0 +1,169 @@
+# ============================================================================
+# Radancy / TalentBrew career-site hosts.
+#
+# Unlike the other files in this directory, every line here was probed live by
+# this project on 2026-07-28 from a container that reaches job boards. Nothing
+# below is an upstream annotation and nothing below is a guess: each host was
+# asked for one page of
+#
+#   GET https://{host}{prefix}/search-jobs/results
+#       ?CurrentPage=1&RecordsPerPage=1&SearchResultsModuleName=Search+Results
+#
+# and classified on what came back. The counts are that response's own
+# data-total-job-results.
+#
+# The sections below are therefore not "verified" versus "unverified". They are
+# verified-and-registered, verified-but-blocked-on-a-decision, and
+# measured-not-to-be-Radancy. Read the section header before promoting anything.
+#
+# Format: one `company,host[,pathPrefix]` key per line, matching the key format
+# internal/services/radancy.go parses (# = comment, inline OK). The pathPrefix
+# is a per-tenant locale segment and is part of the endpoint, not decoration:
+# jobs.veolia.com/search-jobs/results answers HTTP 301 and only
+# jobs.veolia.com/fr/search-jobs/results answers with the board.
+#
+# Promotion rule, gated on content and not on status code: a Radancy response
+# renders its results section with a data-total-job-results attribute even when
+# the count is 0 (measured on www.att.jobs with a nonsense keyword), so the
+# attribute's presence is the platform test and its value is the liveness test.
+# Keep a host whose count is above zero.
+# ============================================================================
+
+# --- registered in internal/services/radancy.go (16 hosts, ~48,900 postings
+#     after the Walgreens window truncation) ---
+walgreens,jobs.walgreens.com,/en                 # 21232 -- only the first 10000 are reachable
+chipotle,jobs.chipotle.com                       # 7659
+unitedhealthgroup,careers.unitedhealthgroup.com  # 5910
+vinci,jobs.vinci.com,/en                         # 5878
+citi,jobs.citi.com                               # 3484
+veolia,jobs.veolia.com,/fr                       # 2962
+att,www.att.jobs                                 # 2171
+munichre,careers.munichre.com,/en                # 1517
+geisinger,jobs.geisinger.org                     # 1421
+aldi,careers.aldi.us                             # 1213
+sanofi,jobs.sanofi.com,/en                       # 1015
+takeda,jobs.takeda.com                           # 886
+disney,jobs.disneycareers.com                    # 800
+wegmans,jobs.wegmans.com,/en                     # 499
+parexel,jobs.parexel.com,/en                     # 227
+carnival,jobs.carnival.com                       # 128
+
+# --- LIVE, and measured to be a near-mirror of a route already registered.
+#     Staged rather than registered: promoting it means DELETING the other
+#     route, which is a coverage decision with a real cost.
+#
+#     Tenet Healthcare publishes 3,350 postings here and 2,856 on Oracle Cloud
+#     (tenet,eodr.fa.us2.oraclecloud.com,CX_1). Zero shared URLs, so
+#     internal.Dedupe collapses nothing, and 1,818 shared title+location pairs --
+#     85% of the Oracle board. The facility mix is the same on both to within a
+#     percent (San Antonio 342 against 345, West Palm Beach 233 against 237, El
+#     Paso 208 against 207). Radancy is the larger board and much the cheaper
+#     one (4 requests against roughly 15), so it is the better route; it is
+#     staged only because deleting the Oracle one is not this change's call.
+#
+#     Register it as "tenet" and not "tenethealth" when it is promoted. The
+#     host-derived name does not collide with the "tenet" already registered, so
+#     TestNoUnreviewedDoubleCountedEmployer would pass by not noticing, and this
+#     overlap would enter the registry unreviewed.
+#
+#     METHOD NOTE, because it changes the answer. Comparing title+location pairs
+#     verbatim gives ZERO overlap for this pair and would have read as two
+#     disjoint boards. That is a formatting artifact: Oracle writes "San
+#     Antonio, TX, United States" where Radancy writes "San Antonio, TX", so not
+#     one of the 88 Radancy location strings equals any of Oracle's 114. The
+#     1,818 above is after stripping the country suffix and expanding state
+#     names. Any pair comparison across two platforms needs that normalisation
+#     first or it will report every overlap as disjoint.
+# tenet,jobs.tenethealth.com                     # 3350
+
+# --- LIVE, but each collides with a company name already in the registry on a
+#     different platform, and internal/services/double_count_test.go requires a
+#     measured verdict before a colliding name may be registered. These are
+#     staged rather than registered because the comparison has not been run, not
+#     because there is any doubt they work. Crawl both boards, compare URLs
+#     first and then normalised title+location pairs, add a reviewedDoubleCounts
+#     row, then promote. ---
+# baxter,jobs.baxter.com,/en                     # 541  -- also workday baxter.wd1
+# bd,jobs.bd.com,/en                             # 987  -- Becton Dickinson; also oraclecloud bdousacampus + bdousaexperienced
+# northwesternmedicine,jobs.nm.org               # 1386 -- also smartrecruiters northwesternmedicine
+# pge,jobs.pge.com                               # 118  -- also successfactors pge,C0000161245P
+#
+# Checked and NOT a collision, recorded so it is not re-checked: careers.aldi.us
+# (ALDI US, 1,213) against successfactors aldihofer,HoferSELive (Hofer, 230)
+# shares zero URLs and zero titles. Different national businesses, and the names
+# do not collide either, so no reviewedDoubleCounts row is required.
+
+# --- LIVE, and DELIBERATELY NOT PROMOTABLE: each is the same board as a
+#     registered host under a different locale, serving the identical posting
+#     count. Radancy publishes one board per brand and routes locales by path
+#     prefix, so registering two of these is not extra coverage, it is the same
+#     employer crawled twice. The counts below are what made that visible. ---
+# disney,emplois.disneycareers.com               # 800 -- same board as jobs.disneycareers.com
+# disney,www.disneycareers.com,/en               # 800 -- same board as jobs.disneycareers.com
+# veolia,jobs.veolia.com,/en                     # 2962 -- same board as veolia,jobs.veolia.com,/fr
+
+# --- Radancy-shaped but answered HTTP 403 to this project's User-Agent, from
+#     this container's IP, on both /search-jobs and /search-jobs/results. Each
+#     kept the /search-jobs path rather than redirecting away from it, which is
+#     what a non-Radancy host does, so these are probably real tenants behind a
+#     bot wall rather than misattributions. A 403 is not evidence of a dead
+#     board and it is not evidence of a live one either: registering these would
+#     add permanently failing sources. Re-probe from CI, which has a different
+#     egress, before promoting any of them.
+#     Note lowes is separately uninteresting: it is already registered on both
+#     phenom and workday and reviewedDoubleCounts calls that a sameEmployer
+#     duplicate, so a third route would make it a triple. ---
+# lowes,jobs.lowes.com                           # HTTP 403
+# dominos,jobs.dominos.com                       # HTTP 403
+# mcdonalds,careers.mcdonalds.com                # HTTP 403
+# leidos,careers.leidos.com                      # HTTP 403
+# centene,jobs.centene.com                       # HTTP 403
+# natwest,jobs.natwestgroup.com                  # HTTP 403
+# hcahealthcare,careers.hcahealthcare.com        # HTTP 403
+# collinsaerospace,jobs.collinsaerospace.com     # HTTP 403
+# jnj,careers.jnj.com                            # HTTP 403
+# caesars,jobs.caesars.com                       # HTTP 503
+
+# --- measured NOT to be Radancy, recorded so the same hosts are not re-probed.
+#     All of these serve /search-jobs and would pass a path-shape check; none
+#     returns a Radancy results fragment. This is the reason the probe above
+#     gates on data-total-job-results rather than on the URL looking right. ---
+# jobs.nscorp.com          /search-jobs/results returns an HTML page, not JSON
+# www.careers.zurich.com   same
+# jobs.bayer.com           same
+# jobs.boehringer-ingelheim.com  same
+# jobs.aa.com              same
+# jobs.cemex.com           same
+# jobs.engie.com           same
+# jobs.gsk.com             /search-jobs/results answers HTTP 303
+# jobs.thyssenkrupp.com    /en/search-jobs is a different vendor's template
+#
+# Employers whose careers host redirects to a platform already covered here,
+# checked because issue #18 or docs/source-backlog.md named them:
+# jobs.raytheon.com   -> 301 to careers.rtx.com/global/en/raytheon (Phenom shape)
+# jobs.ebayinc.com    -> 303 to /us/en (Phenom shape)
+# jobs.kroger.com     -> www.krogerfamilycareers.com/en/sites/CX_2001 (Oracle
+#                        Recruiting Cloud, exactly as docs/source-backlog.md
+#                        already records; do not re-add Kroger to Radancy)
+# jobs.albertsons.com -> eofd.fa.us6.oraclecloud.com (Oracle Recruiting Cloud)
+# jobs.dell.com       -> iawmqy.fa.ocs.oraclecloud.com (Oracle Recruiting Cloud)
+# jobs.jpmorganchase.com -> jpmc.fa.oraclecloud.com (Oracle Recruiting Cloud)
+# jobs.heidelbergmaterials.com -> heidelbergmaterials.wd3.myworkdayjobs.com
+#
+# ============================================================================
+# How this list was built, and what it is not
+#
+# There is no directory of Radancy tenants to harvest. Radancy sites are served
+# from the employer's own domain with no shared suffix, which is exactly why the
+# key here is a full host: nothing about "www.att.jobs" or "careers.aldi.us" is
+# derivable from the company name. This list is therefore a sweep of ~300
+# plausible career hostnames, not an enumeration, and it is certainly a small
+# fraction of the platform. The four brands docs/research/ats-platform-survey.md
+# names (veolia, vinci, disneycareers, munichre) are all here and all live,
+# which is the survey's endpoint template holding up; everything else was found
+# by guessing hostnames and checking.
+#
+# The cheap way to extend it is a Common Crawl sweep for pages loading
+# tbcdn.talentbrew.com or cdn.radancy.eu, which is the fingerprint every tenant
+# measured carries. That was not available from this container.
+# ============================================================================

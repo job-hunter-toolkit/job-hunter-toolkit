@@ -702,3 +702,73 @@ func TestJibeDoesNotYieldAfterTheConsumerStops(t *testing.T) {
 		})
 	}
 }
+
+// TestJibeResolvesRelativeApplyURLs pins the fix for postings this project
+// published with a URL nobody could open.
+//
+// "apply_url" is normally absolute, but FedEx publishes a root-relative path for
+// part of its board: 4,249 of 59,596 postings on 2026-07-28, every relative URL
+// in a 685,000-posting crawl. Stored verbatim they were neither empty nor
+// duplicated, so the empty-link guard passed them and [internal.Dedupe] kept
+// each one, and the crawl reported 4,249 postings whose link goes nowhere.
+//
+// The board's own host is the base. Verified live: the path below answers 200 at
+// fedex.jibeapply.com and 404 at careers.fedex.com, so an employer's vanity
+// domain is not a substitute.
+func TestJibeResolvesRelativeApplyURLs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		key  string
+		in   string
+		want string
+	}{
+		{
+			name: "relative on a jibeapply slug",
+			key:  "fedex",
+			in:   "/freight-apply/apply/POSTING-3-958978",
+			want: "https://fedex.jibeapply.com/freight-apply/apply/POSTING-3-958978",
+		},
+		{
+			name: "relative on an employer's own careers host",
+			key:  "careers.costco.com",
+			in:   "/freight-apply/apply/POSTING-3-1",
+			want: "https://careers.costco.com/freight-apply/apply/POSTING-3-1",
+		},
+		{
+			name: "absolute is left alone",
+			key:  "costco",
+			in:   "https://careers-costco.icims.com/jobs/30389/login",
+			want: "https://careers-costco.icims.com/jobs/30389/login",
+		},
+		{
+			name: "http is still upgraded",
+			key:  "costco",
+			in:   "http://careers-costco.icims.com/jobs/30389/login",
+			want: "https://careers-costco.icims.com/jobs/30389/login",
+		},
+		{
+			// A protocol-relative URL already names a host. Prefixing the
+			// board's would produce https://fedex.jibeapply.com//other.example.
+			name: "protocol-relative is not treated as a path",
+			key:  "fedex",
+			in:   "//other.example/jobs/1",
+			want: "//other.example/jobs/1",
+		},
+		{
+			name: "empty stays empty so the caller can drop the posting",
+			key:  "fedex",
+			in:   "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			test.Eq(t, tt.want, jibeApplyURL(tt.key, tt.in))
+		})
+	}
+}
