@@ -767,33 +767,104 @@ func parseAge(value string) (time.Duration, error) {
 // newCompaniesCommand builds the `companies` command.
 func newCompaniesCommand() *cobra.Command {
 	var (
-		asJSON bool
-		asCSV  bool
+		asJSON    bool
+		asCSV     bool
+		bySource  bool
+		platforms []string
 	)
 
 	cmd := &cobra.Command{
-		Use:     "companies",
-		Short:   "List the companies that postings are searched from",
+		Use:   "companies",
+		Short: "List the companies that postings are searched from",
+		Long: "List the companies that postings are searched from.\n\n" +
+			"By default this lists one company name per line. --sources lists one\n" +
+			"integration per line instead, as \"PLATFORM COMPANY KEY\", which is the\n" +
+			"only way to answer which ATS an employer is crawled through -- a\n" +
+			"company can be on more than one, and docs/architecture-roadmap.md keeps\n" +
+			"source, company and ATS identity deliberately separate.",
 		Args:    cobra.NoArgs,
 		Aliases: []string{"sources"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			companies := services.Companies()
-
 			out := cmd.OutOrStdout()
+
+			if !bySource && len(platforms) > 0 {
+				bySource = true
+			}
+
+			if !bySource {
+				companies := services.Companies()
+
+				switch {
+				case asJSON:
+					enc := json.NewEncoder(out)
+					enc.SetIndent("", "  ")
+
+					return enc.Encode(companies)
+
+				case asCSV:
+					cw := csv.NewWriter(out)
+					defer cw.Flush()
+
+					for _, company := range companies {
+						if err := cw.Write([]string{company}); err != nil {
+							return fmt.Errorf("writing CSV: %w", err)
+						}
+					}
+
+					return cw.Error()
+
+				default:
+					for _, company := range companies {
+						if _, err := fmt.Fprintln(out, company); err != nil {
+							return err
+						}
+					}
+
+					return nil
+				}
+			}
+
+			type sourceRow struct {
+				Platform string `json:"platform"`
+				Company  string `json:"company"`
+				Key      string `json:"key"`
+			}
+
+			rows := make([]sourceRow, 0, len(services.Builtin))
+
+			for _, source := range services.Builtin {
+				if len(platforms) > 0 && !slices.Contains(platforms, source.Platform) {
+					continue
+				}
+
+				rows = append(rows, sourceRow{source.Platform, source.Company, source.Key})
+			}
+
+			slices.SortFunc(rows, func(a, b sourceRow) int {
+				if c := cmp.Compare(a.Company, b.Company); c != 0 {
+					return c
+				}
+
+				if c := cmp.Compare(a.Platform, b.Platform); c != 0 {
+					return c
+				}
+
+				return cmp.Compare(a.Key, b.Key)
+			})
 
 			switch {
 			case asJSON:
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
 
-				return enc.Encode(companies)
+				return enc.Encode(rows)
 
 			case asCSV:
 				cw := csv.NewWriter(out)
 				defer cw.Flush()
 
-				for _, company := range companies {
-					if err := cw.Write([]string{company}); err != nil {
+				for _, row := range rows {
+					if err := cw.Write([]string{row.Platform, row.Company, row.Key}); err != nil {
 						return fmt.Errorf("writing CSV: %w", err)
 					}
 				}
@@ -801,8 +872,8 @@ func newCompaniesCommand() *cobra.Command {
 				return cw.Error()
 
 			default:
-				for _, company := range companies {
-					if _, err := fmt.Fprintln(out, company); err != nil {
+				for _, row := range rows {
+					if _, err := fmt.Fprintf(out, "%s\t%s\t%s\n", row.Platform, row.Company, row.Key); err != nil {
 						return err
 					}
 				}
@@ -813,7 +884,11 @@ func newCompaniesCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output as a JSON array")
-	cmd.Flags().BoolVar(&asCSV, "csv", false, "output one company per CSV row, with no header")
+	cmd.Flags().BoolVar(&asCSV, "csv", false, "output one row per line as CSV, with no header")
+	cmd.Flags().BoolVar(&bySource, "sources", false,
+		"list one integration per line as PLATFORM COMPANY KEY, rather than one company name")
+	cmd.Flags().StringArrayVar(&platforms, "platform", nil,
+		"only these platforms; implies --sources. Repeat to add more")
 	cmd.MarkFlagsMutuallyExclusive("json", "csv")
 
 	return cmd
