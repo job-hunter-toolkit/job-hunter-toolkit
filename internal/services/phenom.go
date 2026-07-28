@@ -59,7 +59,6 @@ var PhenomCompanies = []string{
 	"careers.united.com",
 	"careers.zimmerbiomet.com",
 	"jobs.bechtel.com",
-	"talent.lowes.com",
 }
 
 // phenomSearchResults is the subset of a Phenom People search-results page's

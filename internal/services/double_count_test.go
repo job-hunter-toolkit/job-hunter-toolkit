@@ -67,6 +67,12 @@ const (
 // nothing at the time. Deleting on the name alone would have removed eight real
 // employers from the registry.
 //
+// Re-measuring those 7 the same day cut them to 6. Visa was on the list because
+// its two boards shared "2 of 2 titles", and the two titles were the bare words
+// "Sr. Manager" and "Director"; the reqs behind them exist on neither of the
+// other board. Titles are a weak signal even after the name test passes, which
+// is why the paragraph below asks for URLs first.
+//
 // # What a maintainer does with this
 //
 // Adding a source that collides with an existing one fails this test. Resolve it
@@ -86,24 +92,16 @@ const (
 // one that costs fewer requests per posting
 // (docs/measurements/2026-07-28-crawl.md ranks the platforms).
 //
-// The sameEmployer rows are a known, quantified defect rather than an accepted
-// one. Resolving each means deleting one route, which is a coverage decision
-// with a real cost, so they are recorded with the evidence needed to make it
-// rather than resolved unilaterally here.
+// The sameEmployer rows this list used to carry are gone, because the routes
+// they described are gone: see [deletedDoubleCountRoutes], which is where a
+// resolved overlap lands and what stops the deleted route coming back.
 var reviewedDoubleCounts = map[string]struct {
 	verdict doubleCountVerdict
 	note    string
 }{
-	// Same employer. Postings counted twice today.
-	"amplitude":   {sameEmployer, "ashby 46 postings, greenhouse 46, 41 of 41 distinct titles shared; keep one"},
-	"clickhouse":  {sameEmployer, "ashby 173, greenhouse 173, 81 of 81 titles shared; keep one"},
-	"fireworksai": {sameEmployer, "ashby 48, greenhouse 48, 48 of 48 titles shared; keep one"},
-	"lowes": {sameEmployer, "phenom 4,814, workday 11,284, 428 of 428 titles shared. " +
-		"The largest overlap in the registry: Workday returns more than twice the board, " +
-		"so Workday is the route to keep, and roughly 4,800 postings are counted twice until it is"},
-	"qonto":       {sameEmployer, "ashby 43, lever 43, 42 of 42 titles shared; keep one"},
-	"secureframe": {sameEmployer, "ashby 18, lever 20, 18 of 18 titles shared; keep one"},
-	"visa":        {sameEmployer, "smartrecruiters 2, workday 878, 2 of 2 titles shared; workday is the board, smartrecruiters is a remnant"},
+	// No sameEmployer rows remain. The six that existed on 2026-07-28 were
+	// re-measured and resolved by deleting a route; they are recorded in
+	// [deletedDoubleCountRoutes].
 
 	// Unrelated companies that share a name. Both belong here.
 	"extend":    {differentEmployers, "ashby 9, greenhouse 18, no shared title"},
@@ -132,6 +130,31 @@ var reviewedDoubleCounts = map[string]struct {
 		"phenom 1,018 professional roles (Field Engineer, Prime Contracts Manager); no shared title"},
 	"unitypoint": {sameEmployerDisjointBoards, "brassring 282, jibe 1,362, zero shared URLs and zero shared titles"},
 
+	// Re-measured 2026-07-28 and reclassified out of sameEmployer. The earlier
+	// row read "2 of 2 titles shared" and concluded smartrecruiters was a
+	// remnant to delete. It is the same employer -- the smartrecruiters tenant
+	// sets a custom field "Visa Inc. or Visa in Europe job?" to "Visa Inc." --
+	// but the two titles it shares with Workday are the bare words "Sr. Manager"
+	// and "Director", which is exactly the weak signal the header above warns
+	// about. Workday holds four postings with those titles and none of them is
+	// either of these: the smartrecruiters reqs are REF97395W and REF97388Z and
+	// neither appears anywhere in Workday's 880, whose reqs are all six-digit
+	// (REF0xxxxxW); the smartrecruiters "Sr. Manager" is in Austin, TX and
+	// Workday has no Austin posting by that title. So nothing is counted twice
+	// and deleting smartrecruiters would have removed two postings on a title
+	// coincidence.
+	//
+	// Recorded honestly, those two postings are close to worthless: both have an
+	// empty company description, job description and qualifications, and a
+	// job-family label where a title should be. They look like residue of a
+	// migration to Workday. But "low value" is not "duplicated", the whole
+	// tenant costs about two seconds a crawl, and this list is not the place to
+	// make a coverage cut on a different argument than the one it measures.
+	"visa": {sameEmployerDisjointBoards, "smartrecruiters 2, workday 880, zero shared URLs. " +
+		"The 2 shared titles are the generic words Sr. Manager and Director; the smartrecruiters " +
+		"reqs REF97395W and REF97388Z are absent from all 880 workday postings, so the boards are " +
+		"disjoint and the earlier sameEmployer verdict was a false positive from one-word titles"},
+
 	// Short names that collide on the SMB platform. Breezy tenants are small and
 	// none of these is the well-known holder of the name.
 	"adobe":     {differentEmployers, "breezy 1 posting, workday 834, no shared title; the breezy tenant is not Adobe"},
@@ -139,6 +162,65 @@ var reviewedDoubleCounts = map[string]struct {
 	"brilliant": {differentEmployers, "breezy 2, lever 4, no shared title"},
 	"duolingo":  {differentEmployers, "breezy 3, greenhouse 59, no shared title"},
 	"framework": {differentEmployers, "breezy 10, rippling 1, no shared title"},
+}
+
+// deletedDoubleCountRoutes records a platform+key that was registered, measured
+// against another route for the same employer, found to serve the same openings
+// under different URLs, and deleted.
+//
+// It exists because [reviewedDoubleCounts] cannot hold this. A resolved overlap
+// stops being an overlap the moment the losing route is deleted, so
+// TestReviewedDoubleCountsHasNoStaleRows requires its row to go, and it is right
+// to: a row left behind would pre-approve re-adding the very route that was
+// deleted. But then the measurement that justified the deletion is nowhere, and
+// the next person to sweep a platform for missing tenants re-adds
+// greenhouse/amplitude in good faith and silently restores the double count. So
+// the evidence moves here, keyed by the exact route rather than the company
+// name, and TestDeletedDoubleCountRoutesStayDeleted turns re-adding one back
+// into a failure with the reason attached.
+//
+// Keys are "platform/key", matching [Source.Platform] and [Source.Key].
+//
+// # On the three Ashby-versus-Greenhouse ties
+//
+// All three tied on posting count, and docs/measurements/2026-07-28-crawl.md
+// ranks Greenhouse cheaper: 4.6 s per 1,000 postings against Ashby's 5.9. Ashby
+// was kept anyway, because a tie in postings is not a tie in what a posting
+// carries. Greenhouse deliberately fetches the list response without
+// "?content=true" -- see the note on [greenhouseJobs], a platform-wide decision
+// about a 13.7x response-size increase, and the right one -- so its postings
+// arrive with no department, no employment type, no remote flag and no pay.
+// Measured across these three boards, Ashby returned all four fields on all 267
+// postings, and 36 compensation ranges Greenhouse returned none of. The cost the
+// cheaper-platform tie-break would have saved is 1.3 s per 1,000 postings, which
+// over 267 postings is about a third of a second.
+var deletedDoubleCountRoutes = map[string]string{
+	"greenhouse/amplitude": "measured 2026-07-28: ashby 46 postings, greenhouse 46, 41 of 41 titles " +
+		"shared, zero shared URLs. Kept ashby: equal coverage, and ashby carried department, " +
+		"employment type and remote on all 46 plus pay on 34 where greenhouse carried none",
+	"greenhouse/clickhouse": "measured 2026-07-28: ashby 173, greenhouse 173, 81 of 81 titles shared, " +
+		"zero shared URLs. Kept ashby: equal coverage, and ashby carried department, employment type " +
+		"and remote on all 173 where greenhouse carried none",
+	"greenhouse/fireworksai": "measured 2026-07-28: ashby 48, greenhouse 48, 48 of 48 titles shared, " +
+		"zero shared URLs. Kept ashby: equal coverage, and ashby carried department, employment type " +
+		"and remote on all 48 plus pay on 2 where greenhouse carried none",
+	"lever/qonto": "measured 2026-07-28: ashby 43, lever 43, 42 of 42 titles shared, zero shared URLs. " +
+		"Kept ashby: equal coverage, cheaper (5.9 s/1k against 8.2), and it published employment type " +
+		"on all 43 against lever's 39",
+	"ashby/secureframe": "measured 2026-07-28: ashby 18, lever 20, all 18 ashby titles shared, zero " +
+		"shared URLs. Kept lever: it returns the whole board and ashby a subset, missing Growth " +
+		"Account Executive and Growth Marketing Manager. Ashby carries department and employment type " +
+		"that lever does not, but a field on a posting the other route never returns is worth less " +
+		"than the posting",
+	"phenom/talent.lowes.com": "measured 2026-07-28: phenom 5,103 postings over 4,731 distinct URLs, " +
+		"workday lowes.wd5.myworkdayjobs.com/LWS_External_CS 11,283. Literally zero URLs matched, " +
+		"which is why internal.Dedupe never collapsed them, and the reason is not that the boards " +
+		"differ: this Phenom site is a front end onto that same Workday tenant and its links are the " +
+		"Workday posting URL with '/apply' appended, because the adapter yields Phenom's applyUrl. " +
+		"Strip that suffix and 4,729 of 4,731 phenom URLs are workday URLs; the 2 that are not are " +
+		"workday reqs (JR-02561381, JR-02392060) delisted between the two probes. All 428 phenom " +
+		"titles are among workday's 495 and phenom carried nothing workday did not. This was the " +
+		"largest single double count in the registry",
 }
 
 // companiesOnMoreThanOnePlatform groups the registry by company name.
@@ -224,6 +306,51 @@ func TestReviewedDoubleCountsHasNoStaleRows(t *testing.T) {
 			"%q is recorded in reviewedDoubleCounts but is no longer registered on more "+
 				"than one platform. Delete the row: leaving it would silently pre-approve "+
 				"re-adding the duplicate.", name))
+	}
+}
+
+// TestDeletedDoubleCountRoutesStayDeleted fails when a route that was measured
+// and deleted as a duplicate is registered again.
+//
+// This is the half of the guard [TestNoUnreviewedDoubleCountedEmployer] cannot
+// give. That test fires on a *name* appearing on two platforms, so it catches a
+// re-add only while some other route still holds the name -- and for
+// phenom/talent.lowes.com it would, but it would be satisfied by any row in
+// [reviewedDoubleCounts], including one a future maintainer adds in good faith
+// after re-measuring badly. Keying on the exact platform+key instead means the
+// specific route that was already shown to be redundant cannot come back
+// quietly, and the failure carries the measurement rather than asking for a new
+// one.
+func TestDeletedDoubleCountRoutesStayDeleted(t *testing.T) {
+	t.Parallel()
+
+	for _, source := range Builtin {
+		route := source.Platform + "/" + source.Key
+
+		note, deleted := deletedDoubleCountRoutes[route]
+
+		test.False(t, deleted, test.Sprintf(
+			"%s is registered again, but it was deleted as a measured duplicate: %s. "+
+				"If the boards have since diverged, re-measure both and say so here; "+
+				"do not restore it because a platform sweep found the slug.",
+			route, note))
+	}
+}
+
+// TestEveryDeletedDoubleCountRouteCarriesItsEvidence holds the deleted list to
+// the same standard as [reviewedDoubleCounts]: a route recorded as redundant
+// with no measurement behind it is an assertion nobody can check.
+func TestEveryDeletedDoubleCountRouteCarriesItsEvidence(t *testing.T) {
+	t.Parallel()
+
+	for route, note := range deletedDoubleCountRoutes {
+		must.StrNotEqFold(t, "", strings.TrimSpace(note),
+			must.Sprintf("%q is recorded as deleted but records no evidence for it", route))
+
+		platform, key, ok := strings.Cut(route, "/")
+
+		must.True(t, ok && platform != "" && key != "",
+			must.Sprintf("%q is not in platform/key form, so no registration can match it", route))
 	}
 }
 

@@ -138,7 +138,6 @@ var LeverCompanies = []string{
 	"polleverywhere",
 	"ppfa",
 	"provi",
-	"qonto",
 	"quartzy",
 	"quizlet-2",
 	"rackspace",
