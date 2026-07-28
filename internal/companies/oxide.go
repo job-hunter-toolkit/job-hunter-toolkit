@@ -41,10 +41,14 @@ const oxideCompany = "oxide"
 // creating an import cycle. So the naming and the adapters stay here, where they
 // belong, and the services side is a single call.
 func Sources() []Source {
-	return []Source{
+	sources := []Source{
 		{Key: oxideCompany, Company: oxideCompany, Jobs: Oxide},
 		{Key: uberCompany, Company: uberCompany, Jobs: Uber},
 	}
+
+	// Appended rather than listed inline because there is one per Alphabet
+	// company on the shared careers board; see [googleBoards].
+	return append(sources, googleSources()...)
 }
 
 // Source is one direct-employer adapter: how it is keyed, how it is named, and

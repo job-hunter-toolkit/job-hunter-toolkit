@@ -65,7 +65,10 @@ var genericPolicyPlatforms = map[string]string{
 	"phenom": "tenant-isolated employer hostnames, same reasoning as Workday",
 	"direct": "the bespoke internal/companies adapters, each of which talks to one " +
 		"employer's own careers site (oxide.computer, uber.com); there is no shared " +
-		"backend for tenants to contend over",
+		"backend for tenants to contend over. The exception is the Alphabet board, " +
+		"where three sources share www.google.com, and that host does have an " +
+		"explicit policy — this excuse covers the platform's representative " +
+		"source, not every host in it",
 }
 
 // TestEveryPlatformHasAPacingPolicy is a regression test for a whole class of
@@ -140,7 +143,7 @@ func TestSubdomainPerTenantPlatformsShareALimiterKey(t *testing.T) {
 
 	// Platforms whose tenants live at {tenant}.{backend}, where the backend is
 	// one service and must therefore be one limiter key.
-	sharedBackends := []string{"peopleforce", "bamboohr", "teamtailor", "recruitee", "pinpoint", "personio"}
+	sharedBackends := []string{"peopleforce", "bamboohr", "teamtailor", "recruitee", "pinpoint", "personio", "eightfold"}
 
 	for _, platform := range sharedBackends {
 		t.Run(platform, func(t *testing.T) {

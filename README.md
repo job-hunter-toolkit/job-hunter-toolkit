@@ -247,13 +247,22 @@ one-line change rather than a new scraper.
 | Personio | Small and mid-size companies, strong in Europe |
 | Recruitee | Small and mid-size companies |
 | Pinpoint | Small and mid-size companies |
+| Eightfold | Large global enterprises; only the minority of tenants that leave the list API ungated |
 
-The six platforms below PeopleForce were added from documented endpoint shapes
-rather than from boards this project has crawled, so each registers a small,
-deliberately conservative set of tenants. Several thousand further candidate
-tenants are staged, unregistered, in `internal/services/testdata/candidates/`;
-they are promoted only once a live `health` run confirms them, because a tenant
-that 404s is indistinguishable in aggregate from an adapter that never worked.
+The six platforms between PeopleForce and Eightfold were added from documented
+endpoint shapes rather than from boards this project has crawled, so each
+registers a small, deliberately conservative set of tenants. Several thousand
+further candidate tenants are staged, unregistered, in
+`internal/services/testdata/candidates/`; they are promoted only once a live
+`health` run confirms them, because a tenant that 404s is indistinguishable in
+aggregate from an adapter that never worked.
+
+Eightfold is the exception to the shape of that list, and worth knowing about
+before you go looking for a company there: it gates the list API per tenant, so
+most Eightfold employers refuse it outright with `HTTP 403`. Every tenant
+registered here answered with postings on two separate runs, and the ones that
+did not are recorded, with the answer each gave, in
+`internal/services/testdata/candidates/eightfold_slugs.txt`.
 
 A source is identified two ways: the **key** its platform uses to fetch it (a
 board slug, a Workday tenant URL, a Phenom hostname) and the readable **company

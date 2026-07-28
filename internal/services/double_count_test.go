@@ -132,6 +132,13 @@ var reviewedDoubleCounts = map[string]struct {
 	"plaid":            {oneSided, "ashby 115, lever returned none"},
 	"protectdemocracy": {oneSided, "recruitee 13, bamboohr returned none"},
 
+	"deepmind": {sameEmployerDisjointBoards, "direct 89 postings from deepmind.google, greenhouse 10, " +
+		"zero shared URLs and zero shared title+location pairs. The Alphabet adapter landed in #34 and the " +
+		"greenhouse board is a small separate listing"},
+	"netflix": {oneSided, "eightfold 476, lever returned none. #35 recorded the same thing when it added " +
+		"the eightfold tenant: the lever slug is stale rather than duplicated, and is left registered because " +
+		"an empty board is not evidence of a dead one"},
+
 	"fedex": {unmeasured, "jibe and workday; the comparison timed out and has not been repeated"},
 
 	// One employer, two boards carrying different work. Both kept.
