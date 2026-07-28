@@ -291,6 +291,26 @@ func BambooHR(ctx context.Context, httpClient *http.Client, company string) inte
 			}
 		}
 
-		// TODO: handle pagination if the API supports it
+		// There is no pagination to handle: /careers/list returns a tenant's
+		// whole board in one response, and says so in "meta.totalCount".
+		//
+		// Measured 2026-07-28 across every registered tenant that returned
+		// anything -- cortina 35, givedirectly 18, atomicobject 10, azerion 9,
+		// americanrivers 7 and the rest -- len(result) equalled totalCount in
+		// every case, with no page, offset or limit parameter documented or
+		// observed. This replaces a TODO that had been asking the question since
+		// the adapter was written; one request answers it.
+		//
+		// The check below is what makes that a claim rather than an assumption.
+		// A board that starts capping its response is the Rippling defect
+		// exactly -- that adapter read the first twenty postings of every board
+		// for as long as it existed, because the total rode in the same payload
+		// and was never compared against what arrived. Reporting the shortfall
+		// costs one comparison and turns a silent truncation into a failing
+		// source, which is the outcome this project prefers everywhere else.
+		if got, want := len(doc.Result), doc.Meta.TotalCount; want > 0 && got < want {
+			yield(nil, fmt.Errorf("%s board for %q returned %d of the %d postings it reports: the API has begun paginating or capping and this adapter does not follow it",
+				bambooHRPlatform, company, got, want))
+		}
 	}
 }
