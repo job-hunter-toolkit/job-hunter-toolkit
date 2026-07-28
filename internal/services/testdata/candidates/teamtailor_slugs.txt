@@ -2,20 +2,39 @@
 # CANDIDATES, NOT SOURCES. Nothing in this file is crawled.
 #
 # These 1,037 Teamtailor career-site subdomains were recovered by a research
-# pass in a container with no outbound access to job boards, so not one of them
-# was probed by this project. docs/adding-a-source.md is explicit that a slug
-# nobody has verified must not be registered, and at this project's fan-out a
-# dead tenant is not free: it burns a request every crawl, reports as a failing
-# source, and enough of them together trip the Source Health workflow's
-# 35%-failure alarm, which is the signal that is supposed to mean a real
-# platform broke.
+# pass in a container with no outbound access to job boards.
 #
-# 34 slugs from this file's hand-curated head are registered in
-# internal/services/teamtailor.go as TeamtailorCompanies. The rest are staged
-# here until a CI job — the only place in this project with real network access
-# — can probe them. The sections merged by "discovery/merge.py" carry "?" or an
-# apply-URL guess where the employer name should be; none of those is
-# registered, and they need more scrutiny than the rest, not less.
+# ALL 1,037 WERE PROBED LIVE ON 2026-07-28, against
+# https://<slug>.teamtailor.com/jobs.json, and the result is:
+#
+#     996  ok    answered 200 with a non-empty "items" array
+#      37  empty answered 200 with an empty "items" array
+#       4  dead  404 (hospitality2day-1697031971, landbot, negrieassociati,
+#                 percentserviciosinmobiliarios-1738162404)
+#
+# The 996 carried 16,759 postings on their first page; 43 published a "next_url"
+# and were walked to the end. Crawling the 988 promoted boards in full returns
+# 24,342 postings for 1,088 requests — 22.4 postings per request.
+#
+# 988 of the 996 are now registered in internal/services/teamtailor.go as
+# TeamtailorCompanies. Held back, with the reason:
+#
+#   - "sweep" and "rubrik": a DIFFERENT employer is already registered under
+#     each of those names on Ashby, and the company list must not contain a
+#     duplicate. Registering either would attribute one company's jobs to
+#     another.
+#   - "20min-demo", "b3personal-demo", "bromangrouptestijarjestelma-demo",
+#     "datacom-demo-demo", "groupecrit-demo-demo-reseau",
+#     "theindiestone-demo-demo": demo and sandbox boards. They answer with
+#     postings, so the content-gated rule below would take them, but the
+#     postings are not real openings.
+#
+# The 37 empty and 4 dead slugs stay here and are NOT registered. An empty board
+# is not a broken source, but it is not evidence of a live one either.
+#
+# The sections merged by "discovery/merge.py" carry "?" or an apply-URL guess
+# where the employer name should be; those names are still unverified even
+# though the slugs now are.
 #
 # Promotion rule, gated on content and not on status code: keep a slug whose
 # https://<slug>.teamtailor.com/jobs.json answers 200 with a JSON object
