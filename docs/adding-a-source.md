@@ -74,6 +74,35 @@ Two platforms need more than a status code to verify:
 Watch out for sandbox artifacts too: a board whose only posting is titled
 "Test UAT" or "Automationjob_dontdelete" is not a real board.
 
+Nor is a *load-test* board. Six staged Oracle Cloud slugs all pointed at
+`eubt.fa.us6.oraclecloud.com`, each reporting the same 78,431 requisitions —
+five times the largest real employer in that file. It is Oracle's own
+candidate-experience benchmark tenant: every requisition is titled
+`ZBEN_FRCE_Java_Developer` or `ZBEN_SVF_FRCE_Configuration_Manager` with a
+timestamp suffix, dating back years. Registering it would have made a synthetic
+load test the biggest employer this project covers. An implausibly large tenant
+is a reason to look at the titles, not a windfall.
+
+## A dead tenant does not always 404, and where it redirects matters
+
+Two platforms answer for a tenant that no longer exists in a way that is worse
+than a 404, because the crawl follows it:
+
+- **Personio** answers `HTTP 307` to `https://personio.com`, on both the `.de`
+  and `.com` hosts. The shared client follows redirects, so an adapter that does
+  not check where it landed parses the vendor's marketing site and reports
+  success. Worse, that host has no `servicePolicyFor` entry and is not grouped
+  under the `.jobs.personio.de` limiter key, so every dead tenant aims an
+  unpaced request at one host: **probing six dead tenants was enough to start
+  getting 429s from personio.com.** With 970 registered tenants, every future
+  death would have pointed there.
+- **BambooHR** answers `302` to its marketing homepage, so a dead slug surfaces
+  as a JSON decode error (`invalid character '<'`) rather than a 404.
+
+The general rule: compare the response's **final** URL host against the host you
+asked for before parsing anything. A redirect off the tenant's own host means
+"this tenant does not publish a feed", never "here is the feed".
+
 ## Beware ambiguous single-word slugs
 
 Slugs are first-come-first-served per platform, so a short name often belongs to a
