@@ -283,11 +283,12 @@ func successFactorsFacets(block string) []successFactorsFacet {
 
 // Facet labels are matched by substring, in the priority order given here.
 //
-// Which facet holds which fact is a per-tenant configuration choice: the
-// research behind this adapter found location under "Country - Career" on some
-// tenants and "Geographic Location" on others, and there is nothing in the feed
-// that says which convention a tenant follows. Matching on the label the tenant
-// chose to display is the only signal available.
+// Which facet holds which fact is a per-tenant configuration choice, and there is
+// nothing in the feed that says which convention a tenant follows: measured live
+// on 2026-07-28, CRH labels its geography "Country" and "State/Province/County",
+// Colgate labels it "Country", "State/Province" and "City", and Zurich labels it
+// "Country of Search". Matching on the label the tenant chose to display is the
+// only signal available.
 //
 // This is the least certain part of the adapter and it is deliberately the least
 // load-bearing: a label that matches nothing here leaves an enrichment field
@@ -298,12 +299,33 @@ var (
 	// locations: "Location Flexibility" is a remote/hybrid picklist and contains
 	// the word "location", so a plain substring search would file "Hybrid" as a
 	// city.
+	//
+	// Deliberately WITHOUT "work location", which is the trap this list cannot
+	// be the answer to. Colgate labels its remote/hybrid picklist "Work
+	// Location", but of the eight tenants measured on 2026-07-28 that carry a
+	// "... Location" label of that family, seven use it for real geography:
+	// Cornell publishes "Upper East Side", Schindler "Boston", Voith
+	// "Heidenheim, BW (DE)", Langan "Arlington, VA", Cincinnati "Main Campus".
+	// Excluding the label would have cost those seven their locations to fix one
+	// tenant. [successFactorsWorkplaceValue] handles Colgate by reading the
+	// value instead, which is where the two cases actually differ.
 	successFactorsWorkplaceLabels = []string{"work model", "workplace", "work arrangement", "location flexibility", "remote"}
 
+	// Ordered most-complete-first: a tenant that publishes both "Location" and
+	// "City" usually puts the fuller string in the former ("Ludwigshafen, DE"
+	// against "Ludwigshafen"), and 46 of the 739 live tenants publish a bare
+	// "Location" facet.
 	successFactorsLocationLabels = []string{"geographic location", "location", "city", "region", "state", "province", "country"}
 
-	successFactorsDepartmentLabels = []string{"job function", "function", "department", "job family", "job category", "career area"}
+	// "job area" is Zurich's label for what every other measured tenant calls a
+	// job function ("Claims", "Underwriting", "Information Technology"); five
+	// live tenants use it, and no measured tenant uses it for geography.
+	successFactorsDepartmentLabels = []string{"job function", "function", "department", "job family", "job category", "career area", "job area"}
 
+	// Deliberately without "job type": Zurich publishes a "Job Type" facet whose
+	// values are seniority levels ("Experienced", "Entry", "Graduate"), not
+	// employment types, so matching it would file a seniority as a contract
+	// shape on every posting that has one.
 	successFactorsEmploymentLabels = []string{"employment type", "employment status", "contract type", "work schedule", "employment"}
 )
 

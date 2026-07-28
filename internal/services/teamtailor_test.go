@@ -2,6 +2,7 @@ package services
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -582,4 +583,144 @@ func TestTeamtailorCompaniesComeFromTheCandidateFile(t *testing.T) {
 	}
 
 	test.Less(t, len(candidates), len(TeamtailorCompanies), test.Sprint("the registered list should stay a subset of the candidates"))
+}
+
+// TestTeamtailorReadsTheCapturedLiveBaseSalary covers the one enrichment field a
+// Teamtailor board actually populates. The body is
+// https://leaseweb.teamtailor.com/jobs.json as captured on 2026-07-28, trimmed
+// to three items and with content_html replaced; every _jobposting field is the
+// board's own.
+//
+// Measured on 2026-07-28 across 16,759 live postings from 1,033 tenants:
+// baseSalary is present on 2,315 of them (13.8%), while employmentType,
+// jobLocationType and occupationalCategory are present on none. Missing it was
+// therefore throwing away the entire structured-pay yield of the platform.
+//
+// The shape agreed across all 69 paying postings sampled from 61 tenants: a
+// schema.org MonetaryAmount whose "value" is always a nested QuantitativeValue —
+// never a scalar — carrying either minValue/maxValue or a single value, always
+// spelled as JSON strings. Both spellings appear here.
+func TestTeamtailorReadsTheCapturedLiveBaseSalary(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"leaseweb.teamtailor.com/jobs.json": teamtailorFixture(t, "teamtailor_leaseweb_jobs.json"),
+	})
+
+	postings, errs := drain(Teamtailor(t.Context(), client, "leaseweb"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 3, postings)
+
+	ranged, single, none := postings[0], postings[1], postings[2]
+
+	// A range, published as minValue/maxValue strings.
+	must.NotNil(t, ranged.Compensation)
+	test.Eq(t, 61220.0, ranged.Compensation.Min)
+	test.Eq(t, 90000.0, ranged.Compensation.Max)
+	test.Eq(t, "EUR", ranged.Compensation.Currency)
+	test.Eq(t, internal.PeriodYear, ranged.Compensation.Period)
+
+	// This is a dedicated field an employer filled in on the board, so it
+	// outranks anything recoverable from prose and must never be blended with
+	// it.
+	test.Eq(t, internal.ProvenanceEmployer, ranged.Compensation.Provenance)
+
+	// A single figure is a point, not a floor: it fills both ends so a --max-pay
+	// query cannot miss it.
+	must.NotNil(t, single.Compensation)
+	test.Eq(t, 84000.0, single.Compensation.Min)
+	test.Eq(t, 84000.0, single.Compensation.Max)
+	test.Eq(t, "CAD", single.Compensation.Currency)
+
+	// The overwhelming majority of live postings publish no baseSalary, and they
+	// must carry no compensation rather than an empty one, or --has-pay would
+	// match every posting on the platform.
+	test.Nil(t, none.Compensation)
+}
+
+// TestTeamtailorCompensationRejectsFiguresItCannotUse states the rules that keep
+// a malformed or half-filled salary object from becoming a pay range.
+func TestTeamtailorCompensationRejectsFiguresItCannotUse(t *testing.T) {
+	t.Parallel()
+
+	t.Run("absent", func(t *testing.T) {
+		t.Parallel()
+
+		test.Nil(t, teamtailorCompensation(nil))
+	})
+
+	t.Run("currency with no figures", func(t *testing.T) {
+		t.Parallel()
+
+		// Measured live: 8 of 69 paying postings carried a null currency and 2 an
+		// empty string, so a currency alone says nothing about pay.
+		test.Nil(t, teamtailorCompensation(&teamtailorSalary{
+			Currency: "EUR",
+			Value:    teamtailorQuantity{UnitText: "YEAR"},
+		}))
+	})
+
+	t.Run("zero and negative figures", func(t *testing.T) {
+		t.Parallel()
+
+		test.Nil(t, teamtailorCompensation(&teamtailorSalary{
+			Value: teamtailorQuantity{MinValue: "0", MaxValue: "-1"},
+		}))
+	})
+
+	t.Run("figures with no currency are still a range", func(t *testing.T) {
+		t.Parallel()
+
+		got := teamtailorCompensation(&teamtailorSalary{
+			Value: teamtailorQuantity{UnitText: "MONTH", MinValue: "4000", MaxValue: "5000"},
+		})
+
+		must.NotNil(t, got)
+		test.Eq(t, "", got.Currency)
+		test.Eq(t, internal.PeriodMonth, got.Period)
+		test.Eq(t, 4000.0, got.Min)
+	})
+
+	t.Run("a currency that is not a code is dropped", func(t *testing.T) {
+		t.Parallel()
+
+		got := teamtailorCompensation(&teamtailorSalary{
+			Currency: "euros",
+			Value:    teamtailorQuantity{UnitText: "HOUR", Value: "38"},
+		})
+
+		must.NotNil(t, got)
+		test.Eq(t, "", got.Currency)
+		test.Eq(t, internal.PeriodHour, got.Period)
+	})
+
+	t.Run("an unknown period falls back to inference", func(t *testing.T) {
+		t.Parallel()
+
+		got := teamtailorCompensation(&teamtailorSalary{
+			Value: teamtailorQuantity{UnitText: "FORTNIGHT", MinValue: "150000"},
+		})
+
+		must.NotNil(t, got)
+		test.Eq(t, internal.PeriodUnknown, got.Period)
+	})
+
+	t.Run("a number rather than a string", func(t *testing.T) {
+		t.Parallel()
+
+		// Live tenants spell these as strings, but schema.org permits numbers and
+		// [teamtailorText] is what keeps a tenant that switches readable.
+		var salary teamtailorSalary
+
+		must.NoError(t, json.Unmarshal([]byte(`{"currency":"usd","value":{"unitText":"year","minValue":150000,"maxValue":200000}}`), &salary))
+
+		got := teamtailorCompensation(&salary)
+
+		must.NotNil(t, got)
+		test.Eq(t, 150000.0, got.Min)
+		test.Eq(t, 200000.0, got.Max)
+		test.Eq(t, "USD", got.Currency)
+		test.Eq(t, internal.PeriodYear, got.Period)
+	})
 }

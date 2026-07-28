@@ -505,3 +505,133 @@ func TestSuccessFactorsTenantsComeFromTheCandidateFile(t *testing.T) {
 	// is supposed to mean a real platform broke.
 	test.Less(t, len(candidates), len(SuccessFactorsTenants), test.Sprint("the registered list should stay a subset of the candidates"))
 }
+
+// successFactorsFixture reads a captured live tenant feed from testdata.
+//
+// The bodies these serve are real SAP RMK responses, downloaded on 2026-07-28
+// and edited in exactly one way: each <Job-Description> was replaced with a
+// placeholder, because the real ones run to tens of kilobytes of HTML apiece and
+// carry nothing these tests assert on. Every element name, facet label, entity
+// and malformed tag is the tenant's own.
+func successFactorsFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	must.NoError(t, err)
+
+	return string(body)
+}
+
+// TestSuccessFactorsReadsACapturedLiveFeed is the test that decides whether this
+// adapter reads SAP RMK, as opposed to reading the shape a document said RMK
+// has. The body is Colgate-Palmolive's feed from career4.successfactors.com,
+// captured on 2026-07-28.
+//
+// It pins two things the hand-written fixture above could not, both measured
+// rather than reasoned about:
+//
+//   - The "<>...</>" empty tag is real, and it is not decoration. Colgate emits
+//     one per <Job>; so does Zurich. Go's encoding/xml stops at the first with
+//     "expected element name after <", so a tenant whose feed contains one would
+//     yield zero postings — which is why this adapter scans instead of parsing.
+//     Of the three tenants captured, only CRH's feed is well-formed XML.
+//   - Colgate's remote/hybrid picklist is labelled "Work Location", and the
+//     substring "location" used to make it beat the tenant's real "City" facet:
+//     307 of 336 live postings were published with a location of "Hybrid",
+//     "On-site" or "Remote" while the city sat unread. Crawling the fixed
+//     adapter against the live feed returns cities, and the same facet now
+//     supplies the workplace type it always described.
+func TestSuccessFactorsReadsACapturedLiveFeed(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"career4.successfactors.com": successFactorsFixture(t, "successfactors_colgate_jobs.xml"),
+	})
+
+	postings, errs := drain(SuccessFactors(t.Context(), client, "colgate,colgate,career4.successfactors.com"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	analyst, assistant := postings[0], postings[1]
+
+	test.Eq(t, "Advanced Analytics - Retail", analyst.Title)
+	test.Eq(t,
+		"https://career4.successfactors.com/career?company=colgate&career_job_req_id=173126&career_ns=job_application",
+		analyst.URL,
+	)
+
+	// The city, not the "Work Location" picklist that also contains "location".
+	test.Eq(t, "Overland Park", analyst.Location)
+	test.Eq(t, internal.WorkplaceTypeHybrid, analyst.WorkplaceType)
+
+	// Colgate configures no job-function facet at all, so this stays empty
+	// rather than being filled from whichever facet happened to be nearby.
+	test.Eq(t, "", analyst.Department)
+
+	// This tenant publishes no <Posted-Date>; neither does Zurich. Only CRH of
+	// the three captured does, so an absent date is normal here.
+	test.True(t, analyst.PostedAt.IsZero())
+
+	// The second posting leaves "Work Location" configured but empty, which is
+	// what an unset facet looks like. It must not become a workplace type, and
+	// must not stop the city being read.
+	test.Eq(t, "Emporia", assistant.Location)
+	test.Eq(t, internal.WorkplaceTypeUnknown, assistant.WorkplaceType)
+}
+
+// TestSuccessFactorsReadsATenantThatNamesItsDepartmentsJobArea covers the second
+// label correction the live captures forced, using Zurich Insurance's feed from
+// career2.successfactors.eu as captured on 2026-07-28.
+//
+// Zurich calls its job-function facet "Job Area", which matched nothing in
+// [successFactorsDepartmentLabels], so all 530 of its live postings arrived with
+// no department while the values sat in the feed. It also demonstrates why "job
+// type" is deliberately absent from [successFactorsEmploymentLabels]: Zurich has
+// a "Job Type" facet whose values are seniority levels, so reading it as an
+// employment type would file "Experienced" as a contract shape.
+func TestSuccessFactorsReadsATenantThatNamesItsDepartmentsJobArea(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"career2.successfactors.eu": successFactorsFixture(t, "successfactors_zurich_jobs.xml"),
+	})
+
+	postings, errs := drain(SuccessFactors(t.Context(), client, "zurich,SF2013,career2.successfactors.eu"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	// "&amp;" outside CDATA is a real encoding and is decoded; the same
+	// ampersand inside CDATA in the Colgate fixture above is not.
+	test.Eq(t, "Sales & Distribution", postings[0].Department)
+	test.Eq(t, "Underwriting", postings[1].Department)
+
+	// "Country of Search" is the only geography Zurich publishes.
+	test.Eq(t, "Hong Kong", postings[0].Location)
+
+	// "Experienced" is a seniority, and it must not have become an employment
+	// type or a workplace type.
+	test.Eq(t, internal.EmploymentTypeUnknown, postings[0].EmploymentType)
+	test.Eq(t, internal.WorkplaceTypeUnknown, postings[0].WorkplaceType)
+}
+
+// TestSuccessFactorsPrefersACityToAWorkplacePicklist states the ordering rule
+// directly, so a future edit to the label lists that reintroduces the Colgate
+// bug fails here with the reason rather than only in a fixture.
+//
+// The generic word "location" is a substring of every "... Location" label a
+// tenant might invent, so it is last in [successFactorsLocationLabels] and every
+// specific geography word is tried first.
+func TestSuccessFactorsPrefersACityToAWorkplacePicklist(t *testing.T) {
+	t.Parallel()
+
+	facets := []successFactorsFacet{
+		{label: "work location", value: "Hybrid"},
+		{label: "city", value: "Overland Park"},
+		{label: "country", value: "United States"},
+	}
+
+	test.Eq(t, "Overland Park", successFactorsFacetValue(facets, successFactorsLocationLabels, successFactorsWorkplaceLabels))
+	test.Eq(t, "Hybrid", successFactorsFacetValue(facets, successFactorsWorkplaceLabels, nil))
+}
