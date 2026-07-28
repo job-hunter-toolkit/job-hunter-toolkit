@@ -1,0 +1,131 @@
+# ============================================================================
+# Oracle Taleo career sections, one `host,section,portal` triple per line.
+#
+# NOTHING HERE IS REGISTERED, AND THERE IS NO taleo.go. This file exists to
+# record a measured negative so the next person starts from the measurement
+# rather than from docs/source-backlog.md's one-line "still missing".
+#
+# ---------------------------------------------------------------------------
+# WHAT WORKS
+# ---------------------------------------------------------------------------
+#
+# The keyless JSON endpoint docs/research/ats-platform-survey.md describes is
+# real, and it answered on 2026-07-28:
+#
+#   POST https://{host}/careersection/rest/jobboard/searchjobs?lang=en&portal={portal}
+#   headers: Content-Type: application/json, tz: GMT+00:00, tzname: UTC
+#   body:    {"multilineEnabled":false,
+#             "sortingSelection":{"sortBySelectionParam":"3","ascendingSortingOrder":"false"},
+#             "fieldData":{"fields":{"KEYWORD":"","LOCATION":""},"valid":true},
+#             "filterSelectionParam":{"searchFilterSelections":[]},
+#             "advancedSearchFiltersSelectionParam":{"searchFilterSelections":[]},
+#             "pageNo":1,"pageSize":1000}
+#   ->       {"requisitionList":[...],"pagingData":{"currentPageNo":1,
+#             "pageSize":1000,"totalCount":402},"careerSectionUnAvailable":false}
+#
+# Three details the survey does not have, all measured:
+#
+#   * `portal` is mandatory. Omitting it, or sending a wrong one, answers
+#     HTTP 200 with {"requisitionList":null,...,"careerSectionUnAvailable":true}
+#     -- a live-looking 200 for a board you cannot read.
+#   * `currentPageNo` and `currentRecordCount` in the body, which the survey's
+#     example includes, are REJECTED: the server answers HTTP 400 with the body
+#     "An Error Occurred in TEE". Only `pageNo` and `pageSize` are accepted.
+#   * the per-posting `column` array is positional and its layout is per tenant
+#     -- molgroup emits [title, locations, date] and baesystems emits [title]
+#     alone -- but the response says which is which: `linkedColumn` is the index
+#     of the title and `locationsColumns` is the list of location indices. An
+#     adapter does not have to guess.
+#
+# ---------------------------------------------------------------------------
+# WHY IT IS NOT REGISTERED: THE SAME REQUEST RETURNS A DIFFERENT BOARD
+# ---------------------------------------------------------------------------
+#
+# Eight byte-identical requests per tenant, 1.5s apart, pageSize 1000:
+#
+#   host                  totalCount   items returned per request        union
+#   molgroup.taleo.net    402          312 x8                            312
+#   baesystems.taleo.net  183          164,25,25,164,164,164,164,164     164
+#   stantec.taleo.net     184          127,100,127,100,127,100,100,127   127
+#   wsp.taleo.net         205          100,100,175,100,100,175,175,175   175
+#
+# Each short response is a strict PREFIX of the long one -- verified on
+# molgroup, where a 16-item response was the first 16 items of the 91-item
+# response for the same request -- and each is well-formed JSON, so this is the
+# server truncating the list, not a transport cutting the stream. The truncation
+# lands on round numbers (25, 100) that look like a career section's own
+# configured page size, so the likeliest explanation is a load-balanced pair of
+# app nodes that disagree about whether the requested pageSize applies.
+#
+# Consequence for this project: a Taleo source would report 25 postings one
+# night and 164 the next for a board that did not change. That is the failure
+# mode this codebase cares about most -- a source that quietly reports a
+# fraction -- and it is worse than not having the platform, because the number
+# looks fine.
+#
+# Paging around it does not help. Walking molgroup with pageNo=1..N returned
+# 91,100,96,25 at pageSize=100 (312 unique) and 91,25,96,25 at pageSize=25 (187
+# unique) in two walks minutes apart: pages 2 and 4 changed size between walks,
+# so a pageNo walk skips postings whenever the server's idea of a page differs
+# from the client's.
+#
+# And even the best answer is short. molgroup's union of 312 is 22% below its
+# own totalCount of 402, and the gap is NOT multi-location rows: expanding every
+# requisition's locationsColumns gives 312 requisition-location rows, the same
+# number.
+#
+# ---------------------------------------------------------------------------
+# THE OTHER BLOCKER: DISCOVERY
+# ---------------------------------------------------------------------------
+#
+# There is no published Taleo tenant list of the kind that exists for iCIMS and
+# Avature, and both halves of a tenant key have to be discovered:
+#
+#   * the host. A DNS sweep of 8,010 company names already in this registry
+#     against {name}.taleo.net returned 27 hits (nonexistent names fail DNS, so
+#     there is no wildcard inflating that). Common Crawl reportedly sees ~286
+#     tenants per snapshot, so a name sweep finds under 10% of the platform.
+#   * the portal id. It is a per-tenant number that is not in any URL a person
+#     would have. It CAN be read off the career section page -- it is in
+#     `queryString: 'lang=en&portal=NNNN'` inside the
+#     fs/FacetedSearchSettings require config on
+#     https://{host}/careersection/{section}/jobsearch.ftl?lang=en -- but the
+#     section name is itself per tenant and not guessable. Probing 29 hosts
+#     against 31 candidate section names found a portal for 4.
+#
+# Two portal ids recur across unrelated tenants (101430233 serves baesystems,
+# stantec and wsp), which suggests a shared default worth trying before probing
+# section names, but it is not universal: it answers careerSectionUnAvailable
+# for att, axa, hilton, kp, munichre, tenet and westpac.
+#
+# Kaiser Permanente, the employer docs/source-backlog.md names for this
+# platform, is no longer reachable this way. kp.taleo.net exists, but
+# /careersection/external/jobsearch.ftl 302s to mysubmissions.ftl (a login wall)
+# and publishes no portal id, and every portal tried answers
+# careerSectionUnAvailable. Their public board is now www.kaiserpermanentejobs.org.
+#
+# ---------------------------------------------------------------------------
+# WHAT WOULD CHANGE THE ANSWER
+# ---------------------------------------------------------------------------
+#
+# Re-run the eight-identical-requests measurement above. If a tenant returns the
+# same count eight times AND that count equals totalCount, this endpoint has
+# become trustworthy for that tenant and the adapter is a short one: single
+# request, pageSize above totalCount, decode `column` through `linkedColumn` and
+# `locationsColumns`, posting URL
+# https://{host}/careersection/{section}/jobdetail.ftl?job={jobId}&lang=en.
+# molgroup was stable across all eight, so this may be per tenant rather than
+# platform-wide -- the same shape #35 found for Eightfold's authorization wall.
+#
+# Pacing when it lands: *.taleo.net is one vendor backend, so it wants a shared
+# limiter key like *.icims.com, not a per-tenant one.
+#
+# Format below: host,section,portal  # measured
+# ============================================================================
+molgroup.taleo.net,external,8205100397    # MOL Group. totalCount 402, stable union 312, 8/8 identical responses
+baesystems.taleo.net,2,101430233          # BAE Systems. totalCount 183, union 164, responses alternate 25/164
+stantec.taleo.net,,101430233              # Stantec. totalCount 184, union 127, responses alternate 100/127. Section name not found; portal works without one
+wsp.taleo.net,us,101430233                # WSP. totalCount 205, union 175, responses alternate 100/175
+ttec.taleo.net,2,160131726                # TTEC. totalCount 111, returned 25 on 3 of 3 requests
+westpac.taleo.net,2,160140091             # Westpac. totalCount 3, returned 0 postings on 3 of 3 requests
+jacobs.taleo.net,ex,101430233             # Jacobs. Answers, totalCount 0. Not evidence of anything either way
