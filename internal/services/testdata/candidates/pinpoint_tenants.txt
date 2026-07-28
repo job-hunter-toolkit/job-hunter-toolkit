@@ -1,31 +1,43 @@
 # ============================================================================
-# CANDIDATES, NOT SOURCES. Nothing in this file is crawled.
+# PROBED 2026-07-28. 117 of these 119 slugs are now registered sources.
 #
 # These 119 Pinpoint tenant slugs were recovered by a research pass in a
-# container with no outbound access to job boards, so not one of them was probed
-# by this project. docs/adding-a-source.md is explicit that a slug nobody has
-# verified must not be registered, and at this project's fan-out a dead tenant is
-# not free: it burns a request every crawl, reports as a failing source, and
-# enough of them together trip the Source Health workflow's 35%-failure alarm,
-# which is the signal that is supposed to mean a real platform broke.
+# container with no outbound access to job boards. Every one of them has since
+# been probed live, one at a time, against
+# https://<slug>.pinpointhq.com/postings.json under the same shared-backend
+# pacing internal/httpx applies to *.pinpointhq.com.
 #
-# 34 slugs are registered in internal/services/pinpoint.go as
-# PinpointCompanies: 33 from this file's two hand-curated batches, plus
-# "surrealdb", whose provenance is this repository's own docs/source-backlog.md
-# rather than this file. The rest are staged here until a CI job — the only
-# place in this project with real network access — can probe them. The section
-# merged by "discovery/merge.py" carries "?" where the employer name should be;
-# none of those is registered.
+# Result, measured and not estimated:
+#
+#   ok    117   200 + non-empty "data" + top-level "title"/"url"   6,406 postings
+#   empty   2   200 + "data": []      chancetoshine, savannainstitute
+#   dead    0   nothing 404'd, nothing failed to resolve
+#
+# All 117 "ok" slugs are registered in internal/services/pinpoint.go as
+# PinpointCompanies, alongside "surrealdb", whose provenance is this
+# repository's own docs/source-backlog.md rather than this file and which
+# answered with an empty board. The two empty slugs above are NOT registered:
+# docs/adding-a-source.md is explicit that an empty board is not a broken one,
+# but an empty board is also not evidence that a slug is live.
+#
+# The upstream curator's annotated counts undercount badly and should not be
+# used for crawl-budget planning: "trilongroup" is annotated "~18" and answered
+# with 957 postings, "mountainwarehouse" "~6" against 191. The measured total is
+# about 55 postings per HTTP request, which is the highest of any lane in this
+# wave.
 #
 # Promotion rule, gated on content and not on status code: keep a slug whose
 # https://<slug>.pinpointhq.com/postings.json answers 200 with a JSON object
 # carrying a "data" array of length above zero, and whose postings carry a
 # "title" and a "url" at the top level of each element rather than nested under
 # an "attributes" object — that nesting would mean the feed had moved to a
-# JSON:API envelope, which the adapter does not read.
+# JSON:API envelope, which the adapter does not read. No tenant sent that
+# envelope; the flat shape is what the platform serves today.
 #
-# The verification claims and posting counts below are the upstream curator's,
-# dated as annotated. They are recorded as provenance, not endorsed.
+# The employer names and counts on the rows below are the upstream curator's,
+# dated as annotated. They are recorded as provenance, not endorsed, and the
+# rows are left verbatim — the live results are recorded here in the header
+# rather than by editing them.
 # ============================================================================
 #
 # Pinpoint (pinpointhq.com) tenant slugs -- one per line (# = comment, inline OK).

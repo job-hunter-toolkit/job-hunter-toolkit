@@ -1,8 +1,13 @@
 package services
 
 import (
+	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +134,139 @@ func TestPersonioParsesFeed(t *testing.T) {
 	// tell a wrong answer from a right one, so it stays empty.
 	test.Eq(t, internal.EmploymentTypeUnknown, support.EmploymentType)
 	test.True(t, support.PostedAt.IsZero())
+}
+
+// personioFixture reads a feed captured from a live Personio career site.
+//
+// The capture under testdata is what the board answered with each position's
+// <jobDescriptions> block removed — the entire posting body in entity-encoded
+// HTML, which this adapter deliberately does not decode. Every other element,
+// and every value, is the board's own.
+func personioFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	must.NoError(t, err)
+
+	return string(body)
+}
+
+// TestPersonioParsesACapturedLiveFeed is the fixture that decides whether this
+// adapter reads Personio, as opposed to reading the shape a document said
+// Personio has. The body is https://rtc-rath-gmbh.jobs.personio.de/xml?language=en
+// as captured on 2026-07-28.
+//
+// What the capture establishes, and what the hand-written fixture above cannot:
+//
+//   - <salaryInformation> exists. docs/research/ats-platform-survey.md does not
+//     mention it and this adapter shipped publishing no pay for Personio at all.
+//     It carries min, an optional max, a currencySymbol, an ISO currencyCode and
+//     a "type", and appears on 1,192 of the 11,938 live positions measured
+//     across the platform — 981 with both bounds and 211, like the two here,
+//     with only a minimum.
+//   - the bounds are decimal STRINGS ("18.50"), not XML numbers.
+//   - "type" is adverbial: "hourly", "monthly", "yearly". An hourly rate of
+//     18.50 would have been inferred correctly by magnitude, but 334 live
+//     positions are monthly and every one of those would have been republished
+//     as an annual salary.
+//   - <office>Remote</office> is a real live value, and it stays location text.
+//     [internal.NormalizeWorkplaceType] must not be fed it, which is why this
+//     platform leaves WorkplaceType unknown and Remote nil and lets
+//     [internal.JobPosting.IsRemote]'s heuristic run on the location string.
+//   - the feed also carries subcompany, keywords, yearsOfExperience, occupation
+//     and occupationCategory, none of which [internal.JobPosting] has a home for.
+func TestPersonioParsesACapturedLiveFeed(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"rtc-rath-gmbh.jobs.personio.de/xml": personioFixture(t, "personio_rtc_rath_positions.xml"),
+	})
+
+	postings, errs := drain(Personio(t.Context(), client, "rtc-rath-gmbh"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 4, postings)
+
+	lead := postings[0]
+
+	test.Eq(t, "rtc-rath-gmbh", lead.Company)
+	test.Eq(t, "(Senior) Projektsteuerer Bahnbau (m/w/d)", lead.Title)
+	test.Eq(t, "https://rtc-rath-gmbh.jobs.personio.de/job/2483204", lead.URL)
+	test.Eq(t, "Project Engineering", lead.Department)
+	test.Eq(t, "Festangestellte (Projekte)", lead.Team)
+	test.Eq(t, "experienced", lead.Seniority)
+	test.Eq(t, "2026-01-11T20:04:28Z", lead.PostedAt.Format(time.RFC3339))
+
+	// "permanent" is not an engagement, so the schedule decides.
+	test.Eq(t, internal.EmploymentTypeFullTime, lead.EmploymentType)
+
+	// An office literally named "Remote" is location text and nothing more.
+	test.Eq(t, "Remote", lead.Location)
+	test.Eq(t, internal.WorkplaceTypeUnknown, lead.WorkplaceType)
+	test.Nil(t, lead.Remote)
+
+	// Most positions publish no pay, and that must stay nil rather than becoming
+	// an empty range.
+	test.Nil(t, lead.Compensation)
+
+	helper := postings[1]
+
+	// additionalOffices are joined onto the primary one.
+	test.Eq(t, "Koblenz; Frankfurt am Main; Bonn", helper.Location)
+	test.Eq(t, internal.EmploymentTypeTemporary, helper.EmploymentType)
+
+	must.NotNil(t, helper.Compensation)
+	test.Eq(t, 18.50, helper.Compensation.Min)
+	test.Eq(t, 0.0, helper.Compensation.Max)
+	test.Eq(t, "EUR", helper.Compensation.Currency)
+	test.Eq(t, internal.PeriodHour, helper.Compensation.Period)
+	test.Eq(t, internal.ProvenanceEmployer, helper.Compensation.Provenance)
+}
+
+// personioRedirectTransport answers every request with a 200 that was served
+// from a different URL, which is what [http.Client] leaves behind on
+// Response.Request after following a redirect.
+type personioRedirectTransport struct {
+	to string
+}
+
+func (p personioRedirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	final := req.Clone(req.Context())
+
+	target, err := url.Parse(p.to)
+	if err != nil {
+		return nil, err
+	}
+
+	final.URL = target
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     http.StatusText(http.StatusOK),
+		Header:     http.Header{"Content-Type": []string{"text/html"}},
+		Body:       io.NopCloser(strings.NewReader("<html><body>Personio</body></html>")),
+		Request:    final,
+	}, nil
+}
+
+// TestPersonioReportsARedirectOffTheTenantHost pins the shape a dead Personio
+// tenant actually has. It does not 404: it answers HTTP 307 to
+// https://personio.com, on .de and .com alike, and the shared client follows
+// redirects — so without this check the crawl fetches the vendor's marketing
+// page, on a host internal/httpx has no rate-limit policy for. Six of the 999
+// candidates probed on 2026-07-28 were dead this way, and probing only those six
+// was enough to make personio.com start answering 429.
+func TestPersonioReportsARedirectOffTheTenantHost(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{Transport: personioRedirectTransport{to: "https://personio.com/"}}
+
+	postings, errs := drain(Personio(t.Context(), client, "gone"))
+
+	test.SliceEmpty(t, postings)
+	must.Len(t, 1, errs)
+	must.StrContains(t, errs[0].Error(), "gone")
+	must.StrContains(t, errs[0].Error(), "does not publish a feed")
 }
 
 // TestPersonioToleratesMarkupThatIsNotStrictXML is a regression guard for the

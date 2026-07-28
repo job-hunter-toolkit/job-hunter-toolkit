@@ -1,34 +1,48 @@
 # ============================================================================
-# CANDIDATES, NOT SOURCES. Nothing in this file is crawled.
+# PROBED 2026-07-28. 489 of these 507 slugs are now registered sources.
 #
 # These 507 Recruitee career-site subdomains were recovered by a research pass
-# in a container with no outbound access to job boards, so not one of them was
-# probed by this project. docs/adding-a-source.md is explicit that a slug nobody
-# has verified must not be registered, and at this project's fan-out a dead
-# tenant is not free: it burns a request every crawl, reports as a failing
-# source, and enough of them together trip the Source Health workflow's
-# 35%-failure alarm, which is the signal that is supposed to mean a real
-# platform broke.
+# in a container with no outbound access to job boards. Every one has since been
+# probed live at https://<slug>.recruitee.com/api/offers/, under the shared
+# limiter key internal/httpx gives *.recruitee.com.
 #
-# 35 slugs from this file's hand-curated head are registered in
-# internal/services/recruitee.go as RecruiteeCompanies. The rest are staged here
-# until a CI job — the only place in this project with real network access — can
-# probe them. The sections merged by "discovery/merge.py" carry "?" or an
-# apply-URL guess where the employer name should be; none of those is
-# registered.
+# Result, measured and not estimated:
+#
+#   ok    489   200 + non-empty "offers"                     9,832 postings
+#   empty  13   200 + "offers": []
+#   dead    5   HTTP 404
+#
+# The 489 "ok" slugs are registered in internal/services/recruitee.go, together
+# with three previously-registered slugs that answered empty ("1x", "aihr",
+# "wallarm") — docs/adding-a-source.md is explicit that a company not hiring
+# today is not a broken source. The other ten empty slugs are NOT registered:
+# empty is not evidence that a board is live.
+#
+#   empty:  1x aihr vervegroup wallarm vlisco sympower tlrbv cticc motena
+#           idegogroup safesize reiztech virtualresource
+#   dead:   careermentors openclassrooms incentro luminis agicap
+#
+# "openclassrooms" and "incentro" were registered before this probe and have
+# been REMOVED from RecruiteeCompanies. They were the platform's entire failure
+# count in a live health check; both boards are simply gone.
 #
 # Promotion rule, gated on content and not on status code: keep a slug whose
 # https://<slug>.recruitee.com/api/offers/ answers 200 with a JSON object
 # carrying an "offers" array of length above zero.
 #
-# Watch for the ambiguous-slug trap docs/adding-a-source.md documents: this file
-# claims tenants named "zara", "make", "grid", "summit" and "parent", and a
-# single-word slug on a self-service ATS usually belongs to somebody other than
-# the famous holder of the name. Check a couple of job titles before believing
-# an identity.
+# The ambiguous-slug trap docs/adding-a-source.md documents is now settled by
+# measurement rather than suspicion. Each of these answered with a
+# "company_name" of its own: grid = "GRID eSports GmbH" (not the famous Grid),
+# summit = "Summit Media 2.0 Ltd", parent = "Parent ApS" (publishing on
+# carrers.parent.cloud), make = "Make", strata = "Strata", intent = "intent",
+# and zara really is Inditex's Zara, whose reqs are Spanish-language retail
+# roles. Registering a slug asserts no identity in any case: the crawl records
+# the slug as the company and the board's own careers_url as the link.
 #
-# The verification claims and posting counts below are the upstream curator's,
-# dated as annotated. They are recorded as provenance, not endorsed.
+# The employer names and counts on the rows below are the upstream curator's,
+# dated as annotated. They are recorded as provenance, not endorsed, and the
+# rows are left verbatim — the live results are recorded in this header rather
+# than by editing them.
 # ============================================================================
 #
 # Recruitee company subdomains to poll (one per line, # = comment).

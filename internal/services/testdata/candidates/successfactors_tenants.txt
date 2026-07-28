@@ -2,18 +2,39 @@
 # CANDIDATES, NOT SOURCES. Nothing in this file is crawled.
 #
 # These 744 SAP SuccessFactors RMK triples were recovered by a research pass in
-# a container with no outbound access to job boards, so not one of them was
-# probed by this project. docs/adding-a-source.md is explicit that a slug nobody
-# has verified must not be registered, and at this project's fan-out a dead
-# tenant is not free: it burns a request every crawl, reports as a failing
-# source, and enough of them together trip the Source Health workflow's
-# 35%-failure alarm, which is the signal that is supposed to mean a real
-# platform broke.
+# a container with no outbound access to job boards.
 #
-# The 30 highest-volume triples from this file's hand-curated head are
-# registered in internal/services/successfactors.go as
-# SuccessFactorsTenants. The rest are staged here until a CI job — the only
-# place in this project with real network access — can probe them.
+# ALL 744 WERE PROBED LIVE ON 2026-07-28, and the result is:
+#
+#     739  ok     <Job-Listing> root with a non-zero <Job> count
+#       3  empty  a 69-byte body (evs, mfat, progreso)
+#       2  error  connection failed (cintas, colgateqa)
+#
+# The 739 carried 106,307 postings between them — one request per employer, no
+# pagination, ~144 postings per request. The cost is bytes, not requests: those
+# 739 feeds total 0.99 GB, mean 1.34 MB, max 27.1 MB (crh).
+#
+# 717 of the 739 are now registered in internal/services/successfactors.go as
+# SuccessFactorsTenants. Held back, with the reason:
+#
+#   - 16 tenants on career{N}.sapsf.com and career-hcm20.ns2cloud.com (5,685
+#     postings: chobani, entergy, gerdau, gxo, klabin, kodak, l3harris, lg,
+#     quiktrip, seagate, smud, technipfmc, teradyne, ulalaunch, utbattellep,
+#     vacco). Those hosts are live and answer, but internal/httpx has no
+#     rate-limit policy for either suffix, so their requests would be unpaced.
+#     They are ready to promote as soon as httpx covers those two suffixes.
+#     NOTE this corrects the header below: the host is NOT always
+#     career{N}.successfactors.{com|eu}.
+#   - 5 whose slug is already a registered company on another platform
+#     (bechtel, cornell, farmersinsurance, msd, pwc). The same employer crawled
+#     through two ATSs contributes its postings twice.
+#   - 1 whose slug is a bare number ("160100", which is Southco). The slug is
+#     the user-facing company name, and this file is the source of truth for it,
+#     so the line needs correcting before it can be promoted.
+#
+# Two hazards from the platform notes, checked live and both REAL: 220 of the
+# 739 feeds contain the malformed empty "<>...</>" tag and cannot be read with
+# encoding/xml at all, and merge tokens such as "[[id]]" do arrive literally.
 #
 # Promotion rule, gated on content and not on status code: keep a triple whose
 # feed answers 200 with an XML declaration, a <Job-Listing> root and a <Job>

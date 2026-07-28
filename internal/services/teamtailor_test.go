@@ -2,6 +2,7 @@ package services
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -92,11 +93,129 @@ func (tr *teamtailorPageTransport) RoundTrip(req *http.Request) (*http.Response,
 	}, nil
 }
 
+// teamtailorFixture reads a response captured from a live Teamtailor board.
+//
+// The captures under testdata are byte-for-byte what the board answered, minus
+// each item's content_html and its schema.org description — together roughly
+// 95% of the bytes, and neither is decoded by this adapter. Nothing else about
+// them was edited, so a test asserting against one is asserting against what
+// Teamtailor actually sends.
+func teamtailorFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	must.NoError(t, err)
+
+	return string(body)
+}
+
+// TestTeamtailorParsesACapturedLiveFeed is the fixture that decides whether this
+// adapter reads Teamtailor, as opposed to reading the shape a document said
+// Teamtailor has. The body is https://tibber.teamtailor.com/jobs.json as
+// captured on 2026-07-28.
+//
+// What the capture establishes, and what the hand-written fixture below cannot:
+//
+//   - identifier arrives as a schema.org PropertyValue whose "name" is the
+//     COMPANY and whose "value" is the posting id. Preferring "name" would give
+//     every posting on a board the same ExternalID and collapse the board to one
+//     row in [internal.Dedupe]. Live-crawling chalhoubgroup returned 158
+//     postings with 158 distinct ids, so the preference order is right.
+//   - "value" is a bare JSON number, not a string.
+//   - the item carries no date_modified, so UpdatedAt is the zero time.
+//   - addressRegion holds a country name ("Stockholm" here, "United Arab
+//     Emirates" on other boards) rather than a subdivision code.
+//
+// And what it establishes by omission: across 619 live tenants probed on
+// 2026-07-28, not one item carried employmentType, jobLocationType or
+// occupationalCategory — every single one carried jobLocation and nothing else
+// optional. Those three fields are still decoded, because schema.org permits
+// them and a tenant may start sending them, but this test pins the measured
+// reality that today they are absent, which is why a Teamtailor posting has no
+// employment type, no department, and a nil Remote that leaves
+// [internal.JobPosting.IsRemote]'s location-text fallback in charge.
+func TestTeamtailorParsesACapturedLiveFeed(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"tibber.teamtailor.com/jobs.json": teamtailorFixture(t, "teamtailor_tibber_jobs.json"),
+	})
+
+	postings, errs := drain(Teamtailor(t.Context(), client, "tibber"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	first := postings[0]
+
+	test.Eq(t, "tibber", first.Company)
+	test.Eq(t, "CRM Specialist", first.Title)
+	test.Eq(t, "https://tibber.teamtailor.com/jobs/7964779-crm-specialist", first.URL)
+	test.Eq(t, "Stockholm, Stockholm, SE", first.Location)
+	test.Eq(t, "7964779", first.ExternalID)
+	test.Eq(t, "2026-07-19T22:00:00Z", first.PostedAt.Format(time.RFC3339))
+	test.Eq(t, internal.PostingSource{Platform: "teamtailor", Key: "tibber"}, first.Source)
+
+	// Absent in every live feed measured, so absent here.
+	test.Eq(t, internal.EmploymentTypeUnknown, first.EmploymentType)
+	test.Eq(t, internal.WorkplaceTypeUnknown, first.WorkplaceType)
+	test.Nil(t, first.Remote)
+	test.Eq(t, "", first.Department)
+	test.True(t, first.UpdatedAt.IsZero())
+
+	// The ids are the postings' own, not the company name the PropertyValue also
+	// carries.
+	test.Eq(t, "7775504", postings[1].ExternalID)
+}
+
+// TestTeamtailorFollowsTheCapturedLiveNextURL pins the pagination shape against
+// the real thing rather than an invented one. Both bodies are
+// https://chalhoubgroup.teamtailor.com/jobs.json and the next_url it published,
+// captured on 2026-07-28; the live board answered 100 items and that link, then
+// 58 items and no link, and crawling it end to end returned all 158.
+//
+// The captured link is absolute, on the tenant's own host, and carries both
+// "page" and "per_page" — the page-1 URL this adapter builds carries neither, so
+// an adapter that appended its own query parameters instead of following the
+// publisher's link would have to guess the page size, and a tenant whose default
+// differed would be silently truncated.
+func TestTeamtailorFollowsTheCapturedLiveNextURL(t *testing.T) {
+	t.Parallel()
+
+	transport := &teamtailorPageTransport{pages: map[string]string{
+		"https://chalhoubgroup.teamtailor.com/jobs.json":                     teamtailorFixture(t, "teamtailor_chalhoubgroup_jobs_page1.json"),
+		"https://chalhoubgroup.teamtailor.com/jobs.json?page=2&per_page=100": teamtailorFixture(t, "teamtailor_chalhoubgroup_jobs_page2.json"),
+	}}
+
+	postings, errs := drain(Teamtailor(t.Context(), &http.Client{Transport: transport}, "chalhoubgroup"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	test.Eq(t, "8126512", postings[0].ExternalID)
+	test.Eq(t, "Dubai, United Arab Emirates, AE", postings[0].Location)
+	test.Eq(t, "7953366", postings[1].ExternalID)
+
+	test.Eq(t, []string{
+		"https://chalhoubgroup.teamtailor.com/jobs.json",
+		"https://chalhoubgroup.teamtailor.com/jobs.json?page=2&per_page=100",
+	}, transport.requests)
+}
+
 // TestTeamtailorParsesFeed covers the fields the JSON Feed and its embedded
 // schema.org block carry, including the polymorphism schema.org allows: the
 // second item writes its identifier as a bare number, its country as a node
 // object and its jobLocation as a single Place rather than a list, all of which
 // are as valid as the first item's shapes.
+//
+// This body is hand-written from schema.org's vocabulary, not captured: no
+// tenant among the 619 live boards probed on 2026-07-28 sent employmentType,
+// jobLocationType or occupationalCategory, so the branches that read them have
+// no live example to be pinned against and this is the only thing exercising
+// them. It is kept because those branches are the difference between a tenant
+// that starts publishing them being read and being silently ignored — but
+// [TestTeamtailorParsesACapturedLiveFeed] is the test that says what Teamtailor
+// sends today, and this one must not be mistaken for it.
 func TestTeamtailorParsesFeed(t *testing.T) {
 	t.Parallel()
 
@@ -464,4 +583,144 @@ func TestTeamtailorCompaniesComeFromTheCandidateFile(t *testing.T) {
 	}
 
 	test.Less(t, len(candidates), len(TeamtailorCompanies), test.Sprint("the registered list should stay a subset of the candidates"))
+}
+
+// TestTeamtailorReadsTheCapturedLiveBaseSalary covers the one enrichment field a
+// Teamtailor board actually populates. The body is
+// https://leaseweb.teamtailor.com/jobs.json as captured on 2026-07-28, trimmed
+// to three items and with content_html replaced; every _jobposting field is the
+// board's own.
+//
+// Measured on 2026-07-28 across 16,759 live postings from 1,033 tenants:
+// baseSalary is present on 2,315 of them (13.8%), while employmentType,
+// jobLocationType and occupationalCategory are present on none. Missing it was
+// therefore throwing away the entire structured-pay yield of the platform.
+//
+// The shape agreed across all 69 paying postings sampled from 61 tenants: a
+// schema.org MonetaryAmount whose "value" is always a nested QuantitativeValue —
+// never a scalar — carrying either minValue/maxValue or a single value, always
+// spelled as JSON strings. Both spellings appear here.
+func TestTeamtailorReadsTheCapturedLiveBaseSalary(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"leaseweb.teamtailor.com/jobs.json": teamtailorFixture(t, "teamtailor_leaseweb_jobs.json"),
+	})
+
+	postings, errs := drain(Teamtailor(t.Context(), client, "leaseweb"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 3, postings)
+
+	ranged, single, none := postings[0], postings[1], postings[2]
+
+	// A range, published as minValue/maxValue strings.
+	must.NotNil(t, ranged.Compensation)
+	test.Eq(t, 61220.0, ranged.Compensation.Min)
+	test.Eq(t, 90000.0, ranged.Compensation.Max)
+	test.Eq(t, "EUR", ranged.Compensation.Currency)
+	test.Eq(t, internal.PeriodYear, ranged.Compensation.Period)
+
+	// This is a dedicated field an employer filled in on the board, so it
+	// outranks anything recoverable from prose and must never be blended with
+	// it.
+	test.Eq(t, internal.ProvenanceEmployer, ranged.Compensation.Provenance)
+
+	// A single figure is a point, not a floor: it fills both ends so a --max-pay
+	// query cannot miss it.
+	must.NotNil(t, single.Compensation)
+	test.Eq(t, 84000.0, single.Compensation.Min)
+	test.Eq(t, 84000.0, single.Compensation.Max)
+	test.Eq(t, "CAD", single.Compensation.Currency)
+
+	// The overwhelming majority of live postings publish no baseSalary, and they
+	// must carry no compensation rather than an empty one, or --has-pay would
+	// match every posting on the platform.
+	test.Nil(t, none.Compensation)
+}
+
+// TestTeamtailorCompensationRejectsFiguresItCannotUse states the rules that keep
+// a malformed or half-filled salary object from becoming a pay range.
+func TestTeamtailorCompensationRejectsFiguresItCannotUse(t *testing.T) {
+	t.Parallel()
+
+	t.Run("absent", func(t *testing.T) {
+		t.Parallel()
+
+		test.Nil(t, teamtailorCompensation(nil))
+	})
+
+	t.Run("currency with no figures", func(t *testing.T) {
+		t.Parallel()
+
+		// Measured live: 8 of 69 paying postings carried a null currency and 2 an
+		// empty string, so a currency alone says nothing about pay.
+		test.Nil(t, teamtailorCompensation(&teamtailorSalary{
+			Currency: "EUR",
+			Value:    teamtailorQuantity{UnitText: "YEAR"},
+		}))
+	})
+
+	t.Run("zero and negative figures", func(t *testing.T) {
+		t.Parallel()
+
+		test.Nil(t, teamtailorCompensation(&teamtailorSalary{
+			Value: teamtailorQuantity{MinValue: "0", MaxValue: "-1"},
+		}))
+	})
+
+	t.Run("figures with no currency are still a range", func(t *testing.T) {
+		t.Parallel()
+
+		got := teamtailorCompensation(&teamtailorSalary{
+			Value: teamtailorQuantity{UnitText: "MONTH", MinValue: "4000", MaxValue: "5000"},
+		})
+
+		must.NotNil(t, got)
+		test.Eq(t, "", got.Currency)
+		test.Eq(t, internal.PeriodMonth, got.Period)
+		test.Eq(t, 4000.0, got.Min)
+	})
+
+	t.Run("a currency that is not a code is dropped", func(t *testing.T) {
+		t.Parallel()
+
+		got := teamtailorCompensation(&teamtailorSalary{
+			Currency: "euros",
+			Value:    teamtailorQuantity{UnitText: "HOUR", Value: "38"},
+		})
+
+		must.NotNil(t, got)
+		test.Eq(t, "", got.Currency)
+		test.Eq(t, internal.PeriodHour, got.Period)
+	})
+
+	t.Run("an unknown period falls back to inference", func(t *testing.T) {
+		t.Parallel()
+
+		got := teamtailorCompensation(&teamtailorSalary{
+			Value: teamtailorQuantity{UnitText: "FORTNIGHT", MinValue: "150000"},
+		})
+
+		must.NotNil(t, got)
+		test.Eq(t, internal.PeriodUnknown, got.Period)
+	})
+
+	t.Run("a number rather than a string", func(t *testing.T) {
+		t.Parallel()
+
+		// Live tenants spell these as strings, but schema.org permits numbers and
+		// [teamtailorText] is what keeps a tenant that switches readable.
+		var salary teamtailorSalary
+
+		must.NoError(t, json.Unmarshal([]byte(`{"currency":"usd","value":{"unitText":"year","minValue":150000,"maxValue":200000}}`), &salary))
+
+		got := teamtailorCompensation(&salary)
+
+		must.NotNil(t, got)
+		test.Eq(t, 150000.0, got.Min)
+		test.Eq(t, 200000.0, got.Max)
+		test.Eq(t, "USD", got.Currency)
+		test.Eq(t, internal.PeriodYear, got.Period)
+	})
 }

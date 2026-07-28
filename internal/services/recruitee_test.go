@@ -2,6 +2,8 @@ package services
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -120,6 +122,111 @@ func TestRecruiteeParsesOffers(t *testing.T) {
 	// remote fields empty and lets IsRemote's location-text fallback run.
 	test.Nil(t, agent.Remote)
 	test.Eq(t, internal.WorkplaceTypeUnknown, agent.WorkplaceType)
+}
+
+// recruiteeFixture reads a response captured from a live Recruitee board.
+//
+// The capture under testdata is what the board answered with the fields this
+// adapter never decodes removed — description, requirements,
+// sharing_description, open_questions, dynamic_fields, translations and the
+// locations array, together the great majority of the bytes. Every other key,
+// and every value, is the board's own.
+func recruiteeFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	must.NoError(t, err)
+
+	return string(body)
+}
+
+// TestRecruiteeParsesACapturedLiveBoard is the fixture that decides whether this
+// adapter reads Recruitee, as opposed to reading the shape a document said
+// Recruitee has. The body is https://germanzeroev.recruitee.com/api/offers/ as
+// captured on 2026-07-28.
+//
+// What the capture establishes, and what the hand-written fixture above cannot:
+//
+//   - "hybrid" and "on_site" exist alongside "remote".
+//     docs/research/ats-platform-survey.md documents only remote(bool), and this
+//     adapter shipped mapping every non-remote posting to
+//     [internal.WorkplaceTypeUnknown]. All three keys are present on all 9,832
+//     postings measured across the platform, and exactly one is set on 8,841 of
+//     them — so reading only "remote" threw away a real structured answer for
+//     90% of Recruitee.
+//   - they are independent booleans, not a three-state enum. The last offer here
+//     sets hybrid AND on_site, which is why [recruiteeWorkplaceType] answers
+//     unknown for anything but a single set flag instead of picking a winner.
+//   - salary.min and salary.max arrive as JSON STRINGS ("3500"), not numbers,
+//     which is exactly the polymorphism recruiteeScalar exists for; a float64
+//     field would fail the decode and take the whole board with it.
+//   - salary.period is real. The survey lists salary{min,max,currency} and
+//     nothing else; 3,373 live postings publish pay and their periods are
+//     "month" (2,348), "year" (431) and "hour" (409).
+//   - published_at really is "2026-07-27 15:33:54 UTC", which no [time.Parse]
+//     layout handles without being told.
+//   - "department" is null on real postings, so the field has to tolerate it.
+func TestRecruiteeParsesACapturedLiveBoard(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"germanzeroev.recruitee.com/api/offers/": recruiteeFixture(t, "recruitee_germanzeroev_offers.json"),
+	})
+
+	postings, errs := drain(Recruitee(t.Context(), client, "germanzeroev"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 5, postings)
+
+	assistant := postings[0]
+
+	test.Eq(t, "germanzeroev", assistant.Company)
+	test.Eq(t, "2691426", assistant.ExternalID)
+	test.Eq(t, "Berlin, Berlin, Deutschland", assistant.Location)
+	test.Eq(t, "entry_level", assistant.Seniority)
+	test.Eq(t, "2026-07-27T15:33:54Z", assistant.PostedAt.Format(time.RFC3339))
+
+	// parttime_fixed_term is the compound spelling the live platform uses; the
+	// survey's vocabulary has only "parttime".
+	test.Eq(t, internal.EmploymentTypePartTime, assistant.EmploymentType)
+
+	// hybrid alone: a positive statement that the role is not fully remote.
+	test.Eq(t, internal.WorkplaceTypeHybrid, assistant.WorkplaceType)
+	must.NotNil(t, assistant.Remote)
+	test.False(t, *assistant.Remote)
+
+	must.NotNil(t, assistant.Compensation)
+	test.Eq(t, 3500.0, assistant.Compensation.Min)
+	test.Eq(t, 3800.0, assistant.Compensation.Max)
+	test.Eq(t, "EUR", assistant.Compensation.Currency)
+	test.Eq(t, internal.PeriodMonth, assistant.Compensation.Period)
+	test.Eq(t, internal.ProvenanceEmployer, assistant.Compensation.Provenance)
+
+	// fulltime_fixed_term, and a range with only an upper bound.
+	lead := postings[1]
+
+	test.Eq(t, internal.EmploymentTypeFullTime, lead.EmploymentType)
+	must.NotNil(t, lead.Compensation)
+	test.Eq(t, 0.0, lead.Compensation.Min)
+	test.Eq(t, 5000.0, lead.Compensation.Max)
+
+	// remote alone.
+	internship := postings[2]
+
+	test.Eq(t, internal.EmploymentTypeInternship, internship.EmploymentType)
+	test.Eq(t, internal.WorkplaceTypeRemote, internship.WorkplaceType)
+	test.Eq(t, "Homeoffice", internship.Location)
+	test.Nil(t, internship.Compensation)
+
+	must.NotNil(t, internship.Remote)
+	test.True(t, *internship.Remote)
+
+	// hybrid AND on_site: the employer named two arrangements, so this adapter
+	// names none and leaves IsRemote's location-text fallback in charge.
+	volunteer := postings[4]
+
+	test.Eq(t, internal.WorkplaceTypeUnknown, volunteer.WorkplaceType)
+	test.Nil(t, volunteer.Remote)
 }
 
 // TestRecruiteeIgnoresSalaryWithoutFigures keeps --has-pay honest: a salary
