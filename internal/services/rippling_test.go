@@ -2,6 +2,7 @@ package services
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
@@ -153,4 +154,81 @@ func TestRipplingWorkplaceType(t *testing.T) {
 			test.Eq(t, tt.want, ripplingWorkplaceType(tt.in))
 		})
 	}
+}
+
+// ripplingPagedBoard renders a board page that also reports how many pages the
+// board has, which is what a live response carries and what the adapter used to
+// throw away.
+func ripplingPagedBoard(company string, totalPages int, items string) string {
+	return `<html><body><script id="__NEXT_DATA__" type="application/json">{
+		"props": {"pageProps": {"dehydratedState": {"queries": [
+			{"queryKey": ["board", "` + company + `", "job-posts"],
+			 "state": {"data": {"totalPages": ` + strconv.Itoa(totalPages) + `,
+			                    "totalItems": 3,
+			                    "items": [` + items + `]}}}
+		]}}}
+	}</script></body></html>`
+}
+
+// TestRipplingPaginates is a regression test.
+//
+// The embedded query is page 0 at a page size of 20, and the adapter read only
+// that one page while the same payload said how many there were. Measured on
+// 2026-07-28, 22 of the 99 registered boards that returned anything returned
+// exactly 20 postings; ats.rippling.com/aspenview/jobs reported "totalItems": 70
+// in the response the adapter took 20 out of.
+func TestRipplingPaginates(t *testing.T) {
+	t.Parallel()
+
+	client, transport := fixtureClient(map[string]string{
+		"page=0": ripplingPagedBoard("acme", 2, `
+			{"id": "post-1", "name": "Security Engineer",
+			 "url": "https://ats.rippling.com/acme/jobs/post-1",
+			 "locations": [{"name": "Denver, CO", "workplaceType": "ON_SITE"}]}`),
+		"page=1": ripplingPagedBoard("acme", 2, `
+			{"id": "post-2", "name": "Data Engineer",
+			 "url": "https://ats.rippling.com/acme/jobs/post-2",
+			 "locations": [{"name": "Austin, TX", "workplaceType": "ON_SITE"}]}`),
+	})
+
+	postings, errs := drain(Rippling(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+	must.Len(t, 2, transport.requests)
+
+	test.Eq(t, "Security Engineer", postings[0].Title)
+	test.Eq(t, "Data Engineer", postings[1].Title)
+}
+
+// TestRipplingMergesTheSiteFanOut is a regression test.
+//
+// A board repeats one opening per site it is offered at, with the same id and
+// the same URL each time. Yielded one per entry, [internal.Dedupe] kept the
+// first and deleted the rest: aspenview sent 20 entries carrying 7 openings, so
+// the board reported 7 postings in one location each rather than 7 postings in
+// all of theirs.
+func TestRipplingMergesTheSiteFanOut(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"ats.rippling.com": ripplingBoardPage("acme", `
+			{"id": "post-1", "name": "Mid GRC Analyst",
+			 "url": "https://ats.rippling.com/acme/jobs/post-1",
+			 "locations": [{"name": "Denver, CO", "workplaceType": "ON_SITE"}]},
+			{"id": "post-1", "name": "Mid GRC Analyst",
+			 "url": "https://ats.rippling.com/acme/jobs/post-1",
+			 "locations": [{"name": "Colombia", "workplaceType": "ON_SITE"}]},
+			{"id": "post-1", "name": "Mid GRC Analyst",
+			 "url": "https://ats.rippling.com/acme/jobs/post-1",
+			 "locations": [{"name": "Denver, CO", "workplaceType": "ON_SITE"}]}`),
+	})
+
+	postings, errs := drain(Rippling(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	// Every site, listed once: the repeated one is not repeated in the text.
+	test.Eq(t, "Denver, CO; Colombia", postings[0].Location)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
@@ -159,6 +160,23 @@ type RipplingJobData struct {
 					State struct {
 						Data struct {
 							Items []ripplingJobPost `json:"items"`
+
+							// TotalPages and TotalItems are the board's own count
+							// of what it has, and they ride in the same payload
+							// the adapter already parses.
+							//
+							// They were never decoded, and the embedded query is
+							// page 0 at a page size of 20, so every Rippling
+							// board with more than twenty entries was silently
+							// truncated to its first twenty. Measured on
+							// 2026-07-28: 22 of the 99 registered boards that
+							// returned anything returned exactly 20, the shape
+							// of a cap rather than of a coincidence.
+							// ats.rippling.com/aspenview/jobs says
+							// "totalItems": 70 in the very response that this
+							// adapter read 20 postings out of.
+							TotalPages int `json:"totalPages"`
+							TotalItems int `json:"totalItems"`
 						} `json:"data"`
 					} `json:"state"`
 					QueryKey []interface{} `json:"queryKey"`
@@ -167,6 +185,14 @@ type RipplingJobData struct {
 		} `json:"pageProps"`
 	} `json:"props"`
 }
+
+// ripplingMaxPages bounds how many pages one board may be asked for.
+//
+// totalPages comes from the board, so it is a number a third party controls;
+// [pageRepeatGuard] catches a board that ignores ?page= and this bounds one that
+// reports an absurd count. At the platform's page size of 20 it still allows
+// 2,000 postings from a single tenant, far above the largest observed (70).
+const ripplingMaxPages = 100
 
 // ripplingJobPost is one opening in a board's dehydrated query state.
 //
@@ -229,132 +255,197 @@ func ripplingWorkplaceType(locations []ripplingLocation) internal.WorkplaceType 
 func Rippling(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
 		var (
-			baseURL = fmt.Sprintf("https://ats.rippling.com/%s/jobs", company)
+			items  []ripplingJobPost
+			guard  pageRepeatGuard
+			pages  = 1
+			merged = make(map[string]int)
 		)
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL, nil)
-		if err != nil {
-			yield(nil, err)
-			return
-		}
+		for page := 0; page < pages && page < ripplingMaxPages; page++ {
+			if ctx.Err() != nil {
+				yield(nil, ctx.Err())
+				return
+			}
 
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-		defer resp.Body.Close()
+			posts, total, err := ripplingPage(ctx, httpClient, company, page)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
 
-		if resp.StatusCode != http.StatusOK {
-			yield(nil, fmt.Errorf("unexpected status code from Rippling for %q: %s", company, resp.Status))
-			return
-		}
+			if len(posts) == 0 {
+				break
+			}
 
-		// Parse HTML to find the script with the job data
-		doc, err := html.Parse(resp.Body)
-		if err != nil {
-			yield(nil, fmt.Errorf("failed to parse HTML: %w", err))
-			return
-		}
+			ids := make([]string, 0, len(posts))
+			for _, post := range posts {
+				ids = append(ids, post.ID)
+			}
 
-		// Extract the JSON data from the script tag with id="__NEXT_DATA__"
-		scriptContent := extractScriptContent(doc)
-		if scriptContent == "" {
-			yield(nil, fmt.Errorf("could not find __NEXT_DATA__ script in the HTML"))
-			return
-		}
+			if guard.repeated(ids) {
+				break
+			}
 
-		// Parse the JSON data
-		var jobData RipplingJobData
-		if err := json.Unmarshal([]byte(scriptContent), &jobData); err != nil {
-			yield(nil, fmt.Errorf("failed to parse job data JSON: %w", err))
-			return
-		}
+			// One opening is repeated once per site it is offered at, with the
+			// same id and the same URL each time and a "locations" array holding
+			// only that one site. Yielded per entry, those become postings
+			// sharing a URL and [internal.Dedupe] keeps only the first, so an
+			// opening in seven places was published in one of them: measured on
+			// aspenview, 20 entries carried 7 distinct openings.
+			for _, post := range posts {
+				if at, seen := merged[post.URL]; seen && post.URL != "" {
+					items[at].Locations = append(items[at].Locations, post.Locations...)
 
-		// Find the query that contains the job listings
-		for _, query := range jobData.Props.PageProps.DehydratedState.Queries {
-			// Check if this query contains job posts
-			if len(query.QueryKey) >= 3 {
-				// Try to convert the second element to a string
-				if companySlug, ok := query.QueryKey[1].(string); ok && companySlug == company {
-					// Check if the third element suggests this is a job posts query
-					if jobPostsKey, ok := query.QueryKey[2].(string); ok && jobPostsKey == "job-posts" {
-						// Extract and yield job postings
-						for _, job := range query.State.Data.Items {
-							if ctx.Err() != nil {
-								yield(nil, ctx.Err())
-								return
-							}
-
-							// Construct location string
-							var locations []string
-							for _, loc := range job.Locations {
-								location := loc.Name
-								if location == "" {
-									parts := []string{}
-									if loc.City != "" {
-										parts = append(parts, loc.City)
-									}
-									if loc.State != "" {
-										parts = append(parts, loc.State)
-									}
-									if loc.Country != "" {
-										parts = append(parts, loc.Country)
-									}
-									if loc.WorkplaceType == "REMOTE" {
-										parts = append(parts, "Remote")
-									}
-									location = strings.Join(parts, ", ")
-								}
-								locations = append(locations, location)
-							}
-
-							posting := &internal.JobPosting{
-								Company:  company,
-								URL:      job.URL,
-								Title:    job.Name,
-								Location: strings.Join(locations, "; "),
-
-								Department:    strings.TrimSpace(job.Department.Name),
-								WorkplaceType: ripplingWorkplaceType(job.Locations),
-								ExternalID:    job.ID,
-								Source:        internal.PostingSource{Platform: ripplingPlatform, Key: company},
-							}
-
-							// Recorded only in the affirmative. "Not remote" is
-							// not the same statement as "must be in an office",
-							// and a false Remote here would switch off the
-							// location-text fallback in
-							// [internal.JobPosting.IsRemote] for every hybrid
-							// posting on the platform.
-							if posting.WorkplaceType == internal.WorkplaceTypeRemote {
-								remote := true
-								posting.Remote = &remote
-							}
-
-							if !yield(posting, nil) {
-								return
-							}
-						}
-						// Found and processed the job listings query, no need to continue
-						return
-					}
+					continue
 				}
+
+				merged[post.URL] = len(items)
+				items = append(items, post)
+			}
+
+			if page == 0 && total > 1 {
+				pages = total
 			}
 		}
 
-		// A board with no openings ships a page whose dehydrated query set is
-		// empty, which is indistinguishable from a board that has jobs but whose
-		// query we failed to recognise. Reporting an error here marked seven real,
-		// reachable boards as broken in a health check, so an empty query set is
-		// treated as "no postings right now" instead.
-		//
-		// A page that carries queries but none of them job posts is still a
-		// genuine parse failure worth reporting.
-		if len(jobData.Props.PageProps.DehydratedState.Queries) > 0 {
-			yield(nil, fmt.Errorf("could not find job listings data for Rippling company %q", company))
+		for _, job := range items {
+			if ctx.Err() != nil {
+				yield(nil, ctx.Err())
+				return
+			}
+
+			posting := &internal.JobPosting{
+				Company:  company,
+				URL:      job.URL,
+				Title:    job.Name,
+				Location: ripplingLocationText(job.Locations),
+
+				Department:    strings.TrimSpace(job.Department.Name),
+				WorkplaceType: ripplingWorkplaceType(job.Locations),
+				ExternalID:    job.ID,
+				Source:        internal.PostingSource{Platform: ripplingPlatform, Key: company},
+			}
+
+			// Recorded only in the affirmative. "Not remote" is not the same
+			// statement as "must be in an office", and a false Remote here would
+			// switch off the location-text fallback in
+			// [internal.JobPosting.IsRemote] for every hybrid posting on the
+			// platform.
+			if posting.WorkplaceType == internal.WorkplaceTypeRemote {
+				remote := true
+				posting.Remote = &remote
+			}
+
+			if !yield(posting, nil) {
+				return
+			}
 		}
 	}
+}
+
+// ripplingLocationText renders every site an opening is offered at.
+func ripplingLocationText(locations []ripplingLocation) string {
+	names := make([]string, 0, len(locations))
+
+	for _, location := range locations {
+		name := location.Name
+
+		if name == "" {
+			parts := make([]string, 0, 4)
+
+			for _, part := range []string{location.City, location.State, location.Country} {
+				if part != "" {
+					parts = append(parts, part)
+				}
+			}
+
+			if location.WorkplaceType == "REMOTE" {
+				parts = append(parts, "Remote")
+			}
+
+			name = strings.Join(parts, ", ")
+		}
+
+		if name != "" && !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+
+	return strings.Join(names, "; ")
+}
+
+// ripplingPage fetches one page of a board, returning its openings and the
+// number of pages the board says it has.
+//
+// It exists as its own function so the response body is closed when the page is
+// done rather than accumulating one open body per page for the whole crawl, per
+// docs/adding-a-source.md.
+func ripplingPage(ctx context.Context, httpClient *http.Client, company string, page int) ([]ripplingJobPost, int, error) {
+	// The board's own front end asks for pages this way, and the embedded query
+	// key names the parameter it was rendered for.
+	pageURL := fmt.Sprintf("https://ats.rippling.com/%s/jobs?page=%d", company, page)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("building request for Rippling company %q: %w", company, err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("fetching Rippling company %q: %w", company, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("unexpected status code from Rippling for %q: %s", company, resp.Status)
+	}
+
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("parsing HTML for Rippling company %q: %w", company, err)
+	}
+
+	// The JSON data lives in the script tag with id="__NEXT_DATA__".
+	scriptContent := extractScriptContent(doc)
+	if scriptContent == "" {
+		return nil, 0, fmt.Errorf("could not find __NEXT_DATA__ script for Rippling company %q", company)
+	}
+
+	var jobData RipplingJobData
+	if err := json.Unmarshal([]byte(scriptContent), &jobData); err != nil {
+		return nil, 0, fmt.Errorf("parsing job data JSON for Rippling company %q: %w", company, err)
+	}
+
+	for _, query := range jobData.Props.PageProps.DehydratedState.Queries {
+		if len(query.QueryKey) < 3 {
+			continue
+		}
+
+		companySlug, ok := query.QueryKey[1].(string)
+		if !ok || companySlug != company {
+			continue
+		}
+
+		if jobPostsKey, ok := query.QueryKey[2].(string); !ok || jobPostsKey != "job-posts" {
+			continue
+		}
+
+		return query.State.Data.Items, query.State.Data.TotalPages, nil
+	}
+
+	// A board with no openings ships a page whose dehydrated query set is empty,
+	// which is indistinguishable from a board that has jobs but whose query we
+	// failed to recognise. Reporting an error here marked seven real, reachable
+	// boards as broken in a health check, so an empty query set is treated as "no
+	// postings right now" instead.
+	//
+	// A page that carries queries but none of them job posts is still a genuine
+	// parse failure worth reporting.
+	if len(jobData.Props.PageProps.DehydratedState.Queries) > 0 {
+		return nil, 0, fmt.Errorf("could not find job listings data for Rippling company %q", company)
+	}
+
+	return nil, 0, nil
 }
 
 // extractScriptContent finds the script tag with id="__NEXT_DATA__" and returns its text content

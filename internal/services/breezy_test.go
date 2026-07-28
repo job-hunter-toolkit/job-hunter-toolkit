@@ -134,6 +134,51 @@ func TestBreezyParsesPositions(t *testing.T) {
 	test.True(t, warehouse.PostedAt.IsZero())
 }
 
+// TestBreezyReadsTheSpacedPayPeriod covers the unit Breezy renders after a
+// spaced slash, which no marker in internal/compensation_text.go matches.
+//
+// Every case here is a real string shape from the live platform. Before
+// [breezyPeriodWording] existed, none of them set a period and all of them were
+// left to the magnitude heuristic, which calls a figure at or under 250 hourly
+// and anything above it annual. The day rate is the one that did visible harm:
+// it was published as $83,200-$124,800 a year with employer provenance.
+func TestBreezyReadsTheSpacedPayPeriod(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		salary string
+		period internal.Period
+		min    float64
+		max    float64
+	}{
+		{"$170,000 – $300,000 / year", internal.PeriodYear, 170000, 300000},
+		{"$20 – $25 / hour", internal.PeriodHour, 20, 25},
+		{"$5,000 – $8,000 / month", internal.PeriodMonth, 5000, 8000},
+		{"$1,200 – $1,800 / week", internal.PeriodWeek, 1200, 1800},
+		{"$400 – $600 / day", internal.PeriodDay, 400, 600},
+	} {
+		t.Run(tc.salary, func(t *testing.T) {
+			t.Parallel()
+
+			compensation := breezyCompensation(tc.salary)
+
+			must.NotNil(t, compensation)
+			test.Eq(t, tc.period, compensation.Period)
+			test.Eq(t, tc.min, compensation.Min)
+			test.Eq(t, tc.max, compensation.Max)
+
+			// The board's own rendering is what the employer published, so it is
+			// kept verbatim even though the parser saw a rewritten copy.
+			test.Eq(t, tc.salary, compensation.Summary)
+		})
+	}
+
+	// A day rate whose annualized floor falls under the parser's plausible-wage
+	// bound is now dropped rather than republished as an hourly rate. Reporting
+	// no pay is the honest outcome; reporting $124,800 was not.
+	test.Nil(t, breezyCompensation("$40 – $60 / day"))
+}
+
 // TestBreezyAcceptsTheLegacyObjectShape covers the older
 // {"company":..,"positions":[..]} response.
 //

@@ -1886,7 +1886,7 @@ func breezyCompensation(salary string) *internal.Compensation {
 		return nil
 	}
 
-	compensation := internal.ParseCompensationFromText("Salary: " + salary)
+	compensation := internal.ParseCompensationFromText("Salary: " + breezyPeriodWording.Replace(salary))
 	if compensation == nil {
 		// Text with no figures this project is willing to stand behind:
 		// "Competitive", or a range whose ends are implausible. Nothing numeric
@@ -1900,6 +1900,39 @@ func breezyCompensation(salary string) *internal.Compensation {
 
 	return compensation
 }
+
+// breezyPeriodWording rewrites the pay period Breezy renders as "/ month" into
+// wording [internal.ParseCompensationFromText] recognises.
+//
+// Breezy always separates the figures from the unit with a spaced slash, and the
+// parser's period markers are all written without that space: "/hour", "per
+// hour", "hourly". So no Breezy pay string has ever set a period, and every
+// figure fell through to the magnitude heuristic in
+// [internal.Compensation.effectivePeriod], which calls anything at or under 250
+// hourly and anything above it annual.
+//
+// That heuristic is right for the hourly and annual strings, which are the bulk
+// of the platform, and wrong for the rest. Measured on 2026-07-28 by fetching
+// the board feed of all 774 Breezy tenants that publish pay: of 14,335 salary
+// strings, 6,917 end "/ hour" and 5,909 "/ year" — but 567 end "/ month", 215
+// "/ week" and 95 "/ day". A live "$40 – $60 / day" was read as an hourly rate
+// and published as $83,200–$124,800 a year, an 8x overstatement carrying
+// [internal.ProvenanceEmployer]; that is the same failure, on the same unit,
+// that dailyMarkers was added to compensation_text.go to stop in prose.
+//
+// The rewrite is applied only to the copy handed to the parser. Summary keeps
+// the board's own rendering, because that is what the employer published.
+//
+// The general fix belongs in the marker lists in internal/compensation_text.go,
+// which would also reach the 7,227 SuccessFactors and 9,450 Jibe pay records
+// that reach this project with no period. This is the Breezy-local half.
+var breezyPeriodWording = strings.NewReplacer(
+	"/ hour", "per hour",
+	"/ year", "per year",
+	"/ month", "per month",
+	"/ week", "per week",
+	"/ day", "per day",
+)
 
 // breezyTime parses Breezy's published_date, which is RFC 3339.
 //

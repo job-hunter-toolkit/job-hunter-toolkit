@@ -3,6 +3,7 @@ package services
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"github.com/shoenig/test"
@@ -113,4 +114,72 @@ func TestWorkableCarriesTheStructuredRemoteFlag(t *testing.T) {
 	test.Nil(t, postings[1].Remote)
 	test.Eq(t, internal.WorkplaceTypeUnknown, postings[1].WorkplaceType)
 	test.Eq(t, "DEF456", postings[1].ExternalID)
+}
+
+// TestWorkableMergesTheSiteFanOut is a regression test.
+//
+// The widget feed repeats a multi-site opening once per location, with the same
+// shortcode and URL every time. Yielded one per entry, [internal.Dedupe] kept
+// the first and deleted the rest, so 64% of the platform's postings — and every
+// site but one on each of them — never reached a reader.
+func TestWorkableMergesTheSiteFanOut(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"api/v1/widget/accounts/acme": `{
+			"name": "Acme",
+			"jobs": [
+				{
+					"title": "CX Technology Consultant",
+					"shortcode": "EEAAA82DE8",
+					"telecommuting": false,
+					"url": "https://apply.workable.com/j/EEAAA82DE8",
+					"published_on": "2026-07-03",
+					"created_at": "2026-06-26",
+					"locations": [{"city": "Brisbane", "region": "Queensland",
+					               "country": "Australia", "countryCode": "AU"}]
+				},
+				{
+					"title": "CX Technology Consultant",
+					"shortcode": "EEAAA82DE8",
+					"telecommuting": true,
+					"url": "https://apply.workable.com/j/EEAAA82DE8",
+					"published_on": "2026-07-03",
+					"locations": [{"city": "Melbourne", "region": "Victoria",
+					               "country": "Australia", "countryCode": "AU"}]
+				},
+				{
+					"title": "Office Manager",
+					"shortcode": "DEF456",
+					"url": "https://apply.workable.com/j/DEF456",
+					"published_on": "not a date",
+					"locations": [{"city": "Sydney", "country": "Australia"}]
+				}
+			]
+		}`,
+	})
+
+	postings, errs := drain(Workable(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	consultant := postings[0]
+
+	test.Eq(t, "https://apply.workable.com/j/EEAAA82DE8", consultant.URL)
+	test.Eq(t, "Brisbane, Queensland, Australia; Melbourne, Victoria, Australia; Remote",
+		consultant.Location)
+
+	// The date is published on every entry and was never read, which excluded
+	// the whole platform from --posted-since.
+	test.Eq(t, time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC), consultant.PostedAt)
+
+	// Remote is true on only one of the two entries, and an opening offered
+	// remotely is remote.
+	must.NotNil(t, consultant.Remote)
+	test.True(t, *consultant.Remote)
+
+	// A date the board renders in some shape this does not read leaves the
+	// posting undated rather than failing the source.
+	test.True(t, postings[1].PostedAt.IsZero())
 }

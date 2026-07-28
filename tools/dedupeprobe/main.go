@@ -1,4 +1,38 @@
-// Command probe dumps postings for arbitrary platform/key sources as NDJSON.
+// Command dedupeprobe dumps named sources as NDJSON, so their URLs can be
+// compared.
+//
+// It is [tools/dcprobe] widened to the whole registry. dcprobe dispatches on a
+// hardcoded switch over six platform names, which is fine for the
+// Ashby-versus-Greenhouse comparisons it was written for and useless for the
+// ones that actually inflate a count: the double counts found on 2026-07-28 were
+// Phenom against Workday and Phenom against SuccessFactors, and none of those
+// three platforms could be probed at all. This dispatches by looking the source
+// up in [services.Builtin] instead, so it covers every platform automatically
+// and cannot go stale when one is added.
+//
+// Sources are named "platform/key", exactly as [services.Source.Platform] and
+// [services.Source.Key] spell them — which for Workday is the full tenant URL
+// and for SuccessFactors is the "slug,companyId,host" triple. `job-hunter-toolkit
+// companies --sources` prints them.
+//
+// Usage:
+//
+//	go run ./tools/dedupeprobe phenom/careers.southwestair.com > a.ndjson
+//	go run ./tools/dedupeprobe "workday/https://swa.wd1.myworkdayjobs.com/external" > b.ndjson
+//	jq -r .url a.ndjson | sort > a.urls   # then comm -12 against b.urls
+//
+// Rows go to stdout and the per-source count to stderr, so the stream pipes
+// cleanly. Several sources may be named in one invocation; they are fetched in
+// registry order, one at a time, so the output is deterministic.
+//
+// Compare URLs before titles, for the reason docs/dedupe-audit.md gives:
+// [internal.Dedupe] keys on URL, so two boards serving identical URLs are
+// already collapsed and cost only a request, while a count is inflated only when
+// one opening arrives under two different URLs. The audit also records why that
+// comparison must be done on the raw URL rather than a normalised one.
+//
+// This talks to live boards through [httpx.NewClient], so it inherits the pacing
+// a crawl uses. It is not part of the binary's dependency closure.
 package main
 
 import (
@@ -6,13 +40,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/httpx"
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/services"
 )
 
+// row is one posting, flattened to the fields a URL comparison needs. The
+// requisition and external ids are here because they are the only identity that
+// survives a career-site front end, which is what settles a comparison the URLs
+// cannot: Phenom's zimmerbiomet and SuccessFactors' zimmerin01 share 362 of 365
+// requisition ids and zero URLs.
 type row struct {
 	Platform string `json:"platform"`
 	Key      string `json:"key"`
@@ -25,40 +63,72 @@ type row struct {
 }
 
 func main() {
-	// args: platform/key platform/key ...
-	want := map[string]bool{}
-	for _, a := range os.Args[1:] {
-		want[a] = true
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: dedupeprobe <platform>/<key> [<platform>/<key>...]")
+		os.Exit(2)
+	}
+
+	wanted := make(map[string]bool, len(os.Args)-1)
+	for _, arg := range os.Args[1:] {
+		wanted[arg] = true
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	defer cancel()
 
 	client := httpx.NewClient()
-	enc := json.NewEncoder(os.Stdout)
+	encoder := json.NewEncoder(os.Stdout)
 
-	for _, src := range services.Builtin {
-		id := src.Platform + "/" + src.Key
-		if !want[id] {
+	for _, source := range services.Builtin {
+		id := source.Platform + "/" + source.Key
+		if !wanted[id] {
 			continue
 		}
-		var n, errs int
+
+		delete(wanted, id)
+
+		var postings, failures int
+
 		start := time.Now()
-		for p, err := range src.Jobs(ctx, client) {
+
+		for posting, err := range source.Jobs(ctx, client) {
 			if err != nil {
-				errs++
-				if errs < 3 {
+				failures++
+
+				// Only the first few: a board that fails every page would
+				// otherwise bury the counts this is read for.
+				if failures < 5 {
 					fmt.Fprintln(os.Stderr, "error:", id, err)
 				}
+
 				continue
 			}
-			n++
-			_ = enc.Encode(row{src.Platform, src.Key, p.Company, p.URL, p.Title, p.Location, p.RequisitionID, p.ExternalID})
+
+			postings++
+
+			_ = encoder.Encode(row{
+				Platform: source.Platform,
+				Key:      source.Key,
+				Company:  posting.Company,
+				URL:      posting.URL,
+				Title:    posting.Title,
+				Location: posting.Location,
+				ReqID:    posting.RequisitionID,
+				ExtID:    posting.ExternalID,
+			})
 		}
-		fmt.Fprintf(os.Stderr, "%s: %d postings, %d errors, %s\n", id, n, errs, time.Since(start).Round(time.Second))
-		delete(want, id)
+
+		fmt.Fprintf(os.Stderr, "%s: %d postings, %d errors, %s\n",
+			id, postings, failures, time.Since(start).Round(time.Second))
 	}
-	for id := range want {
-		fmt.Fprintln(os.Stderr, "NOT FOUND:", id, strings.Repeat("", 0))
+
+	// Named but not registered. Reported rather than ignored, because a typo in
+	// a tenant URL would otherwise look exactly like a board with no openings.
+	for id := range wanted {
+		fmt.Fprintln(os.Stderr, "not registered:", id)
+	}
+
+	if len(wanted) > 0 {
+		os.Exit(1)
 	}
 }
