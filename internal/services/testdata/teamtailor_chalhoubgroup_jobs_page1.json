@@ -1,0 +1,46 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Chalhoub Group",
+  "home_page_url": "https://chalhoubgroup.teamtailor.com/jobs",
+  "feed_url": "https://chalhoubgroup.teamtailor.com/jobs.json",
+  "next_url": "https://chalhoubgroup.teamtailor.com/jobs.json?page=2&per_page=100",
+  "items": [
+    {
+      "id": "2c47abd8-63eb-4a72-9ebc-337cbcafacc7",
+      "title": "Finance Manager",
+      "url": "https://chalhoubgroup.teamtailor.com/jobs/8126512-finance-manager",
+      "date_published": "2026-07-25T11:33:29+04:00",
+      "content_html": "<p>[trimmed]</p>",
+      "_jobposting": {
+        "@context": "http://schema.org/",
+        "@type": "JobPosting",
+        "title": "Finance Manager",
+        "description": "[trimmed]",
+        "identifier": {
+          "@type": "PropertyValue",
+          "name": "Chalhoub Group",
+          "value": 8126512
+        },
+        "datePosted": "2026-07-25T11:33:29+04:00",
+        "hiringOrganization": {
+          "@type": "Organization",
+          "name": "Chalhoub Group",
+          "sameAs": "https://careers.chalhoubgroup.com"
+        },
+        "jobLocation": [
+          {
+            "@type": "Place",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": "Chalhoub Group d3 Office",
+              "addressLocality": "Dubai",
+              "postalCode": null,
+              "addressCountry": "AE",
+              "addressRegion": "United Arab Emirates"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

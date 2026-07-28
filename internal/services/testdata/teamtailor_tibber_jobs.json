@@ -1,0 +1,83 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Tibber",
+  "home_page_url": "https://tibber.teamtailor.com/jobs",
+  "feed_url": "https://tibber.teamtailor.com/jobs.json",
+  "items": [
+    {
+      "id": "2cc9eecd-bd4e-40fd-8e99-98385b6093d7",
+      "title": "CRM Specialist",
+      "url": "https://tibber.teamtailor.com/jobs/7964779-crm-specialist",
+      "date_published": "2026-07-20T00:00:00+02:00",
+      "content_html": "<p>[trimmed]</p>",
+      "_jobposting": {
+        "@context": "http://schema.org/",
+        "@type": "JobPosting",
+        "title": "CRM Specialist",
+        "description": "[trimmed]",
+        "identifier": {
+          "@type": "PropertyValue",
+          "name": "Tibber",
+          "value": 7964779
+        },
+        "datePosted": "2026-07-20T00:00:00+02:00",
+        "hiringOrganization": {
+          "@type": "Organization",
+          "name": "Tibber",
+          "sameAs": "https://jobs.tibber.com"
+        },
+        "jobLocation": [
+          {
+            "@type": "Place",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": "Vattugatan 17",
+              "addressLocality": "Stockholm",
+              "postalCode": "111 52",
+              "addressCountry": "SE",
+              "addressRegion": "Stockholm"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "fab88453-11b0-4057-be68-c13dd8c5ca12",
+      "title": "Senior Data Scientist",
+      "url": "https://tibber.teamtailor.com/jobs/7775504-senior-data-scientist",
+      "date_published": "2026-07-13T00:00:00+02:00",
+      "content_html": "<p>[trimmed]</p>",
+      "_jobposting": {
+        "@context": "http://schema.org/",
+        "@type": "JobPosting",
+        "title": "Senior Data Scientist",
+        "description": "[trimmed]",
+        "identifier": {
+          "@type": "PropertyValue",
+          "name": "Tibber",
+          "value": 7775504
+        },
+        "datePosted": "2026-07-13T00:00:00+02:00",
+        "validThrough": "2026-08-04T23:59:59+02:00",
+        "hiringOrganization": {
+          "@type": "Organization",
+          "name": "Tibber",
+          "sameAs": "https://jobs.tibber.com"
+        },
+        "jobLocation": [
+          {
+            "@type": "Place",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": "Vattugatan 17",
+              "addressLocality": "Stockholm",
+              "postalCode": "111 52",
+              "addressCountry": "SE",
+              "addressRegion": "Stockholm"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
