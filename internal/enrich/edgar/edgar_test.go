@@ -150,3 +150,75 @@ func TestSubmissionsHonoursCancellation(t *testing.T) {
 	_, err := edgar.Submissions(ctx, client, "0001477333")
 	must.ErrorIs(t, err, context.Canceled)
 }
+
+// multiTickerFixture is the shape the live file actually has, which the
+// hermetic fixture above does not: one row per ticker, not one per filer, in
+// the order SEC publishes them.
+//
+// Measured against https://www.sec.gov/files/company_tickers.json on
+// 2026-07-28 — 10,432 rows, 8,017 distinct CIKs, 1,471 CIKs appearing more than
+// once. These four filers, their tickers and their relative row order are copied
+// from that file rather than invented; Alphabet really is four rows.
+const multiTickerFixture = `{
+  "0": {"cik_str": 1652044, "ticker": "GOOGL", "title": "Alphabet Inc."},
+  "1": {"cik_str": 1652044, "ticker": "GOOG", "title": "Alphabet Inc."},
+  "2": {"cik_str": 1652044, "ticker": "GOOGM", "title": "Alphabet Inc."},
+  "3": {"cik_str": 1652044, "ticker": "GOOGN", "title": "Alphabet Inc."},
+  "4": {"cik_str": 1166691, "ticker": "CMCSA", "title": "COMCAST CORP"},
+  "5": {"cik_str": 1341439, "ticker": "ORCL", "title": "ORACLE CORP"},
+  "6": {"cik_str": 1067983, "ticker": "BRK-B", "title": "BERKSHIRE HATHAWAY INC"},
+  "7": {"cik_str": 1067983, "ticker": "BRK-A", "title": "BERKSHIRE HATHAWAY INC"},
+  "8": {"cik_str": 1341439, "ticker": "ORCL-PD", "title": "ORACLE CORP"},
+  "9": {"cik_str": 1166691, "ticker": "CCZ", "title": "COMCAST CORP"}
+}`
+
+// TestCompanyTickersCollapsesShareClasses pins the second bug the first live run
+// exposed.
+//
+// resolve.Sources accepts a match only when a source proposes exactly one
+// entity. While each ticker row became its own entity, every company with a
+// second share class proposed two and was refused as "ambiguous" against itself
+// — 22 correct matches lost and 44 review-queue rows whose stated reason named
+// the entity they were already about.
+func TestCompanyTickersCollapsesShareClasses(t *testing.T) {
+	t.Parallel()
+
+	client, _ := enrichtest.Client(map[string]string{"company_tickers.json": multiTickerFixture})
+
+	filers, err := edgar.CompanyTickers(t.Context(), client)
+	must.NoError(t, err)
+
+	must.Len(t, 4, filers)
+
+	tickers := make(map[string]string, len(filers))
+	for _, filer := range filers {
+		tickers[filer.CIK] = filer.Ticker
+	}
+
+	// The earliest row wins, which is the primary listing in every case. Note
+	// that three of these four contradict the shortest-ticker rule this started
+	// out with: CCZ, GOOG and BRK-A are all shorter and all the wrong answer.
+	must.Eq(t, "CMCSA", tickers["0001166691"])
+	must.Eq(t, "GOOGL", tickers["0001652044"])
+	must.Eq(t, "BRK-B", tickers["0001067983"])
+	must.Eq(t, "ORCL", tickers["0001341439"])
+}
+
+// TestCompanyTickersIsIndependentOfMapOrder: the seed file decodes into a map,
+// Go randomises map iteration, and the generator's output is reviewed as a diff.
+// A collapse rule that read the file's order from iteration order rather than
+// from the row-number keys would rewrite rows on every run.
+func TestCompanyTickersIsIndependentOfMapOrder(t *testing.T) {
+	t.Parallel()
+
+	client, _ := enrichtest.Client(map[string]string{"company_tickers.json": multiTickerFixture})
+
+	first, err := edgar.CompanyTickers(t.Context(), client)
+	must.NoError(t, err)
+
+	for range 20 {
+		again, err := edgar.CompanyTickers(t.Context(), client)
+		must.NoError(t, err)
+		must.Eq(t, first, again)
+	}
+}

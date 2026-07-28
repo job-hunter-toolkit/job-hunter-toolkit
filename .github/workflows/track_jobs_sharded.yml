@@ -3,15 +3,59 @@ name: Track Jobs (Sharded)
 # The sharded sibling of track_jobs.yml. Same output contract, same
 # jobs_record.txt, three phases instead of one runner.
 #
-# Why it exists: on 07/26/26 a full crawl on one runner did NOT finish in 350
-# minutes. It recorded "07/26/26 473404 1772 partial" -- 473,404 postings from
-# 1,772 companies, incomplete -- and the registry has since grown to 2,211
-# sources. One runner is no longer a place a complete crawl fits.
+# Why it was built: on 07/26/26 a full crawl on one runner did NOT finish in
+# 350 minutes. It recorded "07/26/26 473404 1772 partial" -- 473,404 postings
+# from 1,772 companies, incomplete. One runner looked like somewhere a complete
+# crawl no longer fits.
 #
-# WHY THIS IS DISPATCH-ONLY, AND HOW TO CUT OVER.
-# track_jobs.yml is the proven path and stays the scheduled writer. This branch
-# cannot be validated live from the dev container, so the sharded path has to
-# earn the schedule by running beside the single-runner one first:
+# THAT PREMISE NO LONGER HOLDS, AND THE CUTOVER IS OFF.
+# On 07/28/26, after #29's throughput work, one runner-equivalent container
+# crawled 8,145 sources -- 3.7x the registry that had just failed to finish --
+# and returned 1,236,756 postings from 7,931 companies in 945 seconds, the first
+# run this project has ever recorded as `complete`.
+# (docs/measurements/2026-07-28-crawl.md.)
+#
+# RECOMMENDATION, 07/28/26: KEEP THIS DISPATCH-ONLY. Do not run the five-step
+# cutover. Four reasons, in the order they bind:
+#
+#   1. Sharding buys latency, not cost, and latency is no longer the problem.
+#      docs/crawl-budget-model.md states it plainly: eight runners for 45
+#      minutes bills the same as one runner for 360, plus eight times the
+#      checkout, toolchain and build overhead. The single runner now finishes in
+#      16 minutes against a 09:00 deadline. There is no latency left to buy.
+#   2. The cutover itself is the most expensive thing in this repository. Steps
+#      1-3 require dual-running for "several consecutive days": a plan job, up
+#      to eight crawl jobs and a merge job, each paying its own ~2 minutes of
+#      checkout/setup-go/build, ON TOP of the nightly. That is roughly 200+
+#      billed minutes a day to validate a latency win the project does not need,
+#      against a nightly that now costs about 22.
+#   3. Sharding cannot parallelise this crawl's actual bottleneck. Both 07/28
+#      measurements show the same shape: the crawl is bound by its slowest
+#      SHARED backends, not by source count -- sources rose 121% between the two
+#      runs and wall clock rose 31%. Teamtailor, Personio and Breezy are 3,450
+#      sources, 30% of all source-time, for 5.8% of the corpus, each tenant
+#      behind one shared limiter key. A shared backend must stay whole in one
+#      shard (splitting it multiplies its per-service concurrency by the shard
+#      count, which internal/httpx exists to prevent), so the critical path is
+#      the same in eight shards as in one.
+#   4. Every complexity cost is still here and is now unpaid for: three jobs,
+#      an artifact contract, a plan/commit/schema equality check, and a merge
+#      that must union DedupeKeys rather than sum shard totals.
+#
+# WHAT THIS IS STILL FOR. It is a working, reviewed escape hatch, and deleting
+# it would throw away the expensive part. Revisit the cutover when EITHER of
+# these becomes true, both of which the nightly's own summary now reports:
+#
+#   * the single-runner crawl's measured wall clock exceeds ~40% of its budget
+#     (about 48 minutes against the 120m ladder in track_jobs.yml) on several
+#     consecutive nights; or
+#   * the registry passes roughly 40,000 sources -- 5x today -- OR the platform
+#     mix shifts toward genuinely tenant-isolated backends (Workday, Oracle
+#     Cloud, Phenom), which are the only ones sharding can actually split.
+#
+# IF THAT DAY COMES, the five-step cutover below is still the right procedure.
+# It is retained verbatim because it is correct; it is simply not to be started
+# today.
 #
 #   1. Dispatch this workflow from the default branch with record=false. It
 #      crawls, merges, and reports, but never touches jobs_record.txt.
@@ -52,7 +96,12 @@ on:
       timeout:
         description: Per-shard crawl budget, as Nm
         required: false
-        default: "300m"
+        # Was 300m, which multiplied by eight shards made an accidental dispatch
+        # the most expensive button in the repository. A shard is a SUBSET of a
+        # crawl that now completes whole in 945 seconds, so no shard can
+        # legitimately need more than the single runner's own budget. This
+        # matches track_jobs.yml's 120m rung exactly, headroom argument and all.
+        default: "120m"
         type: string
       prior_run_id:
         description: Run id of an earlier sharded run whose merged manifest should weight the plan
@@ -137,7 +186,7 @@ jobs:
       id: plan
       env:
         SHARDS: ${{ inputs.shards || '8' }}
-        CRAWL_TIMEOUT: ${{ inputs.timeout || '300m' }}
+        CRAWL_TIMEOUT: ${{ inputs.timeout || '120m' }}
       run: |
         set -euo pipefail
 
@@ -151,16 +200,25 @@ jobs:
         # Only the Nm form, because the value is also compared against the job's
         # own timeout-minutes and "2h30m" cannot be compared with [ -lt ].
         if ! [[ "$CRAWL_TIMEOUT" =~ ^[0-9]+m$ ]]; then
-          echo "::error::timeout must look like 300m, got '$CRAWL_TIMEOUT'"
+          echo "::error::timeout must look like 120m, got '$CRAWL_TIMEOUT'"
           exit 1
         fi
 
         TIMEOUT_MINUTES="${CRAWL_TIMEOUT%m}"
-        # The crawl job is capped at 350 minutes below. Leave the crawl a margin
+        # The crawl job is capped at 155 minutes below. Leave the crawl a margin
         # for checkout, toolchain setup, the build, the summary and the upload,
-        # exactly as track_jobs.yml budgets 330m of crawl inside a 360m job.
-        if [ "$TIMEOUT_MINUTES" -lt 1 ] || [ "$TIMEOUT_MINUTES" -gt 320 ]; then
-          echo "::error::timeout must be between 1m and 320m to fit inside the shard job's 350 minute cap, got '$CRAWL_TIMEOUT'"
+        # exactly as track_jobs.yml budgets 120m of crawl inside a 155m job.
+        #
+        # The ceiling was 320m, sized for a crawl that had never finished. A
+        # shard cannot legitimately need more than the whole crawl does, and the
+        # whole crawl now takes 945 seconds, so this bounds an accidental
+        # eight-shard dispatch at ~8 x 155 billed minutes instead of ~8 x 350.
+        # Ceiling is 120 and not 135 so the dispatched budget can never EQUAL
+        # the step cap. A crawl killed at the same instant its own --timeout
+        # expires never gets to write its manifest, which is the one thing the
+        # merge needs from a shard that ran out of time.
+        if [ "$TIMEOUT_MINUTES" -lt 1 ] || [ "$TIMEOUT_MINUTES" -gt 120 ]; then
+          echo "::error::timeout must be between 1m and 120m to fit inside the shard crawl step's 135 minute cap and the job's 155, got '$CRAWL_TIMEOUT'"
           exit 1
         fi
 
@@ -294,9 +352,12 @@ jobs:
     name: Crawl shard ${{ matrix.shard }}
     needs: plan
     runs-on: ubuntu-latest
-    # Comfortably above the 320m ceiling the plan job enforces on --timeout,
+    # Comfortably above the 135m ceiling the plan job enforces on --timeout,
     # leaving room for setup, the build, the summary and the artifact upload.
-    timeout-minutes: 350
+    # Mirrors track_jobs.yml's ladder: crawl 120m < step/--timeout ceiling 135m
+    # < job 155m. This number is multiplied by the shard count on every
+    # dispatch, which is why it is the one worth keeping honest.
+    timeout-minutes: 155
     permissions:
       contents: read
     strategy:
@@ -332,6 +393,13 @@ jobs:
 
     - name: Crawl the shard
       id: crawl
+      # Middle rung of this job's ladder, mirroring track_jobs.yml: the plan
+      # job enforces --timeout <= 120m, this bounds the process if it fails to
+      # unwind, and the job's 155m leaves the summary and the artifact upload
+      # room to run afterwards. A shard that times out must still upload the
+      # manifest that says so -- that is what lets the merge fail closed with a
+      # name rather than a silence.
+      timeout-minutes: 135
       env:
         SHARD: ${{ matrix.shard }}
         CRAWL_TIMEOUT: ${{ needs.plan.outputs.timeout }}

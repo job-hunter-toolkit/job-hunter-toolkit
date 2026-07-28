@@ -23,9 +23,10 @@ permissions:
   contents: write
 
 concurrency:
-  # Deliberately NOT cancel-in-progress: killing a five-hour crawl at minute 300
-  # throws the whole day away. The cost is that a manual dispatch queues behind a
-  # scheduled run and checks out master BEFORE the running job commits, so both
+  # Deliberately NOT cancel-in-progress: killing a crawl near its end throws the
+  # whole day away, and that stays true at a 120-minute budget -- it is just
+  # cheaper to be wrong about now. The cost is that a manual dispatch queues
+  # behind a scheduled run and checks out master BEFORE the running job commits, so both
   # runs see a jobs_record.txt without today's row and both clear the pre-crawl
   # duplicate check. That check is therefore treated as an optimisation only; the
   # authoritative one lives in the commit step, after `git fetch`, milliseconds
@@ -37,10 +38,48 @@ jobs:
   report_total_jobs:
     name: Record total job postings
     runs-on: ubuntu-latest
-    # 360 minutes is GitHub's hard per-job ceiling, so this timeout and GitHub's
-    # own kill coincide and give no warning. Everything inside is budgeted to
-    # land well short of it: see the crawl step's own timeout-minutes.
-    timeout-minutes: 360
+    # THE BUDGET LADDER: crawl 120m < step 135m < job 155m.
+    #
+    # It used to be 330 < 340 < 360, sized for a crawl that had never finished.
+    # docs/measurements/2026-07-28-crawl.md is the first complete run this
+    # project has recorded: 1,236,756 postings from 7,931 companies over 8,145
+    # sources in 945 seconds. The old ladder budgeted 330 minutes for 16.
+    #
+    # The arithmetic, so the next person can argue with the multipliers instead
+    # of guessing new ones:
+    #
+    #   measured wall clock                              945 s  =  15.8 min
+    #   x2.0  runner difference                                    31.5 min
+    #   x2.0  registry growth headroom                             63.0 min
+    #   x1.9  bad-night reserve                                   120.0 min
+    #
+    #   runner difference: that run was a 4-vCPU container on ONE IP at
+    #     --concurrency=32, not a GitHub runner. DNS, egress shaping and TLS
+    #     throughput all differ, and a shared Azure egress range is far likelier
+    #     to be 429'd by a board than a lone container is. No post-throughput-fix
+    #     measurement on a runner exists yet -- this multiplier is what stands in
+    #     for it, and it should be replaced by evidence (see below).
+    #   registry growth: covers 8,145 -> ~16,000 sources. Measured elasticity is
+    #     far gentler than that: sources rose 121% between the two runs on 07/28
+    #     and wall clock rose 31%, because the crawl is bound by its slowest
+    #     shared backends and not by source count. So 2.0 is roughly 3x more
+    #     headroom than doubling the registry actually needs.
+    #   bad-night reserve: one platform degraded and retrying through the whole
+    #     backoff ladder, a cold module cache, a slow runner allocation.
+    #
+    # 120m is 7.6x the only end-to-end measurement that exists. That is
+    # deliberately generous: losing a day's row costs more than the minutes do,
+    # and docs/jobs-record.md exists because a wrong point was once believed.
+    #
+    # TIGHTEN THIS ON EVIDENCE, NOT ON FEELING. The crawl step prints its own
+    # budget utilisation to the run summary. After ~7 nights of runner wall
+    # clock, the honest ladder is about 4x the worst observed value.
+    #
+    # On cost: Actions bills elapsed minutes, not reserved ones, so a healthy
+    # night bills the same ~22 minutes under either ladder. What this change
+    # buys is the ceiling on a night that goes wrong -- a crawl that fails to
+    # unwind now costs ~155 minutes instead of the full 360.
+    timeout-minutes: 155
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v5
@@ -59,30 +98,77 @@ jobs:
 
     - name: Count job postings
       id: count
-      # The crawl gets 330m, this step gets 340m, and the job gets 360m. The gap
-      # is what pays for apt-get, gnuplot, the commit and up to five push
-      # attempts. Before this, --timeout=350m under a 360m job cap left under ten
-      # minutes for all of that once setup had run first.
-      timeout-minutes: 340
+      # The crawl gets 120m, this step gets 135m, and the job gets 155m. The
+      # ladder and its arithmetic are documented on the job's timeout-minutes.
+      #
+      # The 15m step-over-crawl gap is absorbency for the crawl's own unwind,
+      # not for the guards below -- those are awk and arithmetic and take
+      # seconds. The unwind is bounded: every wait in internal/httpx is
+      # context-aware and backoff clamps Retry-After to 30s, so a cancelled
+      # crawl drains in seconds. 15m is there so that if it ever does not, this
+      # step dies with the job still holding 20 minutes to commit whatever the
+      # crawl already wrote.
+      timeout-minutes: 135
       env:
         PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.preview }}
         ALLOW_LEVEL_SHIFT: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_level_shift }}
         # Absolute floors. The series has never legitimately dipped below 537
         # sources, so 100 is a wide margin that still catches a crawl which died
         # after a handful of boards.
+        #
+        # RE-CHECKED at the new scale (7,931 companies, 1,236,756 postings) and
+        # deliberately LEFT ALONE. These two numbers are not the working guard --
+        # the relative floors below are, and those scale themselves. The only
+        # path on which these are the last line of defence is an
+        # allow_level_shift dispatch, which is a human explicitly saying "record
+        # this collapse". The 11/07/22 precedent for that is a drop to 22,332
+        # postings, so any absolute floor tight enough to be meaningful at
+        # today's scale would also have refused the one level shift the project
+        # agrees was real. Wide is the correct shape here.
         MIN_POSTINGS: "1000"
         MIN_SOURCES: "100"
         # Relative floors, as a percentage of the last recorded value. These
         # exist because --allow-partial removed the only thing that used to stop
         # a five-minute network blip from becoming a permanent data point.
+        #
+        # RE-CHECKED at the new scale, and note what changed underneath them.
+        # Against a 7,931-company row the source floor is 4,759 and the posting
+        # floor is 618,378. The floors are unchanged but the CORRELATED FAILURE
+        # UNIT grew faster than the registry did: the SMB lanes are thousands of
+        # tiny tenants sharing one limiter key each, so a single platform
+        # stalling now removes 9-19% of all companies at once (breezy 1,492,
+        # oraclecloud 1,203, teamtailor 988, personio 970, successfactors 717).
+        # Two such platforms failing together is survivable; three trips the
+        # source floor while still holding ~94% of the postings, because those
+        # 3,450 SMB sources are only 5.8% of the corpus.
+        #
+        # That asymmetry is left in place ON PURPOSE. Loosening the source floor
+        # to absorb it would re-open exactly the hole --allow-partial opened, and
+        # the recovery from a refused row is a re-run or a deliberate
+        # allow_level_shift dispatch, both cheap now that a crawl is 16 minutes.
+        # A hole is recoverable; a wrong point is not. The proximity warning
+        # below exists so the ratchet is visible before it bites.
         MIN_POSTINGS_PCT: "50"
         MIN_SOURCES_PCT: "60"
+        # Warn (never fail) within this many percentage points of a relative
+        # floor, so a night that nearly lost the row says so in the summary.
+        FLOOR_WARN_MARGIN_PCT: "10"
+        # Warn (never fail) when postings more than Nx the last recorded value.
+        # There is a floor against collapse and nothing at all against
+        # INFLATION, which is the direction the errors found on 07/28 actually
+        # ran: Phenom's Lowe's board turned out to be a front end onto the same
+        # Workday tenant and counted 5,103 postings twice. 3x is above the
+        # largest legitimate jump in the series (473,304 -> 1,236,756 is 2.6x)
+        # and far below a double-count of a major lane. It is a warning and not
+        # a floor because real registry growth genuinely looks like this, and no
+        # heuristic about growth is worth refusing a good row over.
+        MAX_POSTINGS_GROWTH: "3"
       run: |
         set -euo pipefail
 
         ARTIFACT_DATE=$(date "+%Y-%m-%d")
         # Only a GUESS of the date the row will carry: `total` stamps the row
-        # with time.Now() at crawl END (main.go), up to 330 minutes after this
+        # with time.Now() at crawl END (main.go), up to 120 minutes after this
         # line runs. The real value is read back off total.txt below. The preview
         # path is the exception -- it deliberately plots the current crawl as
         # tomorrow's point, so it keeps this computed date.
@@ -95,8 +181,8 @@ jobs:
 
         echo "artifact_date=$ARTIFACT_DATE" >> "$GITHUB_OUTPUT"
 
-        # Cheap early exit so a re-run of a finished day does not burn six hours
-        # of runner time. A `partial` row is NOT a reason to skip: the old guard
+        # Cheap early exit so a re-run of a finished day does not re-crawl 8,145
+        # sources for nothing. A `partial` row is NOT a reason to skip: the old guard
         # matched any row for the date, so the first observation of a day won
         # permanently and every deadline day was locked to a diamond even when a
         # re-run would have finished. Rows written before status tracking have no
@@ -118,8 +204,19 @@ jobs:
         # Retain a deadline snapshot only when it is explicitly labelled
         # partial. The plot renders partial observations as isolated diamonds,
         # never as part of the completed-crawl trend line.
+        # --timeout is the crawl's own budget and the innermost rung of the
+        # ladder documented on the job's timeout-minutes. It must stay strictly
+        # below this step's timeout-minutes, which must stay strictly below the
+        # job's: the crawl has to be able to stop itself, write its manifest and
+        # hand the row to the commit step rather than be killed holding it.
+        #
+        # --concurrency is deliberately NOT passed. internal/all.go pins
+        # DefaultConcurrency at 64 with its own reasoning about file descriptors
+        # on a 4-vCPU runner; the measurement behind this budget ran at 32, and
+        # 64 is a wider pool against the same per-service caps, so it cannot be
+        # slower than the number the budget was derived from.
         if ! ./job-hunter-toolkit total \
-          --timeout=330m \
+          --timeout=120m \
           --allow-partial \
           --manifest=crawl-manifest.json \
           --log-level=info \
@@ -203,8 +300,15 @@ jobs:
           if [ "$PREV_SOURCES" -gt 0 ]; then
             FLOOR=$(( PREV_SOURCES * MIN_SOURCES_PCT / 100 ))
             if [ "$SOURCES" -lt "$FLOOR" ]; then
-              echo "::error::coverage collapsed: $SOURCES sources against $PREV_SOURCES recorded previously (floor $FLOOR). Re-run, or dispatch with allow_level_shift if this drop is intended."
+              echo "::error::coverage collapsed: $SOURCES sources against $PREV_SOURCES recorded previously (floor $FLOOR). The crawl diagnostics artifact lists every source's terminal status -- a whole shared-limiter platform going missing looks like this. Re-run, or dispatch with allow_level_shift if this drop is intended."
               exit 1
+            fi
+            # Non-fatal proximity warning. The floor is a percentage of a value
+            # that has grown 4.5x in a day, so how much slack is actually left
+            # is no longer something anyone can hold in their head.
+            WARN_FLOOR=$(( PREV_SOURCES * ( MIN_SOURCES_PCT + FLOOR_WARN_MARGIN_PCT ) / 100 ))
+            if [ "$SOURCES" -lt "$WARN_FLOOR" ]; then
+              echo "::warning::coverage is close to the floor: $SOURCES sources against $PREV_SOURCES previously (floor $FLOOR, warn $WARN_FLOOR). The row was recorded; check which sources went missing before it becomes a refusal."
             fi
           fi
           if [ "$PREV_POSTINGS" -gt 0 ]; then
@@ -213,6 +317,20 @@ jobs:
               echo "::error::postings collapsed: $POSTINGS against $PREV_POSTINGS recorded previously (floor $FLOOR). Re-run, or dispatch with allow_level_shift if this drop is intended."
               exit 1
             fi
+            WARN_FLOOR=$(( PREV_POSTINGS * ( MIN_POSTINGS_PCT + FLOOR_WARN_MARGIN_PCT ) / 100 ))
+            if [ "$POSTINGS" -lt "$WARN_FLOOR" ]; then
+              echo "::warning::postings are close to the floor: $POSTINGS against $PREV_POSTINGS previously (floor $FLOOR, warn $WARN_FLOOR). The row was recorded."
+            fi
+          fi
+        fi
+
+        # Inflation warning, deliberately outside the allow_level_shift branch:
+        # a human disabling the collapse floors is not saying anything about a
+        # count that went UP. Never fatal -- see MAX_POSTINGS_GROWTH above.
+        if [ "$PREV_POSTINGS" -gt 0 ]; then
+          CEILING=$(( PREV_POSTINGS * MAX_POSTINGS_GROWTH ))
+          if [ "$POSTINGS" -gt "$CEILING" ]; then
+            echo "::warning::postings jumped more than ${MAX_POSTINGS_GROWTH}x: $POSTINGS against $PREV_POSTINGS previously. Recorded anyway, because registry growth looks like this too -- but a board that is a front end onto another board also looks like this, and that has happened here. Check the diagnostics before trusting the jump."
           fi
         fi
 
@@ -256,6 +374,13 @@ jobs:
       # defensive and non-fatal, and the row it once endangered is no longer
       # written until the commit step anyway.
       continue-on-error: true
+      env:
+        # Kept in step with the crawl's --timeout above. This is what turns the
+        # ladder from a guess into something that can be tightened on evidence:
+        # every night now prints how much of its budget it actually used, so
+        # after a week there is a runner-measured worst case to size against
+        # instead of the container measurement plus a multiplier.
+        CRAWL_BUDGET_MINUTES: "120"
       run: |
         if [ ! -f crawl-manifest.json ]; then
           echo "No crawl manifest was produced." >> "$GITHUB_STEP_SUMMARY"
@@ -305,6 +430,20 @@ jobs:
                 f"{terminal:,} of {planned:,} sources reached a terminal state "
                 f"({coverage:.1%}).\n\n"
             )
+            # Budget utilisation, printed every night so the ladder on this
+            # job's timeout-minutes can eventually be sized against runner
+            # evidence rather than against a container measurement times a
+            # multiplier. Guarded like everything else here: a missing or
+            # unparseable budget prints nothing rather than raising.
+            budget_minutes = number(os.environ.get("CRAWL_BUDGET_MINUTES"), 0.0)
+            if budget_minutes > 0 and duration > 0:
+                used = duration / 60 / budget_minutes
+                lines.append(
+                    f"Used **{duration / 60:,.1f} of {budget_minutes:,.0f} budgeted minutes "
+                    f"({used:.1%})**. Record this before tightening the budget ladder; "
+                    f"the current one is sized from a container measurement, not a runner.\n\n"
+                )
+
             lines.append("| Source outcome | Count |\n| --- | ---: |\n")
             for status in ("complete", "failed", "truncated", "stopped", "running", "planned"):
                 lines.append(f"| {status} | {number(counts.get(status)):,} |\n")
@@ -398,8 +537,10 @@ jobs:
         # a Python summarizer and gnuplot before committing, either of which
         # could -- and, for weeks, did -- end the job with the number unsaved.
         for attempt in 1 2 3 4 5; do
-          # The checkout is up to six hours stale by now and master takes commits
-          # all day, so a bare push is a non-fast-forward waiting to happen.
+          # The checkout is up to two and a half hours stale by now and master
+          # takes commits all day, so a bare push is a non-fast-forward waiting
+          # to happen. A shorter crawl narrows that window; it does not close
+          # it, and this loop is not an optimisation that a fast crawl retires.
           git fetch --quiet origin master
 
           # Rebuild the change on top of the fetched tip rather than rebasing our
@@ -409,7 +550,7 @@ jobs:
           # untracked total.txt and crawl-manifest.json, the only inputs needed.
           git reset --quiet --hard FETCH_HEAD
 
-          # THE authoritative duplicate check. The pre-crawl one ran six hours and
+          # THE authoritative duplicate check. The pre-crawl one ran a crawl and
           # one fetch ago against a different clock, and a queued second run in
           # the same concurrency group clears it too. This one reads the real tip
           # immediately before the write.

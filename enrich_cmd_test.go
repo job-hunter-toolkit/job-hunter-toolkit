@@ -8,6 +8,7 @@ import (
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/enrich"
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/services"
 	"github.com/shoenig/test/must"
 	"github.com/spf13/cobra"
 )
@@ -65,12 +66,36 @@ func TestCompanyCommandRejectsTermsThatMatchNoSource(t *testing.T) {
 // TestCompanyCommandListsUnknownSources: the absence of a record is the common
 // case, so "which of my shortlist do I have no context for" is a first-class
 // question rather than an inference from silence.
+// The company it asks about is derived from the registry and the table rather
+// than named here. This test used to hardcode "cloudflare", which was unmatched
+// only because the committed table had no rows at all; the first real generator
+// run matched Cloudflare, as it should, and the assertion failed. A test whose
+// subject is chosen by the data cannot go stale that way, and cannot pass
+// vacuously either, since it skips rather than asserting nothing when every
+// source turns out to be matched.
 func TestCompanyCommandListsUnknownSources(t *testing.T) {
 	t.Parallel()
 
-	stdout, _, err := runCompany(t, "--unknown", "cloudflare")
+	table, err := enrich.Default()
 	must.NoError(t, err)
-	must.StrContains(t, stdout, "cloudflare")
+
+	company := ""
+
+	for _, source := range services.Builtin {
+		if _, ok := table.For(internal.PostingSource{Platform: source.Platform, Key: source.Key}); !ok {
+			company = source.Company
+
+			break
+		}
+	}
+
+	if company == "" {
+		t.Skip("every registered source has a reviewed record, so there is no unknown to list")
+	}
+
+	stdout, _, err := runCompany(t, "--unknown", company)
+	must.NoError(t, err)
+	must.StrContains(t, stdout, company)
 
 	// One line per source, "company<TAB>platform/key", so it pipes into cut.
 	for line := range strings.Lines(strings.TrimSpace(stdout)) {

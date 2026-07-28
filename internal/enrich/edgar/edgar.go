@@ -27,6 +27,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -78,12 +79,29 @@ type tickerRecord struct {
 	Title  string  `json:"title"`
 }
 
-// CompanyTickers fetches the seed file.
+// CompanyTickers fetches the seed file, one Filer per CIK.
 //
 // One request for every public filer, rather than one request per company this
 // project crawls. At ~2,131 sources that is the difference between a single
 // megabyte-sized download and 2,131 paced requests, which at EDGAR's rate limit
 // would be more than five minutes of pure waiting before any useful work began.
+//
+// # One CIK, many rows
+//
+// The file is keyed by row number and carries one row per *ticker*, not per
+// filer. Measured on 2026-07-28: 10,432 rows, 8,017 distinct CIKs. 1,471 CIKs
+// appear more than once, because share classes, preferred series, warrants and
+// ADRs each get their own row under the same CIK — CIK 1652044 is four rows
+// (GOOGL, GOOG, GOOGM, GOOGN) and CIK 70858 is seventeen.
+//
+// Returning those as separate entities is not a cosmetic problem: [resolve]
+// accepts a match only when a source proposes exactly one entity, so a company
+// with two share classes proposed two and was refused as "ambiguous" against
+// itself. That cost 22 correct matches in the first live run — Alphabet, Block,
+// BuzzFeed, Aurora Innovation, GeneDx and Eve among them — and filled the review
+// queue with 44 rows whose stated reason named the very entity they were about.
+// So the rows are collapsed here, at the edge, rather than left for every
+// consumer to rediscover.
 func CompanyTickers(ctx context.Context, client *http.Client) ([]Filer, error) {
 	var records map[string]tickerRecord
 
@@ -91,18 +109,32 @@ func CompanyTickers(ctx context.Context, client *http.Client) ([]Filer, error) {
 		return nil, fmt.Errorf("fetching SEC company tickers: %w", err)
 	}
 
-	filers := make([]Filer, 0, len(records))
+	byCIK := make(map[string]rankedFiler, len(records))
 
-	for _, record := range records {
+	for key, record := range records {
 		if record.CIK == 0 {
 			continue
 		}
 
-		filers = append(filers, Filer{
-			CIK:    PadCIK(int(record.CIK)),
-			Ticker: strings.TrimSpace(record.Ticker),
-			Name:   strings.TrimSpace(record.Title),
-		})
+		candidate := rankedFiler{
+			row: rowIndex(key),
+			filer: Filer{
+				CIK:    PadCIK(int(record.CIK)),
+				Ticker: strings.TrimSpace(record.Ticker),
+				Name:   strings.TrimSpace(record.Title),
+			},
+		}
+
+		if existing, ok := byCIK[candidate.filer.CIK]; ok && !candidate.beats(existing) {
+			continue
+		}
+
+		byCIK[candidate.filer.CIK] = candidate
+	}
+
+	filers := make([]Filer, 0, len(byCIK))
+	for _, ranked := range byCIK {
+		filers = append(filers, ranked.filer)
 	}
 
 	// Map iteration order is random, and the generator's output must be a
@@ -111,6 +143,53 @@ func CompanyTickers(ctx context.Context, client *http.Client) ([]Filer, error) {
 	slices.SortFunc(filers, func(a, b Filer) int { return strings.Compare(a.CIK, b.CIK) })
 
 	return filers, nil
+}
+
+// rankedFiler is one row of the seed file together with its position in it.
+type rankedFiler struct {
+	filer Filer
+	row   int
+}
+
+// beats reports whether r is the row this project should keep for its CIK.
+//
+// The earliest row wins, and that is a real rule rather than an arbitrary one:
+// SEC orders company_tickers.json so a filer's primary listing comes before its
+// secondary classes, preferred series, warrants and F-share ADRs. Measured on
+// the 2026-07-28 file, taking the first row yields CMCSA for Comcast, GOOGL for
+// Alphabet, BRK-B for Berkshire, CAJPY for Canon and BZLFY for Bunzl — in each
+// case the security a person means by the company's name.
+//
+// The obvious alternative, shortest ticker, was tried first and is wrong: it
+// picks CCZ over CMCSA (a tracking security), CHSCL over CHSCP and CAJFF over
+// CAJPY (illiquid F-shares over the traded ADR). The two rules disagree on 209
+// of the 1,471 multi-ticker CIKs, so this is not a hypothetical difference.
+//
+// Ties go to the lower ticker so the choice never depends on map iteration
+// order. The generator's output is reviewed as a diff, and a tie broken by
+// iteration order would rewrite rows on every run for no reason.
+func (r rankedFiler) beats(other rankedFiler) bool {
+	if r.row != other.row {
+		return r.row < other.row
+	}
+
+	return r.filer.Ticker < other.filer.Ticker
+}
+
+// rowIndex reads the position of a record from its key.
+//
+// company_tickers.json is a JSON object whose keys are stringified row numbers,
+// so the key carries the file's ordering — which encoding/json otherwise throws
+// away when it decodes into a map. A key that is not a number keeps its record
+// but sorts last, because an unrecognised key is exactly the case where the
+// ordering cannot be trusted to mean anything.
+func rowIndex(key string) int {
+	index, err := strconv.Atoi(strings.TrimSpace(key))
+	if err != nil || index < 0 {
+		return math.MaxInt
+	}
+
+	return index
 }
 
 // Submission is the subset of a filer's submissions document this project uses.

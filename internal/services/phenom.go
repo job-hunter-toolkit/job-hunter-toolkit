@@ -49,17 +49,13 @@ var PhenomCompanies = []string{
 	"careers.dupont.com",
 	"careers.humana.com",
 	"careers.itw.com",
-	"careers.kbr.com",
 	"careers.mccain.com",
 	"careers.molsoncoors.com",
 	"careers.oreillyauto.com",
 	"careers.pentair.com",
 	"careers.ppg.com",
-	"careers.southwestair.com",
 	"careers.united.com",
-	"careers.zimmerbiomet.com",
 	"jobs.bechtel.com",
-	"talent.lowes.com",
 }
 
 // phenomSearchResults is the subset of a Phenom People search-results page's
@@ -217,6 +213,47 @@ func phenomCompanyName(host string) string {
 	return labels[len(labels)-2]
 }
 
+// phenomPostingURL returns the link for one posting on a Phenom tenant.
+//
+// It is the tenant's OWN job-detail route, built from "jobId", and deliberately
+// not the posting's "applyUrl".
+//
+// # Why applyUrl is wrong here
+//
+// A Phenom career site is a front end. For most tenants the application itself
+// is handled by a different ATS, and "applyUrl" points at that other system --
+// measured 2026-07-28 by reading the first page of all 14 tenants in
+// [PhenomCompanies]: 9 published a Workday URL, 2 a SuccessFactors URL, 1 a
+// Taleo URL, and only 2 (mccain, molsoncoors) published no applyUrl at all. So
+// yielding applyUrl made this adapter emit another platform's URL for 12 of 14
+// tenants, on postings whose [internal.PostingSource] says "phenom".
+//
+// That is not merely untidy, it defeats deduplication. [internal.Dedupe] keys on
+// URL, and a Phenom applyUrl onto Workday is the Workday posting URL with
+// "/apply" appended, so the two routes to one opening never collapse. It cost
+// 5,103 postings on Lowe's (see deletedDoubleCountRoutes in
+// double_count_test.go) and, measured the same day, 1,556 more on KBR, which is
+// registered on both platforms right now: 1,556 of careers.kbr.com's 1,558
+// distinct URLs were exactly a registered Workday URL plus "/apply", and zero
+// matched it as written.
+//
+// The tenant's own route is the honest answer and needs no extra request: the
+// job-detail page reads only the ID segment of the path, and all 14 tenants
+// published a non-empty, per-posting-distinct jobId on every row of a 100-row
+// page. Six were fetched end to end and every canonical URL answered 200 with
+// the posting's own title rendered.
+//
+// applyUrl remains the fallback so that a tenant which ever omits jobId keeps a
+// link rather than being dropped, which is what this project's contract that
+// every posting carries an openable URL requires.
+func phenomPostingURL(company string, job phenomJob) string {
+	if id := strings.TrimSpace(job.JobID); id != "" {
+		return fmt.Sprintf("https://%s/us/en/job/%s", company, id)
+	}
+
+	return strings.TrimSpace(job.ApplyURL)
+}
+
 // Phenom returns the job postings for a company hosted on Phenom People.
 //
 // company is a Phenom tenant's hostname (e.g. "careers.southwestair.com"),
@@ -268,18 +305,7 @@ func Phenom(ctx context.Context, httpClient *http.Client, company string) intern
 				}
 
 				titleStr := strings.TrimSpace(job.Title)
-				urlStr := strings.TrimSpace(job.ApplyURL)
-
-				if urlStr == "" && job.JobID != "" {
-					// Some tenants handle applications on the Phenom site
-					// itself rather than an external ATS, so "applyUrl" is
-					// absent for them entirely; it is not merely empty on
-					// individual postings. The job detail route only looks
-					// at the ID segment of the path (verified live: a wrong
-					// or missing title slug still resolves), so this always
-					// reaches the posting.
-					urlStr = fmt.Sprintf("https://%s/us/en/job/%s", company, job.JobID)
-				}
+				urlStr := phenomPostingURL(company, job)
 
 				if titleStr == "" || urlStr == "" {
 					continue

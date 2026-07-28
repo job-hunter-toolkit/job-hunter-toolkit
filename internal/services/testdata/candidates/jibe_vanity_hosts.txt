@@ -71,6 +71,7 @@ careers.clarkpest.com   # 1231 live; alias of careers.orkin.com
 careers.cnb.com   # 198 live; registered
 careers.comed.com   # 93 live; alias of exeloncorp
 careers.confluencehealth.org   # Confluence Health; 178 live; registered
+careers.costco.com   # 26369 live; alias of the registered bare slug "costco"; host-isolated, so registering it INSTEAD would let its 264 pages fan out four at a time and leave the shared jibeapply.com key
 careers.covenanthealthcare.com   # 106 live; registered
 careers.cranepestcontrol.com   # 1231 live; alias of careers.orkin.com
 careers.crittercontrol.com   # 1231 live; alias of careers.orkin.com
@@ -78,6 +79,7 @@ careers.crowley.com   # 57 live; registered
 careers.delmarva.com   # 93 live; alias of exeloncorp
 careers.designerbrandscanada.com   # 52 live; alias of designerbrands.jibeapply.com
 careers.docusign.com   # 311 live; registered
+careers.dollargeneral.com   # 88854 live; alias of the registered bare slug "dollargeneral"; host-isolated, so registering it INSTEAD would let its 889 pages fan out four at a time and leave the shared jibeapply.com key
 careers.doyon.com   # 67 live; registered
 careers.einsteinmed.edu   # Albert Einstein College of Medicine; 36 live; alias of einstein
 careers.emera.com   # 18 live; registered
@@ -182,6 +184,7 @@ careers.tkcholdings.com   # 266 live; registered
 careers.tompkinsfinancial.com   # 36 live; registered
 careers.trinityservicesgroup.com   # Trinity Services Group; 266 live; alias of careers.tkcholdings.com
 careers.trutechinc.com   # 1231 live; alias of careers.orkin.com
+careers.ulta.com   # 10089 live; alias of the registered bare slug "ulta"; host-isolated, so registering it INSTEAD would let its 101 pages fan out four at a time and leave the shared jibeapply.com key
 careers.usa.skanska.com   # Skanska USA; 220 live; registered
 careers.usoncology.com   # US Oncology Network, TX; 855 live; registered
 careers.versiti.org   # 123 live; registered

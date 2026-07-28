@@ -5,14 +5,21 @@
 [![go report](https://goreportcard.com/badge/github.com/job-hunter-toolkit/job-hunter-toolkit)](https://goreportcard.com/report/github.com/job-hunter-toolkit/job-hunter-toolkit)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/pulls)
 
-The job hunter's toolkit. Searches the job boards of over 1,500 companies
-directly, across the major applicant tracking systems, and prints the results as
-text, JSON, or CSV.
+The job hunter's toolkit. Searches the job boards of nearly 8,000 companies
+directly, across 22 applicant tracking systems, and prints the results as text,
+JSON, or CSV.
 
 It talks to the same public board APIs that companies' own careers pages use, so
 postings come from the source rather than from an aggregator. Coverage spans
 hospital systems, universities, retailers, manufacturers, and banks as well as
-tech companies; a full crawl reaches well over a hundred thousand postings.
+tech companies, and reaches the hourly and skilled-trade work most job sites
+index poorly: Home Depot alone publishes 22,899 store and hourly roles through
+BrassRing against 972 corporate roles through Workday.
+
+A full crawl measured on 2026-07-28 returned **1,236,756 postings from 7,931
+companies in under sixteen minutes**, with 8,136 of 8,145 sources completing.
+See [docs/measurements](docs/measurements/2026-07-28-crawl.md) for the method and
+the per-platform costs.
 
 ## Install
 
@@ -39,8 +46,8 @@ Available Commands:
 
 ### Finding postings
 
-Filters are the point: a full crawl returns well over a hundred thousand
-postings, which is only useful once you can narrow it.
+Filters are the point: a full crawl returns over 1.2 million postings, which is
+only useful once you can narrow it.
 
 ```console
 $ job-hunter-toolkit postings --remote --title "security engineer"

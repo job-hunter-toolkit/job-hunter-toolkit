@@ -30,11 +30,45 @@ default binary: no CGO, no required state, no daemon.
 | `data/wages.tsv` | (no generator yet) | yes | wage benchmark distributions; schema only, empty |
 | `data/candidates.tsv` | the generator | no | the review queue: matches that were refused, and why |
 
-**Both employer tables are currently header-only.** No generator run against the
-live sources has happened: it needs outbound network access, which only GitHub
-Actions has. Rows will not be invented to make the files look populated — a
-fabricated CIK or headcount is indistinguishable from a real one once it is in
-the table, which is exactly the failure this design exists to prevent.
+`employers.tsv` was first generated from live sources on **2026-07-28**: 248
+matches from 6,620 crawled sources, 8,017 SEC filers seen, 0 failed submission
+fetches, 164 rows decorated from Wikidata. `manual.tsv` is still header-only,
+because nothing has been confirmed by hand and promoted into it yet.
+
+Rows are never invented to make the files look populated — a fabricated CIK or
+headcount is indistinguishable from a real one once it is in the table, which is
+exactly the failure this design exists to prevent.
+
+### Known-bad rows in the current table
+
+A hand audit of that first run found **ten wrong matches out of 248 (~4%)**. They
+are listed in full below rather than quietly deleted, because deleting them by
+hand would be undone by the next run and would hide the reason they exist.
+
+| Source | Matched to | Actually |
+| --- | --- | --- |
+| `workday` `wf.wd1…/WellsFargoJobs` | WF Holding Ltd (Malaysia) | Wells Fargo |
+| `oraclecloud` `citizens,hcgn.fa.us2…` | CITIZENS, INC. (Austin life insurer) | Citizens Financial Group |
+| `teamtailor` `sinclair` | Sinclair, Inc. (SBGI, US broadcaster) | Sinclair, the aesthetics company |
+| `teamtailor` `mks` | MKS Inc. (ex-MKS Instruments) | MKS PAMP |
+| `teamtailor` `esg` | ESG Inc. (OTC, Chadds Ford PA) | European Sales Group |
+| `greenhouse` `nmi` | NMI Holdings (mortgage insurance) | NMI, the payments gateway |
+| `peopleforce` `team` | TEAM INC (NYSE: TISI) | PeopleForce's own careers page |
+| `ashby` `post` | Post Holdings (cereal) | Post, a remote software company |
+| `personio` `dynamix` | Dynamix Corp (a SPAC) | Dynamix, an IT services firm |
+| `greenhouse` `glow` | Glow Holdings, Inc. (dormant shell) | unknown; the board has no postings |
+
+Every one is a name collision the resolver cannot see: an acronym (`wf`, `mks`,
+`nmi`, `esg`) or an ordinary English word (`team`, `post`, `glow`, `citizens`)
+that happens to be spelled the same as a filer. They are all *unique* matches, so
+the "unique in both directions" rule accepts them; uniqueness turns out to be a
+weaker guarantee than the rule's name suggests.
+
+Name equality on its own is therefore **not** sufficient evidence, and the fix is
+not a longer stopword list. It needs a second, independent corroborating fact —
+the board's own domain against the filer's, say — which nothing in the pipeline
+fetches today. Until then, treat a row whose `legal_name` reduces to one short or
+common word as unreviewed.
 
 ## Sources, licences, attribution
 
@@ -58,6 +92,16 @@ go run ./tools/enrichgen -out internal/enrich/data -contact ops@example.com
 The contact is mandatory and the generator refuses to run without one. It can
 also come from `JHT_ENRICH_CONTACT`, which is how a workflow should supply it so
 it does not end up in a command line in a log.
+
+**The contact must be an email address, not this project's repository URL.**
+Measured against `data.sec.gov` on 2026-07-28: EDGAR answers 403 "Your Request
+Originates from an Undeclared Automated Tool" to *any* User-Agent containing the
+string `github`, and 200 to the same header with `gitlab.com` or `example.com`
+substituted. The generator used to build its agent by appending the contact to
+`httpx.DefaultUserAgent`, which embeds this project's GitHub URL, so every EDGAR
+request it made was refused — which is why the tables stayed empty even though
+the workflow above had network access. `fetch.UserAgent` now sends its own
+product token and rejects a contact containing `github` up front.
 
 The run writes `employers.tsv` and `candidates.tsv` and touches nothing else. It
 refuses to write anything at all if most of its SEC fetches failed, because that

@@ -1,0 +1,15 @@
+# candidates.tsv -- REVIEW QUEUE, generated 2026-07-28. Nothing here is used by the binary.
+#
+# Each row is a match the generator considered and refused, with the reason.
+# To accept one: confirm it by hand, then add a row for it to manual.tsv with
+# match_method=manual and match_confidence=high. Do not paste rows into
+# employers.tsv; the next run overwrites that file.
+platform	key	company	cik	entity_name	ticker	method	confidence	why
+greenhouse	digitalocean98	digitalocean98	0001582961	DigitalOcean Holdings, Inc.	DOCN	edgar-exact-key	medium	matched only after trimming trailing digits from the tenant key; confirm by hand
+greenhouse	upstart	upstart	0001647639	Upstart Holdings, Inc.	UPST	edgar-exact-name	medium	contested: teamtailor/upstart13 also matches this entity under a different name
+jobvite	paloaltonetworks	paloaltonetworks	0001327567	Palo Alto Networks Inc	PANW	edgar-exact-key	medium	contested: smartrecruiters/PaloAltoNetworks2 also matches this entity under a different name
+smartrecruiters	Chubb2	Chubb2	0000896159	Chubb Ltd	CB	edgar-exact-key	medium	matched only after trimming trailing digits from the tenant key; confirm by hand
+smartrecruiters	PaloAltoNetworks2	PaloAltoNetworks2	0001327567	Palo Alto Networks Inc	PANW	edgar-exact-key	medium	contested: jobvite/paloaltonetworks also matches this entity under a different name
+teamtailor	upstart13	upstart13	0001647639	Upstart Holdings, Inc.	UPST	edgar-exact-key	medium	contested: greenhouse/upstart also matches this entity under a different name
+workday	https://target.wd5.myworkdayjobs.com/targetcareers	target	0000027419	TARGET CORP	TGT	edgar-exact-name	medium	ambiguous: this source also matches Target Group Inc.
+workday	https://target.wd5.myworkdayjobs.com/targetcareers	target	0001586554	Target Group Inc.	CBDY	edgar-exact-name	medium	ambiguous: this source also matches TARGET CORP

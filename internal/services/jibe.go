@@ -532,11 +532,40 @@ func jibeCompensation(posting jibePosting) *internal.Compensation {
 	}
 }
 
+// jibeApplyURL returns a posting's link, resolved against the board it came from
+// when the board published a relative one.
+//
+// "apply_url" is usually absolute, and usually points at a different system:
+// iCIMS for most tenants, but also Workday, BrassRing, Taleo, Oracle Cloud and
+// ADP. That is the platform's shape and this adapter has no alternative, since
+// the search payload carries no link of its own — "slug" is the requisition
+// number, not a path.
+//
+// A minority are root-relative. Measured on 2026-07-28 across a 685,000-posting
+// crawl, 4,249 postings — every one of them FedEx — carried "apply_url" as
+// "/freight-apply/apply/POSTING-3-958978" with no scheme or host. Those were
+// stored verbatim, so this project published 4,249 postings whose URL cannot be
+// opened at all, breaking the contract that every posting carries a link a
+// person can follow. Nothing noticed, because a relative path is neither empty
+// nor a duplicate: it passes the guard below and is unique in [internal.Dedupe].
+//
+// The board's own host is the right base, verified live: the FedEx path above
+// answers 200 at https://fedex.jibeapply.com and 404 at careers.fedex.com.
+func jibeApplyURL(key, applyURL string) string {
+	link := strings.TrimSpace(strings.ReplaceAll(applyURL, "http://", "https://"))
+
+	if strings.HasPrefix(link, "/") && !strings.HasPrefix(link, "//") {
+		return "https://" + jibeHost(key) + link
+	}
+
+	return link
+}
+
 // jibePosting converts one decoded search result into a posting, reporting false
 // when the board left out something a job seeker needs.
 func jibeJobPosting(company, key string, item jibePosting) (*internal.JobPosting, bool) {
 	var (
-		link     = strings.TrimSpace(strings.ReplaceAll(item.ApplyURL, "http://", "https://"))
+		link     = jibeApplyURL(key, item.ApplyURL)
 		title    = strings.TrimSpace(item.Title)
 		location = strings.TrimSpace(item.FullLocation)
 	)
@@ -818,19 +847,26 @@ func Jibe(ctx context.Context, httpClient *http.Client, key string) internal.Job
 
 		plan := jibePagesAfter(first.TotalCount, len(first.Jobs))
 
+		var live bool
+
 		switch {
 		case plan.known && len(plan.pages) == 0:
 			// The board's own total says the first page was all of it.
-			return
+			live = true
 		case plan.known && jibeHostIsolated(key):
-			jibeFanOut(ctx, cancel, httpClient, key, baseURL, plan.pages, repeated, emit, yield)
+			live = jibeFanOut(ctx, cancel, httpClient, key, baseURL, plan.pages, repeated, emit, yield)
 		default:
-			jibeSequential(ctx, httpClient, key, baseURL, len(first.Jobs), first.TotalCount, repeated, emit, yield)
+			live = jibeSequential(ctx, httpClient, key, baseURL, len(first.Jobs), first.TotalCount, repeated, emit, yield)
 		}
 
 		// A board cut short by the caller's cancellation returned partial
 		// results. Say so, rather than let a truncated employer look complete.
-		if err := parentCtx.Err(); err != nil {
+		//
+		// Gated on live, which reports that nothing has already ended this
+		// iterator. Without it a consumer that stopped early during a cancelled
+		// crawl would be yielded to after returning false, which panics, and a
+		// cancellation that emit had already reported would be reported twice.
+		if err := parentCtx.Err(); live && err != nil {
 			yield(nil, err)
 		}
 	}
@@ -841,6 +877,9 @@ func Jibe(ctx context.Context, httpClient *http.Client, key string) internal.Job
 // This is the path for every *.jibeapply.com tenant, and for any board that
 // reported no usable total. It stops on the board's own total, on a short page,
 // on a repeated page, and finally on [jibeMaxPages].
+//
+// It reports whether the iterator is still live: false once an error has been
+// yielded or the consumer has stopped, so the caller does not yield again.
 func jibeSequential(
 	ctx context.Context,
 	httpClient *http.Client,
@@ -849,11 +888,11 @@ func jibeSequential(
 	repeated func(*jibeJobs) bool,
 	emit func(*jibeJobs) bool,
 	yield func(*internal.JobPosting, error) bool,
-) {
+) bool {
 	// fetched is counted in the units totalCount uses: postings the search
 	// matched, not postings this adapter considered complete enough to yield.
 	if total > jibePageSize && fetched >= total {
-		return
+		return true
 	}
 
 	for page := 2; page <= jibeMaxPages; page++ {
@@ -861,25 +900,31 @@ func jibeSequential(
 		if err != nil {
 			yield(nil, err)
 
-			return
+			return false
 		}
 
-		if len(next.Jobs) == 0 || repeated(next) || !emit(next) {
-			return
+		if len(next.Jobs) == 0 || repeated(next) {
+			return true
+		}
+
+		if !emit(next) {
+			return false
 		}
 
 		fetched += len(next.Jobs)
 
 		if next.TotalCount > jibePageSize && fetched >= next.TotalCount {
-			return
+			return true
 		}
 
 		if len(next.Jobs) < jibePageSize {
-			return
+			return true
 		}
 	}
 
 	yield(nil, fmt.Errorf("refusing to keep paginating Jibe for company %q: the board was still serving full pages after %d pages of %d", key, jibeMaxPages, jibePageSize))
+
+	return false
 }
 
 // jibeFanOut fetches the given page numbers with bounded concurrency, handing
@@ -890,6 +935,9 @@ func jibeSequential(
 // prefetching runs at most [jibeVanityPageFetchers] pages ahead of the consumer
 // instead of buffering a whole board in memory, and the iterator does not return
 // until every fetcher has exited.
+//
+// It reports whether the iterator is still live, on the same contract as
+// [jibeSequential].
 func jibeFanOut(
 	ctx context.Context,
 	cancel context.CancelFunc,
@@ -899,7 +947,7 @@ func jibeFanOut(
 	repeated func(*jibeJobs) bool,
 	emit func(*jibeJobs) bool,
 	yield func(*internal.JobPosting, error) bool,
-) {
+) bool {
 	type pageResult struct {
 		doc *jibeJobs
 		err error
@@ -991,7 +1039,7 @@ func jibeFanOut(
 			stop()
 			yield(nil, result.err)
 
-			return
+			return false
 		}
 
 		if len(result.doc.Jobs) == 0 {
@@ -1011,7 +1059,9 @@ func jibeFanOut(
 		if !emit(result.doc) {
 			stop()
 
-			return
+			return false
 		}
 	}
+
+	return true
 }

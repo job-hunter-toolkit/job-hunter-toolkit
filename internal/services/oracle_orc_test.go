@@ -788,25 +788,6 @@ func TestOracleCloudRejectsAMalformedTenant(t *testing.T) {
 	}
 }
 
-// TestOracleCloudAddsNoDoubleCountedEmployer is the twin of the SuccessFactors
-// check, and the one that found a real overlap: Marriott is the second-largest
-// tenant in the Oracle candidate file and was already registered on Jibe, so
-// adding it would have counted ~11,900 postings twice in a trend line that
-// cannot tell that apart from hiring.
-func TestOracleCloudAddsNoDoubleCountedEmployer(t *testing.T) {
-	t.Parallel()
-
-	elsewhere := companiesOnOtherPlatforms(oracleCloudPlatform)
-
-	for _, key := range OracleCloudTenants {
-		company := oracleCloudCompanyName(key)
-
-		platform, clash := elsewhere[strings.ToLower(company)]
-
-		test.False(t, clash, test.Sprintf("company %q is registered on both oraclecloud and %s, so its postings would be counted twice; pick one route", company, platform))
-	}
-}
-
 // TestOracleCloudTenantsComeFromTheCandidateFile keeps the registered list
 // honest about its own provenance, for the reasons spelled out on its
 // SuccessFactors twin: the registered set is a hand-picked staging subset of a

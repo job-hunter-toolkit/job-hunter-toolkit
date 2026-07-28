@@ -350,7 +350,6 @@ var AshbyHQCompanies = []string{
 	"sardine",
 	"sciencelogic",
 	"seconddinner",
-	"secureframe",
 	"semgrep",
 	"semperis",
 	"sentra",

@@ -377,12 +377,55 @@ func ServicePolicyForHost(host string, defaultLimit int) ServicePolicy {
 // servicePolicyFor captures only platform behavior verified in this project.
 // Unknown hosts get the generic exact-host policy instead of being guessed into
 // a shared bucket.
+// sharedBackendHosts maps a hostname to the limiter key it should share.
+//
+// Every other shared backend in this file is recognised by a suffix, because the
+// vendor puts its tenants on its own domain. Some platforms do the opposite:
+// the tenant keeps its own brand domain and points it at the vendor, so there is
+// no suffix to match and the hostnames have nothing textually in common.
+// Measured 2026-07-28, www.att.jobs and jobs.veolia.com both resolve to
+// 23.215.11.242 and careers.munichre.com to 23.215.11.240 -- one backend behind
+// twenty-nine unrelated domains.
+//
+// The list lives in the adapter that owns those hosts and is registered here at
+// init, rather than being copied into this file. internal/shard already
+// established why: a second hand-maintained list drifts from the first, and the
+// drift shows up as a rate-limit problem, which is the hardest kind to diagnose.
+var sharedBackendHosts = map[string]string{}
+
+// RegisterSharedBackend declares that the given hosts are one backend behind
+// different names, and must therefore share a limiter key.
+//
+// It is called from an adapter's init, before any request is made, and is not
+// safe to call concurrently with a crawl. Registering a host that genuinely has
+// its own infrastructure is the expensive mistake here: it would throttle
+// unrelated employers to four requests between them, which is the error
+// TestTenantIsolatedBackendsStayIndependent exists to prevent. Register only
+// what has been shown to share a backend.
+func RegisterSharedBackend(key string, hosts ...string) {
+	for _, host := range hosts {
+		sharedBackendHosts[strings.ToLower(host)] = key
+	}
+}
+
 func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 	host := strings.ToLower(req.URL.Hostname())
 	policy := servicePolicy{
 		key:           strings.ToLower(req.URL.Host),
 		maxConcurrent: defaultLimit,
 		cooldown:      5 * time.Second,
+	}
+
+	// Checked before the suffix arms below, since a registered host is a
+	// statement of measured fact about infrastructure and nothing in the switch
+	// can know better.
+	if key, ok := sharedBackendHosts[host]; ok {
+		policy.key = key
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
+
+		return policy
 	}
 
 	// The min(defaultLimit, N) caps below are ceilings, not targets. N is what
@@ -448,7 +491,8 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 	case strings.HasSuffix(host, ".teamtailor.com"),
 		strings.HasSuffix(host, ".recruitee.com"),
 		strings.HasSuffix(host, ".pinpointhq.com"),
-		strings.HasSuffix(host, ".jobs.personio.de"):
+		strings.HasSuffix(host, ".jobs.personio.de"),
+		strings.HasSuffix(host, ".breezy.hr"):
 		// Four SMB platforms that give every tenant its own subdomain on one
 		// shared backend, exactly like bamboohr.com and peopleforce.io above.
 		// The generic policy keys on the exact host, so without this each
@@ -473,6 +517,21 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 		// limiter table, so a shared backend stays whole on one runner and
 		// parallelism comes from the tenant-isolated platforms instead.
 		policy.key = registrableSuffix(host)
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
+	case host == "sjobs.brassring.com":
+		// One hostname serves every BrassRing customer, so the generic
+		// exact-host key is already the right grouping and the only thing
+		// missing is pacing. It is named explicitly rather than left to fall
+		// through because the generic policy applies no interval at all, and an
+		// unpaced burst against a single host shared by every tenant on the
+		// platform is the shape that got 56 Workable boards rate-limited into
+		// looking dead.
+		//
+		// Paced like the other single-host platforms rather than like a
+		// tenant-isolated one: this is not a per-employer budget, it is the
+		// whole platform's.
 		policy.maxConcurrent = min(defaultLimit, 4)
 		policy.interval = 25 * time.Millisecond
 		policy.cooldown = 10 * time.Second
