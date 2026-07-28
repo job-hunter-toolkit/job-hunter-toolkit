@@ -436,7 +436,8 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 	case strings.HasSuffix(host, ".teamtailor.com"),
 		strings.HasSuffix(host, ".recruitee.com"),
 		strings.HasSuffix(host, ".pinpointhq.com"),
-		strings.HasSuffix(host, ".jobs.personio.de"):
+		strings.HasSuffix(host, ".jobs.personio.de"),
+		strings.HasSuffix(host, ".breezy.hr"):
 		// Four SMB platforms that give every tenant its own subdomain on one
 		// shared backend, exactly like bamboohr.com and peopleforce.io above.
 		// The generic policy keys on the exact host, so without this each
@@ -461,6 +462,21 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 		// limiter table, so a shared backend stays whole on one runner and
 		// parallelism comes from the tenant-isolated platforms instead.
 		policy.key = registrableSuffix(host)
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
+	case host == "sjobs.brassring.com":
+		// One hostname serves every BrassRing customer, so the generic
+		// exact-host key is already the right grouping and the only thing
+		// missing is pacing. It is named explicitly rather than left to fall
+		// through because the generic policy applies no interval at all, and an
+		// unpaced burst against a single host shared by every tenant on the
+		// platform is the shape that got 56 Workable boards rate-limited into
+		// looking dead.
+		//
+		// Paced like the other single-host platforms rather than like a
+		// tenant-isolated one: this is not a per-employer budget, it is the
+		// whole platform's.
 		policy.maxConcurrent = min(defaultLimit, 4)
 		policy.interval = 25 * time.Millisecond
 		policy.cooldown = 10 * time.Second
