@@ -54,9 +54,7 @@ var PhenomCompanies = []string{
 	"careers.oreillyauto.com",
 	"careers.pentair.com",
 	"careers.ppg.com",
-	"careers.southwestair.com",
 	"careers.united.com",
-	"careers.zimmerbiomet.com",
 	"jobs.bechtel.com",
 }
 

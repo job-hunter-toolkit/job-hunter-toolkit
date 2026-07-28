@@ -108,6 +108,23 @@ const (
 // The sameEmployer rows this list used to carry are gone, because the routes
 // they described are gone: see [deletedDoubleCountRoutes], which is where a
 // resolved overlap lands and what stops the deleted route coming back.
+//
+// # What this map cannot see
+//
+// It is keyed on company name, so it only catches an employer whose two routes
+// are named the same. A pair named differently on each side is invisible to it,
+// and that is not hypothetical: the Phenom/Workday duplicate for Southwest
+// Airlines was registered as "southwestair" against "swa", and the
+// Phenom/SuccessFactors one for Zimmer Biomet as "zimmerbiomet" against
+// "zimmerin01". Both were real -- 15 and 362 postings counted twice -- and both
+// were found by a URL audit rather than by this test, which stayed green
+// throughout. They are recorded in [deletedDoubleCountRoutes].
+//
+// Closing that gap properly means comparing boards rather than names, which is
+// a crawl and not a unit test. docs/dedupe-audit.md is the periodic sweep that
+// does it, and tools/dedupeprobe is what runs it. This map remains worth having
+// for the case it does catch: a name collision is the cheap half of the problem
+// and the half a new registration is most likely to introduce.
 var reviewedDoubleCounts = map[string]struct {
 	verdict doubleCountVerdict
 	note    string
@@ -242,6 +259,16 @@ var reviewedDoubleCounts = map[string]struct {
 // cheaper-platform tie-break would have saved is 1.3 s per 1,000 postings, which
 // over 267 postings is about a third of a second.
 var deletedDoubleCountRoutes = map[string]string{
+	"phenom/careers.southwestair.com": "measured 2026-07-28: phenom 18 postings, workday swa.wd1 43, zero raw " +
+		"URL overlap but 15 of the 18 phenom URLs are exactly a workday URL plus \"/apply\". Kept workday, " +
+		"which returns the larger board. Invisible to reviewedDoubleCounts because that map keys on company " +
+		"name and these two sides are named southwestair and swa",
+	"phenom/careers.zimmerbiomet.com": "measured 2026-07-28: phenom 376, successfactors zimmerin01 373, " +
+		"362 of 365 career_job_req_id values shared. No URL rule reaches this one -- phenom published " +
+		"career8.successfactors.com/careers?...loginFlowRequired&career_os&_s.crb=... where the " +
+		"successfactors adapter publishes /career?...career_job_req_id&career_ns: different path, extra " +
+		"params, different order. Kept successfactors, the employer's own ATS. Also invisible to " +
+		"reviewedDoubleCounts, which keys on name: zimmerbiomet against zimmerin01",
 	"phenom/careers.kbr.com": "measured 2026-07-28: 1,556 of careers.kbr.com's 1,558 distinct URLs are " +
 		"exactly a registered kbr.wd5.myworkdayjobs.com URL with \"/apply\" appended, and zero match one as " +
 		"written, so internal.Dedupe never collapsed them. Same shape as Lowe's: the Phenom site is a front " +
