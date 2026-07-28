@@ -1,0 +1,121 @@
+# ============================================================================
+# IBM/Kenexa BrassRing "Talent Gateway" (modern TGnewUI) gateways.
+# One `slug,partnerid,siteid[,host]` line per gateway (# = comment).
+#   slug      -> the human-facing employer key, and the display name
+#   partnerid -> the gateway's BrassRing partner id (from the careers URL)
+#   siteid    -> the specific Talent Gateway / site id (from the careers URL)
+#   host      -> optional; defaults to sjobs.brassring.com (a few use krb-sjobs)
+#
+# PROBED 2026-07-28. 33 of these 46 pairs are now registered in
+# internal/services/brassring.go.
+#
+# Every pair was POSTed once to
+#   https://<host>/TGnewUI/Search/Ajax/ProcessSortAndShowMoreJobs
+# with {"partnerId","siteId","keyword":"","location":"","activeFacetCategories":
+# [],"selectedFacets":[],"pageNumber":"1","pageSize":"50"}, sequentially with a
+# 1.5s pause, because sjobs.brassring.com is one shared backend for every
+# gateway and every page is a real server-side search.
+#
+# Result, measured and not estimated:
+#
+#   ok      34   JobsCount > 0                          63,825 postings
+#   empty   12   HTTP 200, JobsCount 0, "Job": []
+#
+# 33 of the 34 are registered; "nats" is not, see below. The 33 published
+# 63,819 postings at probe time, about 50 per HTTP request.
+#
+# Provenance of the 46: 30 come from dtunkelang/job-search
+# slugs/brassring_tenants.txt (its "(~N)" annotations are kept verbatim below as
+# that curator's counts, dated 2026-06); 16 more were recovered from web search
+# of sjobs/krb-sjobs careers URLs and probed the same way.
+#
+# TWO CLAIMS IN docs/research/ats-platform-survey.md DID NOT SURVIVE THE PROBE,
+# and both matter for how a health check should classify this platform:
+#
+#   1. "A wrong partner/site pair answers HTTP 500 (not an empty feed)" is only
+#      half true. A pair that is not a gateway at all (99999/99999) does answer
+#      500 with an HTML error page. But a real gateway that has been retired or
+#      has nothing published answers HTTP 200 with JobsCount 0 and an empty
+#      "Job" array — 12 of the 46 did exactly that, including three the upstream
+#      list had verified live six weeks earlier (cdmsmith, lockheedmartin,
+#      trinnex). So 500 means "no such gateway" and 200-with-zero means "nothing
+#      published", and only the first is a transcription error.
+#   2. The survey's "one other implementation uses PowerSearchJobs, which DOES
+#      need a CSRF token + cookie" reads as though ProcessSortAndShowMoreJobs
+#      might need one too. It does not. Establishing a session by GETting
+#      /TGnewUI/Search/Home/Home first and replaying its cookies returned
+#      byte-identical results to sending the POST cold, on every gateway tried.
+#
+# A third correction is recorded on the adapter rather than here: "lastupdated"
+# is not always "17-Jun-2026". Three formats are live — that one, "07/27/2026"
+# (5 gateways) and "27/07/2026" (1 UK gateway) — and the last two are the same
+# eight characters meaning different dates.
+#
+# NOT REGISTERED although live: nats,30041,5722,krb-sjobs.brassring.com (6
+# postings). All six share the title "Trainee Air Traffic Controller" and carry
+# formtext4 values of "Test", "TEST", "1 Test Fail" and "Positive Test (all
+# pass)". docs/adding-a-source.md calls that out as a sandbox artefact rather
+# than a board.
+#
+# Promotion rule, gated on content and not on status code: keep a pair whose
+# page-1 POST answers 200 with JobsCount > 0 and a non-empty Jobs.Job array
+# whose members carry a "jobtitle" question and an https "Link" — which is
+# exactly what internal/services/brassring.go needs to emit a posting. All 34
+# live gateways carried both on all 1,506 postings captured.
+# ============================================================================
+
+# --- live 2026-07-28, registered. The trailing count is JobsCount at probe
+#     time; where an upstream annotation exists it is given after it.
+
+homedepot,25526,5032                           # The Home Depot (23,965 live; upstream ~24,041)
+walgreens,26336,5014                           # Walgreens (21,035 live; upstream ~18,373)
+bestbuy,25632,5649                             # Best Buy (2,088 live; upstream ~1,657)
+northropgrumman,16030,6090                     # Northrop Grumman (2,008 live; upstream ~1,885)
+baesystems,25771,5464                          # BAE Systems (1,860 live; upstream ~1,773)
+infosys,25633,5439                             # Infosys (1,502 live; upstream ~1,226)
+harborfreight,26281,6657                       # Harbor Freight (1,488 live; upstream ~1,365)
+performancefoodgroup,26350,6930                # Performance Food Group (1,354 live; upstream ~1,453)
+teamhealth,26628,5691                          # TeamHealth (1,174 live; upstream ~1,185)
+hobbylobby,25879,5295                          # Hobby Lobby (1,167 live; upstream ~902)
+boots,30042,5807,krb-sjobs.brassring.com       # Boots UK (1,123 live; upstream ~975)
+generalatomics,25539,5313                      # General Atomics (737 live; upstream ~670)
+edwardjones,26235,5374                         # Edward Jones (707 live; upstream ~699)
+adm,25416,5998                                 # Archer Daniels Midland (500 live; upstream ~525)
+bechtel,26639,5507                             # Bechtel (433 live; upstream ~351)
+publix,26173,5197                              # Publix (373 live; upstream ~380)
+guess,25813,5079                               # GUESS? (351 live; upstream ~318)
+aafes,25212,6065                               # Army & Air Force Exchange Service (288 live; upstream ~340)
+bostonchildrens,368,5205                       # Boston Children's Hospital (256 live; upstream ~266)
+peacecorps,25332,5414                          # Peace Corps (239 live)
+highlandhospital,25940,5203                    # Highland Hospital (212 live; upstream ~200)
+ussteel,25307,5238                             # United States Steel (183 live; upstream ~194)
+unitypointmeriter,25790,5084                   # UnityPoint Health-Meriter (142 live; upstream ~123)
+unitypoint,25790,5083                          # UnityPoint Health (140 live; upstream ~120)
+lmcareers,30122,6533,krb-sjobs.brassring.com   # "LM Careers" (employer unconfirmed) (128 live)
+texastech,25898,5635                           # Texas Tech University System (125 live; upstream ~126)
+ukansas,25752,5542                             # University of Kansas (91 live; upstream ~95)
+dollarbank,25950,5192                          # Dollar Bank (50 live; upstream ~47)
+marketsource,26223,5359                        # MarketSource (39 live; upstream ~44)
+texastechfaculty,25898,5637                    # Texas Tech University (faculty gateway) (28 live)
+ucsf,6495,5861                                 # UCSF (11 live; upstream ~251)
+srns,25264,5259                                # Savannah River Nuclear Solutions (11 live; upstream ~38)
+mardel,25879,5298                              # Mardel (11 live; upstream ~13)
+
+# --- live but NOT registered (sandbox content, see the header):
+# nats,30041,5722,krb-sjobs.brassring.com      # NATS (6 live)
+
+# --- HTTP 200 with JobsCount 0 on 2026-07-28, none registered. An empty
+#     gateway is not a broken one, but it is also not evidence that a
+#     gateway is live, so these stay here until one answers with postings.
+# ahold,30003,5083,krb-sjobs.brassring.com     # Ahold
+# cdmsmith,25038,5220                          # CDM Smith
+# cerner,25754,5095                            # Cerner
+# harvard,25240,5341                           # Harvard University
+# herbertsmithfreehills,30009,5116,krb-sjobs.brassring.com # Herbert Smith Freehills
+# ibm,26059,5016,krb-sjobs.brassring.com       # IBM
+# kodak,515,251                                # Kodak
+# lockheedmartin,25037,5014                    # Lockheed Martin
+# primark,30055,5837,krb-sjobs.brassring.com   # Primark
+# springfield,25117,5039                       # City of Springfield
+# trinnex,25038,5415                           # Trinnex
+# whsmith,30012,5104,krb-sjobs.brassring.com   # WHSmith
