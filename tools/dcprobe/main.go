@@ -49,6 +49,10 @@ type row struct {
 	URL      string `json:"url"`
 	Title    string `json:"title"`
 	Location string `json:"location"`
+	Comp     any    `json:"comp"`
+	Dept     string `json:"dept"`
+	Type     string `json:"etype"`
+	Remote   any    `json:"remote"`
 }
 
 func main() {
@@ -91,7 +95,7 @@ func main() {
 			continue
 		}
 		n++
-		_ = enc.Encode(row{platform, key, posting.Company, posting.URL, posting.Title, posting.Location})
+		_ = enc.Encode(row{platform, key, posting.Company, posting.URL, posting.Title, posting.Location, posting.Compensation, posting.Department, string(posting.EmploymentType), posting.Remote})
 	}
 
 	fmt.Fprintf(os.Stderr, "%s %s: %d postings, %d errors\n", platform, key, n, errs)
