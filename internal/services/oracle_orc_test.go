@@ -6,8 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,10 +28,11 @@ const oracleCloudTestTenant = "acme,eluq.fa.us2.oraclecloud.com,CX_1"
 // recruitingCEJobRequisitions returns: everything hangs off a single-element
 // "items" array, with the total and the requisitions as siblings inside it.
 //
-// It is built from the documented response shape rather than captured live,
-// because this project's containers cannot reach a job board. The second
-// requisition sends its Id as a JSON number and omits every enrichment field,
-// which is the shape variation that has historically broken adapters here.
+// It is hand-written, and it is kept only for the shape variations the two live
+// captures under testdata do not happen to contain: an Id arriving as a JSON
+// number, a requisition with no enrichment fields at all, and values padded with
+// whitespace. What the API actually sends is settled by
+// TestOracleCloudParsesACapturedLiveSite below, not by this.
 const oracleCloudListFixture = `{
 	"items": [
 		{
@@ -39,9 +43,9 @@ const oracleCloudListFixture = `{
 					"Title": "  Pharmacy Technician  ",
 					"PrimaryLocation": "  Cincinnati, OH  ",
 					"PostedDate": "2026-06-14",
-					"JobType": "Full time",
+					"JobSchedule": "Full time",
 					"WorkplaceTypeCode": "ORA_HYBRID",
-					"JobFunction": "Pharmacy"
+					"Department": "Pharmacy"
 				},
 				{
 					"Id": 18235,
@@ -52,6 +56,21 @@ const oracleCloudListFixture = `{
 		}
 	]
 }`
+
+// oracleCloudFixture reads one of the captured live responses under testdata.
+//
+// Both captures are verbatim except that the requisition list is truncated to
+// its first two entries: a full page is 200 requisitions and ~343 KB, and the
+// 198 dropped ones say nothing the first two do not. Every key and every value
+// that remains is Oracle's own, nulls included.
+func oracleCloudFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	must.NoError(t, err)
+
+	return string(body)
+}
 
 func TestOracleCloudParsesRequisitions(t *testing.T) {
 	t.Parallel()
@@ -76,6 +95,9 @@ func TestOracleCloudParsesRequisitions(t *testing.T) {
 	test.Eq(t, "Pharmacy Technician", technician.Title)
 	test.Eq(t, "Cincinnati, OH", technician.Location)
 	test.Eq(t, "Pharmacy", technician.Department)
+
+	// From JobSchedule. JobType, which this adapter used to read instead, was
+	// populated on none of the 6,780 requisitions sampled from live tenants.
 	test.Eq(t, internal.EmploymentTypeFullTime, technician.EmploymentType)
 
 	// ORA_HYBRID is Oracle's genuine three-state workplace field, which a
@@ -194,6 +216,10 @@ func oracleCloudPage(prefix string, count, total int) string {
 
 // oracleCloudOffsetTransport serves pages keyed by the offset inside the finder
 // parameter, which is the only place this API states one.
+//
+// It is mutex-guarded because this adapter fetches pages concurrently
+// ([oracleCloudPageFetchers]); an unguarded counter here would make every
+// pagination test in this file a data race rather than an assertion.
 type oracleCloudOffsetTransport struct {
 	// total is the site's TotalJobsCount, and how many requisitions are served
 	// across all pages.
@@ -208,12 +234,27 @@ type oracleCloudOffsetTransport struct {
 	// requested page size.
 	perPage int
 
+	// window models the platform's measured deep-paging wall: an offset whose
+	// page would reach past it is answered with no requisitions and a zeroed
+	// total, which is what Oracle really does. Zero disables it.
+	window int
+
+	// ignoreOffset serves the identical first page for every offset, which is
+	// the misbehaviour pageRepeatGuard exists to catch.
+	//
+	// The package's shared repeatingPageClient does the same thing, but its
+	// transport counts requests without a lock, which was safe while every
+	// adapter paged serially and is a data race now that this one does not. It
+	// belongs to another adapter's test file, so the behaviour is reproduced
+	// here rather than that helper being changed underneath its owners.
+	ignoreOffset bool
+
+	mu       sync.Mutex
 	requests int
+	offsets  []int
 }
 
 func (o *oracleCloudOffsetTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	o.requests++
-
 	offset := 0
 
 	for _, part := range strings.Split(oracleCloudFinder(req.URL.RawQuery), ",") {
@@ -221,6 +262,11 @@ func (o *oracleCloudOffsetTransport) RoundTrip(req *http.Request) (*http.Respons
 			offset, _ = strconv.Atoi(value)
 		}
 	}
+
+	o.mu.Lock()
+	o.requests++
+	o.offsets = append(o.offsets, offset)
+	o.mu.Unlock()
 
 	count := oracleCloudPageSize
 	if o.perPage > 0 {
@@ -233,7 +279,20 @@ func (o *oracleCloudOffsetTransport) RoundTrip(req *http.Request) (*http.Respons
 		}
 	}
 
-	body := oracleCloudPage(strconv.Itoa(offset)+"-", count, o.total)
+	total := o.total
+
+	// Past the wall Oracle answers HTTP 200 with an empty list AND a zeroed
+	// count, which is indistinguishable from a board with nothing open.
+	if o.window > 0 && offset+oracleCloudPageSize > o.window {
+		count, total = 0, 0
+	}
+
+	prefix := strconv.Itoa(offset) + "-"
+	if o.ignoreOffset {
+		prefix, count = "", oracleCloudPageSize
+	}
+
+	body := oracleCloudPage(prefix, count, total)
 
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -242,6 +301,14 @@ func (o *oracleCloudOffsetTransport) RoundTrip(req *http.Request) (*http.Respons
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Request:    req,
 	}, nil
+}
+
+// count reports how many requests the transport served.
+func (o *oracleCloudOffsetTransport) count() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return o.requests
 }
 
 // TestOracleCloudPaginatesToTheTotal walks a tenant bigger than one page, which
@@ -256,7 +323,7 @@ func TestOracleCloudPaginatesToTheTotal(t *testing.T) {
 
 	must.SliceEmpty(t, errs)
 	test.Len(t, oracleCloudPageSize+30, postings)
-	test.Eq(t, 2, transport.requests)
+	test.Eq(t, 2, transport.count())
 }
 
 // TestOracleCloudStopsOnTheReportedTotal covers the cheaper of the two stopping
@@ -271,7 +338,7 @@ func TestOracleCloudStopsOnTheReportedTotal(t *testing.T) {
 
 	must.SliceEmpty(t, errs)
 	test.Len(t, oracleCloudPageSize, postings)
-	test.Eq(t, 1, transport.requests)
+	test.Eq(t, 1, transport.count())
 }
 
 // TestOracleCloudKeepsWalkingPastAServerSidePageCap guards against the quietest
@@ -294,7 +361,7 @@ func TestOracleCloudKeepsWalkingPastAServerSidePageCap(t *testing.T) {
 	// 50 + 50 + 30: the offset advances by what each page actually held, so no
 	// row is skipped and none is fetched twice.
 	test.Len(t, 130, postings)
-	test.Eq(t, 3, transport.requests)
+	test.Eq(t, 3, transport.count())
 
 	seen := make(map[string]bool, len(postings))
 	for _, posting := range postings {
@@ -312,35 +379,157 @@ func TestOracleCloudStopsWhenTheSiteIgnoresOffset(t *testing.T) {
 	t.Parallel()
 
 	// A total large enough that the count can never end the walk either.
-	client, transport := repeatingPageClient(oracleCloudPage("", oracleCloudPageSize, 1_000_000))
-
-	postings, errs := drain(OracleCloud(t.Context(), client, oracleCloudTestTenant))
-
-	must.SliceEmpty(t, errs)
-
-	// The first page is served; the second is recognised as a repeat of it and
-	// ends the walk before any of its duplicates are yielded.
-	test.Eq(t, 2, transport.requests)
-	test.Len(t, oracleCloudPageSize, postings)
-}
-
-// TestOracleCloudStopsAtItsPageCeiling covers the backstop for the case a
-// repeated page cannot catch: a site that keeps serving different full pages
-// forever. Hitting the ceiling is reported rather than passed off as the end of
-// a board.
-func TestOracleCloudStopsAtItsPageCeiling(t *testing.T) {
-	t.Parallel()
-
-	transport := &oracleCloudOffsetTransport{total: 1_000_000, distinct: true}
+	transport := &oracleCloudOffsetTransport{total: 1_000_000, ignoreOffset: true}
 
 	postings, errs := drain(OracleCloud(t.Context(), &http.Client{Transport: transport}, oracleCloudTestTenant))
 
-	test.Eq(t, oracleCloudMaxPages, transport.requests)
-	test.Len(t, oracleCloudMaxPages*oracleCloudPageSize, postings)
+	must.SliceEmpty(t, errs)
+
+	// Exactly one page of postings is what matters: the repeat is caught before
+	// any duplicate is yielded, which is what keeps internal.Dedupe from quietly
+	// absorbing them.
+	test.Len(t, oracleCloudPageSize, postings)
+
+	// The request count is a range rather than a number, because pages are
+	// fetched concurrently. The ceiling is reasoned, not fitted: one first page,
+	// plus the oracleCloudPageFetchers that can be in flight when the repeat is
+	// spotted, plus at most one more that the scheduler can start in the window
+	// between a fetcher's slot being released and the stop signal being seen.
+	// What the bound is really asserting is that a tenant ignoring "offset"
+	// costs a handful of requests rather than walking the full 50-page window.
+	test.GreaterEq(t, 2, transport.count())
+	test.LessEq(t, 2+oracleCloudPageFetchers, transport.count())
+	test.Less(t, oracleCloudMaxWindow/oracleCloudPageSize, transport.count())
+}
+
+// TestOracleCloudStopsAtTheDeepPagingWindow is the measured behaviour of the
+// nine candidate tenants with more than 10,000 open requisitions.
+//
+// Oracle refuses offset+limit past oracleCloudMaxWindow and answers with an
+// empty list AND a zeroed TotalJobsCount — an HTTP 200 that looks exactly like a
+// board with nothing open. Bisected live against Kroger, reproduced on Marriott
+// and AutoZone. Two things must hold: the walk stops at the wall rather than
+// spending the rest of the crawl on requests that return nothing, and reaching
+// it is NOT an error, because a truncated 15,000-req employer is still 10,000
+// real postings and flagging it would push the Source Health workflow toward its
+// failure alarm for a platform working as documented.
+func TestOracleCloudStopsAtTheDeepPagingWindow(t *testing.T) {
+	t.Parallel()
+
+	transport := &oracleCloudOffsetTransport{
+		total:  15_119,
+		window: oracleCloudMaxWindow,
+	}
+
+	postings, errs := drain(OracleCloud(t.Context(), &http.Client{Transport: transport}, oracleCloudTestTenant))
+
+	must.SliceEmpty(t, errs)
+
+	// Fifty pages of 200: the last one asked for is offset=9800, whose page ends
+	// exactly on the wall. offset=9900 is never requested, because it is the
+	// request Oracle refuses.
+	test.Len(t, oracleCloudMaxWindow, postings)
+	test.Eq(t, oracleCloudMaxWindow/oracleCloudPageSize, transport.count())
+
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+
+	for _, offset := range transport.offsets {
+		test.LessEq(t, oracleCloudMaxWindow, offset+oracleCloudPageSize,
+			test.Sprintf("offset %d would straddle the deep-paging wall and be answered with nothing", offset))
+	}
+}
+
+// TestOracleCloudStopsAtItsPageCeiling covers the backstop for the case neither
+// a repeated page nor the window can catch: a site inside the window that serves
+// so few rows per page that oracleCloudMaxPages requests do not exhaust it.
+// Hitting that ceiling is reported rather than passed off as the end of a board,
+// because unlike the window it is a shape nobody here has measured.
+func TestOracleCloudStopsAtItsPageCeiling(t *testing.T) {
+	t.Parallel()
+
+	// One row per page inside a 10,000-row window is 10,000 pages' worth of
+	// work, twenty times the backstop.
+	transport := &oracleCloudOffsetTransport{total: 1_000_000, perPage: 1}
+
+	postings, errs := drain(OracleCloud(t.Context(), &http.Client{Transport: transport}, oracleCloudTestTenant))
+
+	test.Eq(t, oracleCloudMaxPages, transport.count())
+	test.Len(t, oracleCloudMaxPages, postings)
 
 	must.Len(t, 1, errs)
 	must.StrContains(t, errs[0].Error(), "acme")
 	must.StrContains(t, errs[0].Error(), "refusing to keep paginating")
+}
+
+// TestOracleCloudFetchesPagesConcurrently is the whole point of the fan-out, and
+// the reason it is correct here and would not be on Greenhouse: Oracle gives
+// every tenant its own Fusion Applications host, so httpx keys the rate limiter
+// per employer and pages of one employer do not queue behind the rest of the
+// platform.
+func TestOracleCloudFetchesPagesConcurrently(t *testing.T) {
+	t.Parallel()
+
+	transport := &oracleCloudConcurrencyTransport{total: oracleCloudPageSize * 12}
+
+	postings, errs := drain(OracleCloud(t.Context(), &http.Client{Transport: transport}, oracleCloudTestTenant))
+
+	must.SliceEmpty(t, errs)
+	test.Len(t, oracleCloudPageSize*12, postings)
+
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+
+	test.Greater(t, 1, transport.peak, test.Sprint("pages after the first should overlap, not run one at a time"))
+
+	// The bound is the politeness contract: it is deliberately equal to httpx's
+	// per-service limit, so this adapter can never be the reason a tenant sees
+	// more in-flight requests than the limiter allows.
+	test.LessEq(t, oracleCloudPageFetchers, transport.peak)
+}
+
+// oracleCloudConcurrencyTransport records the high-water mark of overlapping
+// requests. Each request blocks briefly so that pages issued together actually
+// overlap in time rather than being serialised by how fast a stub can answer.
+type oracleCloudConcurrencyTransport struct {
+	total int
+
+	mu       sync.Mutex
+	inFlight int
+	peak     int
+}
+
+func (o *oracleCloudConcurrencyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	o.mu.Lock()
+	o.inFlight++
+	o.peak = max(o.peak, o.inFlight)
+	o.mu.Unlock()
+
+	time.Sleep(2 * time.Millisecond)
+
+	defer func() {
+		o.mu.Lock()
+		o.inFlight--
+		o.mu.Unlock()
+	}()
+
+	offset := 0
+
+	for _, part := range strings.Split(oracleCloudFinder(req.URL.RawQuery), ",") {
+		if value, ok := strings.CutPrefix(part, "offset="); ok {
+			offset, _ = strconv.Atoi(value)
+		}
+	}
+
+	count := min(oracleCloudPageSize, max(o.total-offset, 0))
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     http.StatusText(http.StatusOK),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(oracleCloudPage(strconv.Itoa(offset)+"-", count, o.total))),
+		Request:    req,
+	}, nil
 }
 
 // TestOracleCloudStopsWhenTheConsumerDoes guards the iterator contract the
@@ -350,11 +539,11 @@ func TestOracleCloudStopsAtItsPageCeiling(t *testing.T) {
 func TestOracleCloudStopsWhenTheConsumerDoes(t *testing.T) {
 	t.Parallel()
 
-	client, transport := repeatingPageClient(oracleCloudPage("", oracleCloudPageSize, 1_000_000))
+	transport := &oracleCloudOffsetTransport{total: 1_000_000, ignoreOffset: true}
 
 	var seen int
 
-	for range OracleCloud(t.Context(), client, oracleCloudTestTenant) {
+	for range OracleCloud(t.Context(), &http.Client{Transport: transport}, oracleCloudTestTenant) {
 		seen++
 
 		if seen == 5 {
@@ -363,7 +552,11 @@ func TestOracleCloudStopsWhenTheConsumerDoes(t *testing.T) {
 	}
 
 	test.Eq(t, 5, seen)
-	test.Eq(t, 1, transport.requests)
+
+	// The first page is emitted before any fan-out is scheduled, so a consumer
+	// that stops inside it costs exactly one request — the fan-out must not
+	// front-run the pages it is meant to follow.
+	test.Eq(t, 1, transport.count())
 }
 
 // TestOracleCloudReportsAnUnreadableResponse covers the shapes that must never
@@ -567,10 +760,150 @@ func TestOracleCloudTenantsComeFromTheCandidateFile(t *testing.T) {
 	test.Less(t, len(candidates), len(OracleCloudTenants), test.Sprint("the registered list should stay a subset of the candidates"))
 }
 
+// TestOracleCloudParsesACapturedLiveSite is the fixture that decides whether
+// this adapter reads Oracle Recruiting Cloud, as opposed to reading the shape a
+// document said it has. The body is the first page of
+// fa-eomf-saasfaprod1.fa.ocs.oraclecloud.com site CX_1002 (UT Health San
+// Antonio) as captured on 2026-07-28, truncated to two requisitions.
+//
+// What the capture establishes, and what the hand-written fixture above could
+// not:
+//
+//   - Employment type lives in JobSchedule. This adapter was written to read
+//     JobType, from docs/research/ats-platform-survey.md's field list. Across
+//     6,780 requisitions sampled from 1,501 live tenants JobType was populated
+//     zero times, so every registered tenant's employment type was silently
+//     empty while the adapter looked healthy.
+//
+//   - WorkplaceTypeCode is in the LIST response, on 30% of sampled
+//     requisitions. The survey files it under "detail-only fields", which would
+//     have argued for a per-posting request to fetch something already in hand.
+//
+//   - Its live spelling is ORA_ON_SITE, not the ORA_ONSITE the survey and this
+//     adapter's own comment recorded.
+//
+//   - Department is a real list field, and it is more specific than the
+//     JobFunction the adapter used to read.
+func TestOracleCloudParsesACapturedLiveSite(t *testing.T) {
+	t.Parallel()
+
+	const tenant = "uthealthsa,fa-eomf-saasfaprod1.fa.ocs.oraclecloud.com,CX_1002"
+
+	client, transport := fixtureClient(map[string]string{
+		"fa-eomf-saasfaprod1.fa.ocs.oraclecloud.com": oracleCloudFixture(t, "oracle_uthealthsa_requisitions.json"),
+	})
+
+	postings, errs := drain(OracleCloud(t.Context(), client, tenant))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+	must.Len(t, 1, transport.requests)
+
+	first := postings[0]
+
+	test.Eq(t, "uthealthsa", first.Company)
+	test.Eq(t, "Histology Technician-Lead (OHOPD Medicine Dermatology MCC)", first.Title)
+	test.Eq(t, "San Antonio, TX, United States", first.Location)
+	test.Eq(t, "7237", first.ExternalID)
+	test.Eq(t, "O9308 - HOPD Medicine Dermatology MCC", first.Department)
+	test.Eq(t, internal.EmploymentTypeFullTime, first.EmploymentType)
+	test.Eq(t, internal.WorkplaceTypeOnsite, first.WorkplaceType)
+	test.Eq(t, time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC), first.PostedAt)
+
+	test.Eq(t,
+		"https://fa-eomf-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1002/job/7237",
+		first.URL,
+	)
+}
+
+// TestOracleCloudParsesASparseCapturedSite is the other half of the live shape,
+// and the more common one. The body is the first page of
+// eluq.fa.us2.oraclecloud.com site CX_2001 (Kroger, the largest tenant in the
+// candidate file) as captured on 2026-07-28, truncated to two requisitions.
+//
+// Almost every enrichment field is an explicit JSON null on this tenant —
+// WorkplaceTypeCode, JobFunction, Department, JobFamily, JobType, ContractType —
+// which is what the majority of the 1,203 registered tenants look like. Two
+// things have to hold: nulls become absent fields rather than the string "null"
+// or a zero date, and the three fields this project actually needs are still
+// there.
+func TestOracleCloudParsesASparseCapturedSite(t *testing.T) {
+	t.Parallel()
+
+	const tenant = "kroger,eluq.fa.us2.oraclecloud.com,CX_2001"
+
+	client, _ := fixtureClient(map[string]string{
+		"eluq.fa.us2.oraclecloud.com": oracleCloudFixture(t, "oracle_kroger_requisitions.json"),
+	})
+
+	postings, errs := drain(OracleCloud(t.Context(), client, tenant))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	first := postings[0]
+
+	test.Eq(t, "Night Stocker Clerk", first.Title)
+	test.Eq(t, "Montrose, CO, United States", first.Location)
+	test.Eq(t, "203341", first.ExternalID)
+	test.Eq(t, time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC), first.PostedAt)
+
+	// JobSchedule is present where every other enrichment field is null, which
+	// is precisely why reading JobType instead cost this platform its employment
+	// type entirely.
+	test.Eq(t, internal.EmploymentTypePartTime, first.EmploymentType)
+
+	// A JSON null is absent, not a value.
+	test.Eq(t, "", first.Department)
+	test.Eq(t, internal.WorkplaceTypeUnknown, first.WorkplaceType)
+
+	// This capture is the one that carries a TotalJobsCount past the
+	// deep-paging window, and the walk must not treat two requisitions as the
+	// whole of a 15,000-req employer by accident: it stops because the page was
+	// short, having asked for 200.
+	test.Eq(t,
+		"https://eluq.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001/job/203341",
+		first.URL,
+	)
+}
+
+// TestOracleCloudCapturesCarryTheDocumentedFields fails if a capture is
+// re-taken and quietly loses the fields the tests above assert on, which would
+// turn those tests into assertions about nothing.
+func TestOracleCloudCapturesCarryTheDocumentedFields(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string][]string{
+		"oracle_uthealthsa_requisitions.json": {"Id", "Title", "PrimaryLocation", "PostedDate", "JobSchedule", "WorkplaceTypeCode", "WorkplaceType", "Department"},
+		"oracle_kroger_requisitions.json":     {"Id", "Title", "PrimaryLocation", "PostedDate", "JobSchedule", "JobType", "WorkplaceTypeCode"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var envelope struct {
+				Items []struct {
+					TotalJobsCount  int                        `json:"TotalJobsCount"`
+					RequisitionList []map[string]json.RawMessage `json:"requisitionList"`
+				} `json:"items"`
+			}
+
+			must.NoError(t, json.Unmarshal([]byte(oracleCloudFixture(t, name)), &envelope))
+			must.Len(t, 1, envelope.Items)
+			must.Greater(t, 0, envelope.Items[0].TotalJobsCount)
+			must.SliceNotEmpty(t, envelope.Items[0].RequisitionList)
+
+			for _, key := range want {
+				_, ok := envelope.Items[0].RequisitionList[0][key]
+				test.True(t, ok, test.Sprintf("capture %s lost the %q key", name, key))
+			}
+		})
+	}
+}
+
 // TestOracleCloudFixtureMatchesTheDecodedShape keeps the fixture honest: it is
-// the only description of this API in the repository, so a typo in it would be
-// invisible and would make every other test in this file pass against a shape
-// the real service never sends.
+// the only hand-written description of this API in the repository, so a typo in
+// it would be invisible and would make every other test in this file pass
+// against a shape the real service never sends.
 func TestOracleCloudFixtureMatchesTheDecodedShape(t *testing.T) {
 	t.Parallel()
 
