@@ -1,0 +1,274 @@
+{
+ "jobs": [
+  {
+   "data": {
+    "slug": "9291",
+    "language": "en-us",
+    "languages": [
+     "en-us"
+    ],
+    "client_code": "jcpenney",
+    "req_id": "9291",
+    "title": "Store Manager",
+    "location_name": "Thornton, CO",
+    "street_address": "Denver Premium Outlets\n13801 Grant Street, 410-BLDG 4",
+    "city": "Thornton",
+    "state": "Colorado",
+    "country": "United States",
+    "country_code": "US",
+    "postal_code": "80023",
+    "location_type": "LAT_LNG",
+    "latitude": 39.9619,
+    "longitude": -105.0148,
+    "categories": [
+     {
+      "name": "Store Salaried Positions"
+     }
+    ],
+    "tags1": [
+     "Full-Time"
+    ],
+    "tags2": [
+     "USD $47,740.00/Yr."
+    ],
+    "tags3": [
+     "USD $68,200.00/Yr."
+    ],
+    "tags5": [
+     "JCPenney (External)"
+    ],
+    "tags6": [
+     "7/27/2026"
+    ],
+    "brand": "JCPenney",
+    "department": "",
+    "salary_value": 0,
+    "salary_min_value": 0,
+    "salary_max_value": 0,
+    "employment_type": "FULL_TIME",
+    "hiring_organization": "JCPenney",
+    "hiring_organization_logo": "https://jcpenney.icims.com/icims2/servlet/icims2?module=AppInert&action=download&id=58&hashed=1303841142",
+    "source": "JCPenney",
+    "posted_date": "2026-07-27T23:39:00+0000",
+    "apply_url": "https://careers-jcpenney.icims.com/jobs/9291/login",
+    "internal": false,
+    "external": false,
+    "searchable": true,
+    "applyable": true,
+    "li_easy_applyable": true,
+    "ats_code": "icims",
+    "hiring_flow_name": "iCIMS ATS Hiring Flow",
+    "isFrontLineAIJob": false,
+    "meta_data": {
+     "mongo": {
+      "mongo_created": true
+     },
+     "openingjobs": {
+      "openingJobId": "00003bb207f7052e66bf2f2e06bf830f7078"
+     },
+     "icims": {
+      "jps_is_public": true,
+      "primary_posted_site_object": {
+       "site": "careers-jcpenney",
+       "tenantId": "15149",
+       "siteId": "60307ee5-a206-4958-a49a-657b0ffe53ea",
+       "datePosted": "2026-07-27T23:39:00+0000",
+       "siteType": "ATTRACT"
+      },
+      "date_updated": "2026-07-27T23:39:39Z",
+      "config_keys": {
+       "jobposting.external.company.name": "JCPenney",
+       "icims.external.xml.feeds": "icims.indeed.xml.enabled,icims.accessdubuquejobs.xml.enabled,icims.advantageai.xml.enabled,icims.adzuna.xml.enabled,icims.aeroemploiformation.xml.enabled,icims.agefiph.xml.enabled,icims.allyenergy.xml.enabled,icims.almazlabs.xml.enabled,icims.alvius.xml.enabled,icims.apec.xml.enabled,icims.appcast.xml.enabled,icims.astronautjobs.xml.enabled,icims.bayard.xml.enabled,icims.bdssolutions.xml.enabled,icims.breakroom.xml.enabled,icims.bridgeofhope.xml.enabled,icims.calibersourcing.xml.enabled,icims.careerbuilder.xml.enabled,icims.careerarc.xml.enabled,icims.careerjet.xml.enabled,icims.careerlink.xml.enabled,icims.careermd.xml.enabled,icims.careersarabia.xml.enabled,icims.caterer.xml.enabled,icims.cdljobs.xml.enabled,icims.cielotalent.xml.enabled,icims.clearbold.xml.enabled,icims.constructionjobs.xml.enabled,icims.convergesolution.xml.enabled,icims.craigslist.xml.enabled,icims.culinaryagents.xml.enabled,icims.cv-library.xml.enabled,icims.cvaden.xml.enabled,icims.dciconsultinggroup.xml.enabled,icims.dentalpost.xml.enabled,icims.direct-employers.xml.enabled,icims.diversityjobsgroup.xml.enabled,icims.drivemyway.xml.enabled,icims.edtech.xml.enabled,icims.firsthand.xml.enabled,icims.flatworld.xml.enabled,icims.flockity.xml.enabled,icims.foorilla.xml.enabled,icims.getit.xml.enabled,icims.gofigr.xml.enabled,icims.greatdane.xml.enabled,icims.happydance.xml.enabled,icims.haymarket.xml.enabled,icims.hellowork.xml.enabled,icims.hireheroesusa.xml.enabled,icims.hireahero.xml.enabled,icims.hirebase.xml.enabled,icims.hireclix.xml.enabled,icims.hirepurpose.xml.enabled,icims.hiringcafe.xml.enabled,icims.hospitalcareers.xml.enabled,icims.iberempleos.xml.enabled,icims.inautomotive.xml.enabled,icims.inhersight.xml.enabled,icims.intelycare.xml.enabled,icims.interactivesites.xml.enabled,icims.irishjobs.xml.enabled,icims.itjobscafe.xml.enabled,icims.jobbio.xml.enabled,icims.jobboardio.xml.enabled,icims.jobcase.xml.enabled,icims.jobget.xml.enabled,icims.jobgether.xml.enabled,icims.jobsinmaine.xml.enabled,icims.jobsite.xml.enabled,icims.jobted.xml.enabled,icims.jooble.xml.enabled,icims.keloh.xml.enabled,icims.leisurejobs.xml.enabled,icims.tango.xml.enabled,icims.linkedin.xml.enabled,icims.meritbench.xml.enabled,icims.mogul.xml.enabled,icims.monster.xml.enabled,icims.mygwork.xml.enabled,icims.nejoflexco.xml.enabled,icims.nexxt.xml.enabled,icims.nijobs.xml.enabled,icims.nurserecruiter.xml.enabled,icims.offerup.xml.enabled,icims.oilandgas.xml.enabled,icims.oneten.xml.enabled,icims.pallet-labs.xml.enabled,icims.paradox.xml.enabled,icims.powertofly.xml.enabled,icims.practicematch.xml.enabled,icims.prideatwork.xml.enabled,icims.prideatworkcanada.xml.enabled,icims.professionaldiversitynetwork.xml.enabled,icims.propellum.xml.enabled,icims.puck.xml.enabled,icims.qkly.xml.enabled,icims.radancy.xml.enabled,icims.recruitnet.xml.enabled,icims.recruitics.xml.enabled,icims.referio.xml.enabled,icims.regionsjob.xml.enabled,icims.resume-library.xml.enabled,icims.retailappointment.xml.enabled,icims.rssb.xml.enabled,icims.scrubshifts.xml.enabled,icims.shaker.xml.enabled,icims.skillsire.xml.enabled,icims.smartjobboard.xml.enabled,icims.snagajob.xml.enabled,icims.socialhp.xml.enabled,icims.sourceamerica.xml.enabled,icims.stealthstartup.xml.enabled,icims.stylecareers.xml.enabled,icims.tariangroup.xml.enabled,icims.technojobs.xml.enabled,icims.stepstone.xml.enabled,icims.triad.xml.enabled,icims.unpostedjobs.xml.enabled,icims.upward.xml.enabled,icims.vercida.xml.enabled,icims.vivian.xml.enabled,icims.vonq.xml.enabled,icims.webengineering.xml.enabled,icims.webscribble.xml.enabled,icims.welcometothejungle.xml.enabled,icims.werkzoeken.xml.enabled,icims.woodwardcommunications.xml.enabled,icims.wrightmedia.xml.enabled,icims.yesyep.xml.enabled,icims.ziprecruiter.xml.enabled,icims.zippia.xml.enabled",
+       "portal.id": "17",
+       "jobposting.external.parent.organization.name": "JCPenney",
+       "ccc.attract.portal.url": "https://jobs.jcp.com",
+       "icims.config.web.indeed.easy.apply": "1"
+      },
+      "revision_int": 1,
+      "uuid": "0103eaf0-5791-4c55-b7b0-6c21601a15dc"
+     },
+     "ats_job_hash": "96ae5d27dbad52f4fd4c1e85f965fedb",
+     "googlejobs": {
+      "jobName": "projects/helpful-passage-853/tenants/cb22eb5b-7e00-0000-0000-007edad744d3/jobs/102459978584859334"
+     },
+     "import_id": "b53e8b67-91c3-4ca7-bdb8-81c496b29fd1",
+     "redirectOnApply": true,
+     "questionservice": {
+      "id": "45702339"
+     },
+     "canonical_url": "https://jobs.jcp.com/jobs/9291?lang=en-us",
+     "gdpr": false,
+     "last_mod": "2026-07-28T00:41:39+0000",
+     "elasticsearch": {
+      "es_created": false
+     },
+     "opensearch": {
+      "hit_score": "NaN",
+      "hit_explanation": null,
+      "hit_matched_queries": [
+       "internal",
+       "applyable",
+       "term-language",
+       "searchable",
+       "term-client_code"
+      ],
+      "hit_index": "jobs",
+      "hit_shard": null
+     },
+     "import_source": "ImporterService",
+     "client_code": "jcpenney"
+    },
+    "update_date": "2026-07-28T00:41:39+0000",
+    "create_date": "2026-07-27T23:40:33+0000",
+    "category": [
+     " Store Salaried Positions"
+    ],
+    "full_location": "Thornton, Colorado",
+    "short_location": "Thornton, Colorado",
+    "multipleLocations": false
+   }
+  },
+  {
+   "data": {
+    "slug": "9282",
+    "language": "en-us",
+    "languages": [
+     "en-us"
+    ],
+    "client_code": "jcpenney",
+    "req_id": "9282",
+    "title": "Assistant Designer",
+    "location_name": "New York, NY",
+    "street_address": "11 Penn Plaza",
+    "city": "New York",
+    "state": "New York",
+    "country": "United States",
+    "country_code": "US",
+    "postal_code": "10001",
+    "location_type": "LAT_LNG",
+    "latitude": 40.7484,
+    "longitude": -73.9967,
+    "categories": [
+     {
+      "name": "Corporate Positions"
+     }
+    ],
+    "tags1": [
+     "Full-Time"
+    ],
+    "tags2": [
+     "USD $57,200.00/Yr."
+    ],
+    "tags3": [
+     "USD $104,000.00/Yr."
+    ],
+    "tags4": [
+     "Product Development & Sourcing"
+    ],
+    "tags5": [
+     "JCPenney (External)"
+    ],
+    "tags6": [
+     "7/27/2026"
+    ],
+    "brand": "JCPenney",
+    "department": "",
+    "salary_value": 0,
+    "salary_min_value": 0,
+    "salary_max_value": 0,
+    "employment_type": "FULL_TIME",
+    "hiring_organization": "JCPenney",
+    "hiring_organization_logo": "https://jcpenney.icims.com/icims2/servlet/icims2?module=AppInert&action=download&id=58&hashed=1303841142",
+    "source": "JCPenney",
+    "posted_date": "2026-07-27T21:13:00+0000",
+    "apply_url": "https://careers-jcpenney.icims.com/jobs/9282/login",
+    "internal": false,
+    "external": false,
+    "searchable": true,
+    "applyable": true,
+    "li_easy_applyable": true,
+    "ats_code": "icims",
+    "hiring_flow_name": "iCIMS ATS Hiring Flow",
+    "isFrontLineAIJob": false,
+    "meta_data": {
+     "mongo": {
+      "mongo_created": true
+     },
+     "openingjobs": {
+      "openingJobId": "00005600b517614426e676d19893129b51b2"
+     },
+     "icims": {
+      "jps_is_public": true,
+      "primary_posted_site_object": {
+       "site": "careers-jcpenney",
+       "tenantId": "15149",
+       "siteId": "60307ee5-a206-4958-a49a-657b0ffe53ea",
+       "datePosted": "2026-07-27T21:13:00+0000",
+       "siteType": "ATTRACT"
+      },
+      "date_updated": "2026-07-27T21:13:43Z",
+      "config_keys": {
+       "jobposting.external.company.name": "JCPenney",
+       "icims.external.xml.feeds": "icims.indeed.xml.enabled,icims.accessdubuquejobs.xml.enabled,icims.advantageai.xml.enabled,icims.adzuna.xml.enabled,icims.aeroemploiformation.xml.enabled,icims.agefiph.xml.enabled,icims.allyenergy.xml.enabled,icims.almazlabs.xml.enabled,icims.alvius.xml.enabled,icims.apec.xml.enabled,icims.appcast.xml.enabled,icims.astronautjobs.xml.enabled,icims.bayard.xml.enabled,icims.bdssolutions.xml.enabled,icims.breakroom.xml.enabled,icims.bridgeofhope.xml.enabled,icims.calibersourcing.xml.enabled,icims.careerbuilder.xml.enabled,icims.careerarc.xml.enabled,icims.careerjet.xml.enabled,icims.careerlink.xml.enabled,icims.careermd.xml.enabled,icims.careersarabia.xml.enabled,icims.caterer.xml.enabled,icims.cdljobs.xml.enabled,icims.cielotalent.xml.enabled,icims.clearbold.xml.enabled,icims.constructionjobs.xml.enabled,icims.convergesolution.xml.enabled,icims.craigslist.xml.enabled,icims.culinaryagents.xml.enabled,icims.cv-library.xml.enabled,icims.cvaden.xml.enabled,icims.dciconsultinggroup.xml.enabled,icims.dentalpost.xml.enabled,icims.direct-employers.xml.enabled,icims.diversityjobsgroup.xml.enabled,icims.drivemyway.xml.enabled,icims.edtech.xml.enabled,icims.firsthand.xml.enabled,icims.flatworld.xml.enabled,icims.flockity.xml.enabled,icims.foorilla.xml.enabled,icims.getit.xml.enabled,icims.gofigr.xml.enabled,icims.greatdane.xml.enabled,icims.happydance.xml.enabled,icims.haymarket.xml.enabled,icims.hellowork.xml.enabled,icims.hireheroesusa.xml.enabled,icims.hireahero.xml.enabled,icims.hirebase.xml.enabled,icims.hireclix.xml.enabled,icims.hirepurpose.xml.enabled,icims.hiringcafe.xml.enabled,icims.hospitalcareers.xml.enabled,icims.iberempleos.xml.enabled,icims.inautomotive.xml.enabled,icims.inhersight.xml.enabled,icims.intelycare.xml.enabled,icims.interactivesites.xml.enabled,icims.irishjobs.xml.enabled,icims.itjobscafe.xml.enabled,icims.jobbio.xml.enabled,icims.jobboardio.xml.enabled,icims.jobcase.xml.enabled,icims.jobget.xml.enabled,icims.jobgether.xml.enabled,icims.jobsinmaine.xml.enabled,icims.jobsite.xml.enabled,icims.jobted.xml.enabled,icims.jooble.xml.enabled,icims.keloh.xml.enabled,icims.leisurejobs.xml.enabled,icims.tango.xml.enabled,icims.linkedin.xml.enabled,icims.meritbench.xml.enabled,icims.mogul.xml.enabled,icims.monster.xml.enabled,icims.mygwork.xml.enabled,icims.nejoflexco.xml.enabled,icims.nexxt.xml.enabled,icims.nijobs.xml.enabled,icims.nurserecruiter.xml.enabled,icims.offerup.xml.enabled,icims.oilandgas.xml.enabled,icims.oneten.xml.enabled,icims.pallet-labs.xml.enabled,icims.paradox.xml.enabled,icims.powertofly.xml.enabled,icims.practicematch.xml.enabled,icims.prideatwork.xml.enabled,icims.prideatworkcanada.xml.enabled,icims.professionaldiversitynetwork.xml.enabled,icims.propellum.xml.enabled,icims.puck.xml.enabled,icims.qkly.xml.enabled,icims.radancy.xml.enabled,icims.recruitnet.xml.enabled,icims.recruitics.xml.enabled,icims.referio.xml.enabled,icims.regionsjob.xml.enabled,icims.resume-library.xml.enabled,icims.retailappointment.xml.enabled,icims.rssb.xml.enabled,icims.scrubshifts.xml.enabled,icims.shaker.xml.enabled,icims.skillsire.xml.enabled,icims.smartjobboard.xml.enabled,icims.snagajob.xml.enabled,icims.socialhp.xml.enabled,icims.sourceamerica.xml.enabled,icims.stealthstartup.xml.enabled,icims.stylecareers.xml.enabled,icims.tariangroup.xml.enabled,icims.technojobs.xml.enabled,icims.stepstone.xml.enabled,icims.triad.xml.enabled,icims.unpostedjobs.xml.enabled,icims.upward.xml.enabled,icims.vercida.xml.enabled,icims.vivian.xml.enabled,icims.vonq.xml.enabled,icims.webengineering.xml.enabled,icims.webscribble.xml.enabled,icims.welcometothejungle.xml.enabled,icims.werkzoeken.xml.enabled,icims.woodwardcommunications.xml.enabled,icims.wrightmedia.xml.enabled,icims.yesyep.xml.enabled,icims.ziprecruiter.xml.enabled,icims.zippia.xml.enabled",
+       "portal.id": "17",
+       "jobposting.external.parent.organization.name": "JCPenney",
+       "ccc.attract.portal.url": "https://jobs.jcp.com",
+       "icims.config.web.indeed.easy.apply": "1"
+      },
+      "revision_int": 1,
+      "uuid": "8c6e219f-d0a3-416e-a117-b1b1a070c31c"
+     },
+     "ats_job_hash": "47767e27df59c69afba4bbfa763cfc67",
+     "googlejobs": {
+      "jobName": "projects/helpful-passage-853/tenants/cb22eb5b-7e00-0000-0000-007edad744d3/jobs/88377983412118214"
+     },
+     "import_id": "b53e8b67-91c3-4ca7-bdb8-81c496b29fd1",
+     "redirectOnApply": true,
+     "questionservice": {
+      "id": "45700628"
+     },
+     "canonical_url": "https://jobs.jcp.com/jobs/9282?lang=en-us",
+     "gdpr": false,
+     "last_mod": "2026-07-28T00:41:39+0000",
+     "elasticsearch": {
+      "es_created": false
+     },
+     "opensearch": {
+      "hit_score": "NaN",
+      "hit_explanation": null,
+      "hit_matched_queries": [
+       "internal",
+       "applyable",
+       "term-language",
+       "searchable",
+       "term-client_code"
+      ],
+      "hit_index": "jobs",
+      "hit_shard": null
+     },
+     "import_source": "ImporterService",
+     "client_code": "jcpenney"
+    },
+    "update_date": "2026-07-28T00:41:39+0000",
+    "create_date": "2026-07-27T21:14:34+0000",
+    "category": [
+     " Corporate Positions"
+    ],
+    "full_location": "New York, New York",
+    "short_location": "New York, New York",
+    "multipleLocations": false
+   }
+  }
+ ],
+ "locations": [],
+ "totalCount": 6172,
+ "request_id": false,
+ "meta_data": false,
+ "count": 6172,
+ "languageCounts": {
+  "en-us": {
+   "displayName": "English",
+   "count": 6172
+  }
+ }
+}

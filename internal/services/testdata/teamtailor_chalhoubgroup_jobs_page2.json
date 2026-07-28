@@ -1,0 +1,45 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Chalhoub Group",
+  "home_page_url": "https://chalhoubgroup.teamtailor.com/jobs",
+  "feed_url": "https://chalhoubgroup.teamtailor.com/jobs.json",
+  "items": [
+    {
+      "id": "72314d68-82e6-4877-bef4-44c208d678db",
+      "title": "Senior Manager - Administration (Cairo)",
+      "url": "https://chalhoubgroup.teamtailor.com/jobs/7953366-senior-manager-administration-cairo",
+      "date_published": "2026-06-23T08:46:53+04:00",
+      "content_html": "<p>[trimmed]</p>",
+      "_jobposting": {
+        "@context": "http://schema.org/",
+        "@type": "JobPosting",
+        "title": "Senior Manager - Administration (Cairo)",
+        "description": "[trimmed]",
+        "identifier": {
+          "@type": "PropertyValue",
+          "name": "Chalhoub Group",
+          "value": 7953366
+        },
+        "datePosted": "2026-06-23T08:46:53+04:00",
+        "hiringOrganization": {
+          "@type": "Organization",
+          "name": "Chalhoub Group",
+          "sameAs": "https://careers.chalhoubgroup.com"
+        },
+        "jobLocation": [
+          {
+            "@type": "Place",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": null,
+              "addressLocality": "Nasr City",
+              "postalCode": null,
+              "addressCountry": "EG",
+              "addressRegion": "Egypt"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

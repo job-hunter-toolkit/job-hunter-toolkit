@@ -1,0 +1,139 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Leaseweb ",
+  "home_page_url": "https://leaseweb.teamtailor.com/jobs",
+  "feed_url": "https://leaseweb.teamtailor.com/jobs.json",
+  "items": [
+    {
+      "id": "07f2ee9b-7011-4514-809d-2b8e56ce576b",
+      "title": "Sales Account Manager (m/w/d) – Cloud & Hosting Solutions",
+      "url": "https://leaseweb.teamtailor.com/jobs/7323464-sales-account-manager-m-w-d-cloud-hosting-solutions",
+      "date_published": "2026-03-03T14:43:09+01:00",
+      "content_html": "<p>Trimmed for the fixture; see the header comment.</p>",
+      "_jobposting": {
+        "@context": "http://schema.org/",
+        "@type": "JobPosting",
+        "title": "Sales Account Manager (m/w/d) – Cloud & Hosting Solutions",
+        "description": "Trimmed for the fixture.",
+        "identifier": {
+          "@type": "PropertyValue",
+          "name": "Leaseweb ",
+          "value": 7323464
+        },
+        "datePosted": "2026-03-03T14:43:09+01:00",
+        "hiringOrganization": {
+          "@type": "Organization",
+          "name": "Leaseweb ",
+          "sameAs": "https://leaseweb.teamtailor.com"
+        },
+        "baseSalary": {
+          "@type": "MonetaryAmount",
+          "currency": "EUR",
+          "value": {
+            "@type": "QuantitativeValue",
+            "unitText": "YEAR",
+            "minValue": "61220",
+            "maxValue": "90000"
+          }
+        },
+        "jobLocation": [
+          {
+            "@type": "Place",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": "Hanauer Landstraße 121",
+              "addressLocality": "Frankfurt am Main",
+              "postalCode": "60314",
+              "addressCountry": "DE",
+              "addressRegion": "Germany"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "dbf066be-8f87-4ddc-b7ee-228c27920480",
+      "title": "Business Development Manager",
+      "url": "https://leaseweb.teamtailor.com/jobs/7801321-business-development-manager",
+      "date_published": "2026-05-26T00:00:00+02:00",
+      "content_html": "<p>Trimmed for the fixture; see the header comment.</p>",
+      "_jobposting": {
+        "@context": "http://schema.org/",
+        "@type": "JobPosting",
+        "title": "Business Development Manager",
+        "description": "Trimmed for the fixture.",
+        "identifier": {
+          "@type": "PropertyValue",
+          "name": "Leaseweb ",
+          "value": 7801321
+        },
+        "datePosted": "2026-05-26T00:00:00+02:00",
+        "validThrough": "2026-08-28T23:59:59+02:00",
+        "hiringOrganization": {
+          "@type": "Organization",
+          "name": "Leaseweb ",
+          "sameAs": "https://leaseweb.teamtailor.com"
+        },
+        "baseSalary": {
+          "@type": "MonetaryAmount",
+          "currency": "CAD",
+          "value": {
+            "@type": "QuantitativeValue",
+            "unitText": "YEAR",
+            "value": "84000"
+          }
+        },
+        "jobLocation": [
+          {
+            "@type": "Place",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": null,
+              "addressLocality": "Ontario ",
+              "postalCode": null,
+              "addressCountry": "CA",
+              "addressRegion": "Canada"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "9838d763-fea1-4c10-9a3b-a9f14cacac70",
+      "title": "Inside Sales Representative",
+      "url": "https://leaseweb.teamtailor.com/jobs/8085519-inside-sales-representative",
+      "date_published": "2026-07-17T11:30:22+02:00",
+      "content_html": "<p>Trimmed for the fixture; see the header comment.</p>",
+      "_jobposting": {
+        "@context": "http://schema.org/",
+        "@type": "JobPosting",
+        "title": "Inside Sales Representative",
+        "description": "Trimmed for the fixture.",
+        "identifier": {
+          "@type": "PropertyValue",
+          "name": "Leaseweb ",
+          "value": 8085519
+        },
+        "datePosted": "2026-07-17T11:30:22+02:00",
+        "hiringOrganization": {
+          "@type": "Organization",
+          "name": "Leaseweb ",
+          "sameAs": "https://leaseweb.teamtailor.com"
+        },
+        "jobLocation": [
+          {
+            "@type": "Place",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": "Tai Seng Exchange (TSX)",
+              "addressLocality": "Singapore",
+              "postalCode": "536464",
+              "addressCountry": "SG",
+              "addressRegion": "APAC"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

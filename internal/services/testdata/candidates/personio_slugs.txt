@@ -1,32 +1,45 @@
 # ============================================================================
-# CANDIDATES, NOT SOURCES. Nothing in this file is crawled.
+# PROBED 2026-07-28. 968 of these 999 slugs are now registered sources.
 #
 # These 999 Personio career-site subdomains were recovered by a research pass in
-# a container with no outbound access to job boards, so not one of them was
-# probed by this project. docs/adding-a-source.md is explicit that a slug nobody
-# has verified must not be registered, and at this project's fan-out a dead
-# tenant is not free: it burns a request every crawl, reports as a failing
-# source, and enough of them together trip the Source Health workflow's
-# 35%-failure alarm, which is the signal that is supposed to mean a real
-# platform broke.
+# a container with no outbound access to job boards. Every one has since been
+# probed live at https://<slug>.jobs.personio.de/xml?language=en, falling back
+# to the .com host when the .de one did not answer with a feed.
 #
-# 37 slugs from this file's hand-curated head are registered in
-# internal/services/personio.go as PersonioCompanies. The rest are staged here
-# until a CI job — the only place in this project with real network access — can
-# probe them. The sections merged by "discovery/merge.py" carry "?" or an
-# apply-URL guess where the employer name should be; none of those is
-# registered.
+# Result, measured and not estimated:
+#
+#   ok    968   <workzag-jobs> with >=1 <position>          11,920 postings
+#   empty  25   <workzag-jobs> with no positions
+#   dead    6   HTTP 307 to https://personio.com
+#
+# The 968 "ok" slugs are registered in internal/services/personio.go, together
+# with the two previously-registered slugs that answered empty ("circula",
+# "deepset") — docs/adding-a-source.md is explicit that a company not hiring
+# today is not a broken source. The other 23 empty slugs are NOT registered.
+#
+#   dead:   rocycle jotelulu clikalia cobee globus-ai welevel
+#
+# A dead Personio tenant does NOT 404. It answers HTTP 307 to
+# https://personio.com — on .de and .com alike — so a client that follows
+# redirects spends the request on the vendor's marketing site instead. Probing
+# just those six was enough to make personio.com start returning 429.
+# personioFeedDocument now refuses to follow a redirect off the tenant's host.
+#
+# The comment below that "a .com-only tenant would need its own list" is only
+# half right: personioHost() already accepts a full host, so a .com tenant is
+# registered as one. Measured, there are exactly two in 999 — lnds and weclapp
+# — appended at the end of this file as full hosts.
 #
 # Promotion rule, gated on content and not on status code: keep a slug whose
 # https://<slug>.jobs.personio.de/xml answers 200 with a document whose root
 # element is <workzag-jobs> and whose <position> count is above zero. Publishing
 # the feed is a per-tenant switch on this platform, so a tenant that has not
-# enabled it is a live company with no feed, not a dead slug — and the .com
-# tenants noted in the header below need their full host registered rather than
-# a bare label (see personioHost).
+# enabled it is a live company with no feed, not a dead slug.
 #
-# The verification claims and posting counts below are the upstream curator's,
-# dated as annotated. They are recorded as provenance, not endorsed.
+# The employer names and counts on the rows below are the upstream curator's,
+# dated as annotated. They are recorded as provenance, not endorsed, and the
+# rows are left verbatim — the live results are recorded in this header rather
+# than by editing them.
 # ============================================================================
 #
 # Personio career-site subdomains to poll (one per line, # = comment).
@@ -1047,3 +1060,10 @@ publix-ggmbh  # ? (1 live jobs; ~7 in our index) [discovered apply-url]
 gwzo  # ? (1 live jobs; ~3 in our index) [discovered apply-url]
 interrogare-gmbh  # ? (1 live jobs; ~3 in our index) [discovered apply-url]
 kiron  # ? (2 live jobs; ~3 in our index) [discovered apply-url]
+
+# --- measured live 2026-07-28: the two tenants that publish on .com, not .de ---
+# Recorded as full hosts because personioHost() defaults a bare label to
+# .jobs.personio.de. The bare "lnds" and "weclapp" rows above are kept as the
+# research pass wrote them; these are what is registered.
+lnds.jobs.personio.com     # LNDS - Luxembourg National Data Service (13 positions)
+weclapp.jobs.personio.com  # weclapp SE (4 positions)

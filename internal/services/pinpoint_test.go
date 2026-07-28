@@ -2,6 +2,8 @@ package services
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -129,6 +131,130 @@ func TestPinpointParsesPostings(t *testing.T) {
 
 	must.NotNil(t, warehouse.Remote)
 	test.False(t, *warehouse.Remote)
+}
+
+// pinpointFixture reads a response captured from a live Pinpoint board.
+//
+// The capture under testdata is what the board answered with the four HTML
+// blocks removed — description, benefits, key_responsibilities and
+// skills_knowledge_expertise, together about 95% of the bytes, none of which
+// this adapter decodes. Every other key, and every value, is the board's own.
+func pinpointFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	must.NoError(t, err)
+
+	return string(body)
+}
+
+// TestPinpointParsesACapturedLiveBoard is the fixture that decides whether this
+// adapter reads Pinpoint, as opposed to reading the shape a document said
+// Pinpoint has. The body is https://jed.pinpointhq.com/postings.json as
+// captured on 2026-07-28.
+//
+// What the capture establishes, and what the hand-written fixture above cannot:
+//
+//   - compensation_frequency exists. docs/research/ats-platform-survey.md does
+//     not list it and this adapter's own comment used to assert Pinpoint
+//     publishes no period at all. It is present on all 6,406 postings measured
+//     across the platform and populated on 3,002 of the 3,169 that show pay.
+//   - it is load-bearing. The hourly posting here pays 31.25 and the annual ones
+//     pay 105,000 — but a monthly range of 4,500 is indistinguishable from an
+//     annual one by magnitude, and 113 live postings publish exactly that. The
+//     inference [internal.Compensation] falls back to only ever answers hour or
+//     year.
+//   - the money arrives as JSON floats ("105000.0"), and the ids as strings.
+//     pinpointScalar has to absorb both, and a float64 field would have been
+//     fine here and fatal on the first tenant that quoted a figure.
+//   - workplace_type's third state is spelled "onsite". The survey says
+//     "on_site", and no posting on the platform sends that.
+//   - location.city can be a real city while location.name says "Remote", so the
+//     city/province preference in [pinpointLocation] is what keeps a New York
+//     posting from being filed under "Remote".
+func TestPinpointParsesACapturedLiveBoard(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"jed.pinpointhq.com/postings.json": pinpointFixture(t, "pinpoint_jed_postings.json"),
+	})
+
+	postings, errs := drain(Pinpoint(t.Context(), client, "jed"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 4, postings)
+
+	first := postings[0]
+
+	test.Eq(t, "jed", first.Company)
+	test.Eq(t, "Senior Data Management Specialist", first.Title)
+	test.Eq(t, "https://jed.pinpointhq.com/en/postings/fceb8b47-bed5-45bd-b7f4-9161fbe78428", first.URL)
+	test.Eq(t, "New York City, New York", first.Location)
+	test.Eq(t, "KNA-Research & Evaluation", first.Department)
+	test.Eq(t, "541307", first.ExternalID)
+	test.Eq(t, internal.EmploymentTypeFullTime, first.EmploymentType)
+	test.Eq(t, internal.WorkplaceTypeRemote, first.WorkplaceType)
+	test.Eq(t, internal.PostingSource{Platform: "pinpoint", Key: "jed"}, first.Source)
+
+	must.NotNil(t, first.Remote)
+	test.True(t, *first.Remote)
+
+	// No posting on this platform carries a posted date; deadline_at is the only
+	// date in the response and it is not one.
+	test.True(t, first.PostedAt.IsZero())
+
+	must.NotNil(t, first.Compensation)
+	test.Eq(t, 105000.0, first.Compensation.Min)
+	test.Eq(t, 135000.0, first.Compensation.Max)
+	test.Eq(t, "USD", first.Compensation.Currency)
+	test.Eq(t, internal.PeriodYear, first.Compensation.Period)
+	test.Eq(t, internal.ProvenanceEmployer, first.Compensation.Provenance)
+
+	// The fellowship is the reason compensation_frequency is read: it is an
+	// hourly rate on a board whose other rows are annual salaries, and the board
+	// says so rather than leaving it to be guessed.
+	fellowship := postings[2]
+
+	test.Eq(t, internal.WorkplaceTypeHybrid, fellowship.WorkplaceType)
+	test.Eq(t, "ALL, Texas", fellowship.Location)
+
+	must.NotNil(t, fellowship.Compensation)
+	test.Eq(t, 31.25, fellowship.Compensation.Min)
+	test.Eq(t, internal.PeriodHour, fellowship.Compensation.Period)
+
+	must.NotNil(t, fellowship.Remote)
+	test.False(t, *fellowship.Remote)
+}
+
+// TestPinpointIgnoresAnUnmappablePayPeriod pins the one live
+// compensation_frequency value [internal.Period] has no unit for. Folding
+// "two_weeks" into "week" would halve every figure it touched while looking
+// exactly like a correct answer, so it falls back to the magnitude heuristic
+// instead, which is where it was before the field was read at all.
+func TestPinpointIgnoresAnUnmappablePayPeriod(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"pinpointhq.com": `{"data": [{
+			"id": "1",
+			"title": "Line Cook",
+			"url": "https://acme.pinpointhq.com/en/postings/1",
+			"compensation_visible": true,
+			"compensation_minimum": 1800,
+			"compensation_maximum": 2200,
+			"compensation_currency": "USD",
+			"compensation_frequency": "two_weeks",
+			"location": {"name": "Leeds"}
+		}]}`,
+	})
+
+	postings, errs := drain(Pinpoint(t.Context(), client, "acme"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	must.NotNil(t, postings[0].Compensation)
+	test.Eq(t, internal.PeriodUnknown, postings[0].Compensation.Period)
 }
 
 func TestPinpointReportsHTTPError(t *testing.T) {

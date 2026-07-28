@@ -1,0 +1,325 @@
+{
+ "jobs": [
+  {
+   "data": {
+    "slug": "104479036723-41447668006",
+    "language": "en-us",
+    "languages": [
+     "en-us"
+    ],
+    "client_code": "petsmart",
+    "req_id": "104479036723-41447668006",
+    "title": "Retail Operations Lead",
+    "street_address": "3023 Ave Ramon Luis Rivera",
+    "city": "Bayamon",
+    "country": "Puerto Rico",
+    "country_code": "PR",
+    "postal_code": "00957",
+    "location_type": "LAT_LNG",
+    "latitude": 18.3986,
+    "longitude": -66.1557,
+    "categories": [
+     {
+      "name": "Retail Department Manager"
+     }
+    ],
+    "tags1": [
+     "3023 Ave Ramon Luis Rivera"
+    ],
+    "tags2": [
+     "41447668006"
+    ],
+    "tags3": [
+     "2378"
+    ],
+    "tags4": [
+     "Retail Operations Lead"
+    ],
+    "tags5": [
+     "$13.66-$19.16 /HOURLY"
+    ],
+    "salary_currency": "",
+    "salary_frequency": "HOURLY",
+    "salary_value": 0,
+    "salary_min_value": 13.66,
+    "salary_max_value": 19.16,
+    "industry": "",
+    "posted_date": "2025-01-23T00:00:00+0000",
+    "apply_url": "https://cta.cadienttalent.com/index.jsp?SEQ=postingLocationDetails&APPLICATIONNAME=PetSmartPuertoRicoNonReqExt&POSTING_ID=104479036723&LOCATION_ID=41447668006",
+    "internal": false,
+    "external": false,
+    "searchable": true,
+    "applyable": true,
+    "li_easy_applyable": false,
+    "ats_code": "petsmart-puertorico-prod-feed",
+    "isFrontLineAIJob": false,
+    "meta_data": {
+     "mongo": {
+      "mongo_created": true
+     },
+     "openingjobs": {
+      "openingJobId": "000077a8515830eb8026fe12d9715854a163"
+     },
+     "icims": {},
+     "ats_id": "104479036723-41447668006",
+     "ats_job_hash": "029f4e6a04177e450b374c61f36685d72b169461b1a9d91364c4fd83c68b2229",
+     "googlejobs": {
+      "jobName": "projects/helpful-passage-853/tenants/cb22eb5b-7e00-0000-0000-007edad744d3/jobs/89717481706267334"
+     },
+     "redirectOnApply": true,
+     "questionservice": {
+      "id": "40397666"
+     },
+     "canonical_url": null,
+     "gdpr": false,
+     "last_mod": "2026-07-16T17:15:15+0000",
+     "elasticsearch": {
+      "es_created": false
+     },
+     "opensearch": {
+      "hit_score": "NaN",
+      "hit_explanation": null,
+      "hit_matched_queries": [
+       "internal",
+       "applyable",
+       "term-language",
+       "searchable",
+       "term-client_code"
+      ],
+      "hit_index": "jobs",
+      "hit_shard": null
+     },
+     "import_source": "jib-feed-importer",
+     "ats_instance": "petsmart-puertorico-prod-feed",
+     "client_code": "petsmart"
+    },
+    "update_date": "2026-07-16T17:15:15+0000",
+    "create_date": "2026-06-11T18:15:48+0000",
+    "category": [
+     " Retail Department Manager"
+    ],
+    "full_location": "Bayamon, Puerto Rico",
+    "short_location": "Bayamon, Puerto Rico",
+    "multipleLocations": false
+   }
+  },
+  {
+   "data": {
+    "slug": "104479036723-5553400167",
+    "language": "en-us",
+    "languages": [
+     "en-us"
+    ],
+    "client_code": "petsmart",
+    "req_id": "104479036723-5553400167",
+    "title": "Retail Operations Lead",
+    "street_address": "Plaza Rio Hondo Mall. Int Of",
+    "city": "Bayamon",
+    "country": "Puerto Rico",
+    "country_code": "PR",
+    "postal_code": "00961",
+    "location_type": "LAT_LNG",
+    "latitude": 18.3986,
+    "longitude": -66.1557,
+    "categories": [
+     {
+      "name": "Retail Department Manager"
+     }
+    ],
+    "tags1": [
+     "Plaza Rio Hondo Mall. Int Of"
+    ],
+    "tags2": [
+     "5553400167"
+    ],
+    "tags3": [
+     "2161"
+    ],
+    "tags4": [
+     "Retail Operations Lead"
+    ],
+    "tags5": [
+     "$13.66-$19.16 /HOURLY"
+    ],
+    "salary_currency": "",
+    "salary_frequency": "HOURLY",
+    "salary_value": 0,
+    "salary_min_value": 13.66,
+    "salary_max_value": 19.16,
+    "industry": "",
+    "posted_date": "2025-01-23T00:00:00+0000",
+    "apply_url": "https://cta.cadienttalent.com/index.jsp?SEQ=postingLocationDetails&APPLICATIONNAME=PetSmartPuertoRicoNonReqExt&POSTING_ID=104479036723&LOCATION_ID=5553400167",
+    "internal": false,
+    "external": false,
+    "searchable": true,
+    "applyable": true,
+    "li_easy_applyable": false,
+    "ats_code": "petsmart-puertorico-prod-feed",
+    "isFrontLineAIJob": false,
+    "meta_data": {
+     "mongo": {
+      "mongo_created": true
+     },
+     "openingjobs": {
+      "openingJobId": "0000ad62c944d34ad1b443bfb67b3f5f2529"
+     },
+     "icims": {},
+     "ats_id": "104479036723-5553400167",
+     "ats_job_hash": "d99ec7b080e23756644f2655c08c93bde746acd2aad16ae02f4833363c0a3c76",
+     "googlejobs": {
+      "jobName": "projects/helpful-passage-853/tenants/cb22eb5b-7e00-0000-0000-007edad744d3/jobs/140455816837636806"
+     },
+     "redirectOnApply": true,
+     "questionservice": {
+      "id": "40334760"
+     },
+     "canonical_url": null,
+     "gdpr": false,
+     "last_mod": "2026-07-16T17:15:15+0000",
+     "elasticsearch": {
+      "es_created": false
+     },
+     "opensearch": {
+      "hit_score": "NaN",
+      "hit_explanation": null,
+      "hit_matched_queries": [
+       "internal",
+       "applyable",
+       "term-language",
+       "searchable",
+       "term-client_code"
+      ],
+      "hit_index": "jobs",
+      "hit_shard": null
+     },
+     "import_source": "jib-feed-importer",
+     "ats_instance": "petsmart-puertorico-prod-feed",
+     "client_code": "petsmart"
+    },
+    "update_date": "2026-07-16T17:15:15+0000",
+    "create_date": "2026-03-25T18:15:23+0000",
+    "category": [
+     " Retail Department Manager"
+    ],
+    "full_location": "Bayamon, Puerto Rico",
+    "short_location": "Bayamon, Puerto Rico",
+    "multipleLocations": false
+   }
+  },
+  {
+   "data": {
+    "slug": "104478721386-11431946456",
+    "language": "en-us",
+    "languages": [
+     "en-us"
+    ],
+    "client_code": "petsmart",
+    "req_id": "104478721386-11431946456",
+    "title": "Pet Groomer & Salon Trainer",
+    "street_address": "200 Rafael Cordero Ave S1100",
+    "city": "Caguas",
+    "state": "Caguas Municipio",
+    "country": "Puerto Rico",
+    "country_code": "PR",
+    "postal_code": "00725",
+    "location_type": "LAT_LNG",
+    "latitude": 18.2341,
+    "longitude": -66.0485,
+    "categories": [
+     {
+      "name": "Pet Grooming Salon Manager"
+     }
+    ],
+    "tags1": [
+     "200 Rafael Cordero Ave S1100"
+    ],
+    "tags2": [
+     "11431946456"
+    ],
+    "tags3": [
+     "2188"
+    ],
+    "tags4": [
+     "Pet Groomer & Salon Trainer"
+    ],
+    "tags5": [
+     "$14.21-$19.71 /HOURLY"
+    ],
+    "salary_currency": "",
+    "salary_frequency": "HOURLY",
+    "salary_value": 0,
+    "salary_min_value": 14.21,
+    "salary_max_value": 19.71,
+    "industry": "",
+    "posted_date": "2025-01-23T00:00:00+0000",
+    "apply_url": "https://cta.cadienttalent.com/index.jsp?SEQ=postingLocationDetails&APPLICATIONNAME=PetSmartPuertoRicoNonReqExt&POSTING_ID=104478721386&LOCATION_ID=11431946456",
+    "internal": false,
+    "external": false,
+    "searchable": true,
+    "applyable": true,
+    "li_easy_applyable": false,
+    "ats_code": "petsmart-puertorico-prod-feed",
+    "isFrontLineAIJob": false,
+    "meta_data": {
+     "mongo": {
+      "mongo_created": true
+     },
+     "openingjobs": {
+      "openingJobId": "0000fdcf0b81b16c6e4f86c28b556e011db0"
+     },
+     "icims": {},
+     "ats_id": "104478721386-11431946456",
+     "ats_job_hash": "79d507be7b6953c8c7e5b2be7132ded2af0b9e315893d79fb92ee64627cd4a62",
+     "googlejobs": {
+      "jobName": "projects/helpful-passage-853/tenants/cb22eb5b-7e00-0000-0000-007edad744d3/jobs/121402080534373062"
+     },
+     "redirectOnApply": true,
+     "questionservice": {
+      "id": "40397665"
+     },
+     "canonical_url": null,
+     "gdpr": false,
+     "last_mod": "2026-07-16T17:15:15+0000",
+     "elasticsearch": {
+      "es_created": false
+     },
+     "opensearch": {
+      "hit_score": "NaN",
+      "hit_explanation": null,
+      "hit_matched_queries": [
+       "internal",
+       "applyable",
+       "term-language",
+       "searchable",
+       "term-client_code"
+      ],
+      "hit_index": "jobs",
+      "hit_shard": null
+     },
+     "import_source": "jib-feed-importer",
+     "ats_instance": "petsmart-puertorico-prod-feed",
+     "client_code": "petsmart"
+    },
+    "update_date": "2026-07-16T17:15:15+0000",
+    "create_date": "2025-11-04T18:16:02+0000",
+    "category": [
+     " Pet Grooming Salon Manager"
+    ],
+    "full_location": "Caguas, Puerto Rico",
+    "short_location": "Caguas, Puerto Rico",
+    "multipleLocations": false
+   }
+  }
+ ],
+ "locations": [],
+ "totalCount": 10847,
+ "request_id": false,
+ "meta_data": false,
+ "count": 10847,
+ "languageCounts": {
+  "en-us": {
+   "displayName": "English",
+   "count": 10847
+  }
+ }
+}
