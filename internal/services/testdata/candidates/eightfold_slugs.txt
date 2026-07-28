@@ -27,7 +27,7 @@
 # posting; docs/research/ats-platform-survey.md keeps that deferred behind the
 # shared jsonld.go helper it recommends.
 #
-# 21 slugs are registered in internal/services/eightfold.go as
+# 18 slugs are registered in internal/services/eightfold.go as
 # EightfoldCompanies. Adding more means probing them the same way and
 # confirming twice, not promoting a name off this list because it looks live.
 # ============================================================================
@@ -35,12 +35,10 @@
 # --- REGISTERED: HTTP 200 with postings, confirmed on two separate runs -----
 
 albemarle  # Albemarle (~44)
-bayer  # Bayer (~638)
 bcg  # Boston Consulting Group, campus board (~163)
 coca-colafemsa  # Coca-Cola FEMSA (~680)
 costar  # CoStar Group (~444)
 faurecia  # Faurecia / Forvia (~419)
-fcx  # Freeport-McMoRan (~289)
 fluor  # Fluor (~716)
 ftr  # Frontier Communications (~84)
 gotinder  # Match Group (~83)
@@ -48,13 +46,30 @@ houstonisd  # Houston Independent School District (~298)
 hsbc  # HSBC (~1,510)
 insight  # Insight Enterprises (~178)
 libertymutual  # Liberty Mutual (~227)
-netapp  # NetApp (~271)
 netflix  # Netflix (~476)
 oxxo  # OXXO / FEMSA (~179)
 stmicroelectronics  # STMicroelectronics (~516)
 symetra  # Symetra (~66)
 tevapharm  # Teva (~404)
 vale  # Vale (~141)
+
+# --- Verified, but crawled through SAP SuccessFactors instead ------------------
+#
+# These three answer the Eightfold list API with postings, and are deliberately
+# NOT registered in internal/services/eightfold.go. All three are already
+# registered on SuccessFactors, and internal.Dedupe keys on URL, so the same job
+# published to both platforms carries two URLs and would be counted twice in
+# jobs_record.txt. SuccessFactors wins on both cost and data: one request for a
+# whole board against roughly 64 here for Bayer, and a job description this list
+# response leaves empty. Counts measured the same day, SuccessFactors first:
+# bayer 482/638, fcx 286/289, netapp 281/272.
+#
+# They stay listed here because they are verified live Eightfold tenants, and
+# because that is where to start if the SuccessFactors route ever breaks.
+
+bayer  # Bayer (~638 here, crawled on successfactors)
+fcx  # Freeport-McMoRan (~289 here, crawled on successfactors)
+netapp  # NetApp (~272 here, crawled on successfactors)
 
 # --- Answered, but published nothing on both runs ---------------------------
 #

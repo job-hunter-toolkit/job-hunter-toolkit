@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,13 +32,13 @@ const eightfoldPageSize = 10
 // eightfoldMaxPages bounds how many pages a single Eightfold tenant may be asked
 // for.
 //
-// The response carries a "count" total, so the normal stop is a short or empty
-// page and [pageRepeatGuard] catches a tenant that ignores "start" entirely.
-// This is the backstop for the case neither of those can see: a tenant that
-// keeps serving *different* full pages forever. At ten postings per page it
-// allows 20,000 postings from one company, an order of magnitude above the
-// largest tenant registered here (HSBC, ~1,500), so reaching it means something
-// is wrong and the adapter stops rather than crawling on.
+// The normal stop is a short or empty page, and [pageRepeatGuard] catches a
+// tenant that ignores "start" entirely. This is the backstop for the case
+// neither of those can see: a tenant that keeps serving *different* full pages
+// forever. At ten postings per page it allows 20,000 postings from one company,
+// an order of magnitude above the largest tenant registered here (HSBC, ~1,500),
+// so reaching it means something is wrong — and because what was yielded is then
+// a truncated board, [Eightfold] reports an error rather than returning quietly.
 const eightfoldMaxPages = 2000
 
 // EightfoldCompanies holds the Eightfold tenant slugs this project crawls.
@@ -61,21 +62,30 @@ const eightfoldMaxPages = 2000
 // something a job seeker would type, which docs/adding-a-source.md warns about;
 // no longer, unambiguous slug exists for them, so they are named here instead:
 //
-//   - "fcx" is Freeport-McMoRan (talent.fmjobs.com)
 //   - "ftr" is Frontier Communications (careers.frontier.com)
 //   - "gotinder" is Match Group as a whole (join.matchgroupcareers.com), not
 //     Tinder alone
 //   - "insight" is Insight Enterprises, the IT reseller
 //   - "bcg" is Boston Consulting Group's student/campus board
 //     (studenttalent.bcg.com), not its experienced-hire board
+//
+// Bayer, Freeport-McMoRan (fcx) and NetApp are deliberately absent even though
+// their Eightfold boards answer: all three are already registered on SAP
+// SuccessFactors, and [internal.Dedupe] keys on URL, so the same job published
+// to both platforms has two URLs and would be counted twice in jobs_record.txt.
+// SuccessFactors is the better of the two routes for them on every axis that
+// matters — it returns a whole board in one request against roughly 64 here for
+// Bayer, and its response carries the job description this list response leaves
+// empty, which is what pay parsing reads. The coverage given up is small:
+// measured on the same day, SuccessFactors served 286 against Eightfold's 289
+// for fcx and 281 against 272 for netapp. Bayer is the one real trade, 482
+// against 638. TestSuccessFactorsAddsNoDoubleCountedEmployer enforces the rule.
 var EightfoldCompanies = []string{
 	"albemarle",
-	"bayer",
 	"bcg",
 	"coca-colafemsa",
 	"costar",
 	"faurecia",
-	"fcx",
 	"fluor",
 	"ftr",
 	"gotinder",
@@ -83,7 +93,6 @@ var EightfoldCompanies = []string{
 	"hsbc",
 	"insight",
 	"libertymutual",
-	"netapp",
 	"netflix",
 	"oxxo",
 	"stmicroelectronics",
@@ -102,9 +111,10 @@ var EightfoldCompanies = []string{
 // [internal.CompensationFromText] to read and no pay to publish. Filling it
 // would cost one request per posting against the per-job endpoint, which is the
 // trade docs/research/ats-platform-survey.md rejects for this platform.
-// The tenant's total ("count") is deliberately not modelled even though it is
-// free in this same response: see the walk in [Eightfold] for why it is not
-// allowed to end the paging.
+//
+// The tenant's total ("count") is deliberately not modelled either, even though
+// it is free in this same response: see the walk in [Eightfold] for why it is
+// not allowed to end the paging.
 type eightfoldJobs struct {
 	Positions []struct {
 		// ID is the Eightfold position id, the number in canonicalPositionUrl.
@@ -297,6 +307,8 @@ func Eightfold(ctx context.Context, httpClient *http.Client, company string) int
 					location = "unknown/remote"
 				}
 
+				workplace := eightfoldWorkplaceType(item.WorkLocationOption)
+
 				posting := &internal.JobPosting{
 					Company:       company,
 					URL:           url,
@@ -304,7 +316,8 @@ func Eightfold(ctx context.Context, httpClient *http.Client, company string) int
 					Location:      location,
 					Department:    item.Department.String(),
 					Team:          item.BusinessUnit.String(),
-					WorkplaceType: eightfoldWorkplaceType(item.WorkLocationOption),
+					WorkplaceType: workplace,
+					Remote:        eightfoldRemote(workplace),
 					PostedAt:      eightfoldTimestamp(item.TCreate),
 					UpdatedAt:     eightfoldTimestamp(item.TUpdate),
 					RequisitionID: item.DisplayJobID.String(),
@@ -336,6 +349,14 @@ func Eightfold(ctx context.Context, httpClient *http.Client, company string) int
 
 			start += len(doc.Positions)
 		}
+
+		// Falling out of the loop means the ceiling was reached while the board
+		// was still serving full pages, so what was yielded is a truncated board.
+		// Returning silently here would let `health` call the source ok and hide
+		// exactly the failure the ceiling exists to catch, so it is reported the
+		// way Lever and Teamtailor report theirs.
+		yield(nil, fmt.Errorf("refusing to keep paginating Eightfold for company %q: the board was still serving full pages after %d pages of %d",
+			company, eightfoldMaxPages, eightfoldPageSize))
 	}
 }
 
@@ -354,4 +375,32 @@ func eightfoldWorkplaceType(raw string) internal.WorkplaceType {
 	}
 
 	return workplace
+}
+
+// eightfoldRemote reports the structured remote flag for a workplace type, and
+// deliberately answers only "yes" or "no comment".
+//
+// [internal.JobPosting.IsRemote] — which is what `--remote` filters on — reads
+// this field if it is set and otherwise falls back to searching the location and
+// title for words like "remote". Setting it to true where Eightfold says remote
+// is a straight improvement: a posting flagged remote_local but located in a
+// named city ("New York,New York,United States") is invisible to that text
+// search today.
+//
+// Returning a pointer to false for onsite and hybrid would be the symmetric
+// thing to do and is wrong here, because it would suppress the text fallback
+// with a value Eightfold does not actually stand behind. Measured on the
+// registered tenants: a Netflix posting located "USA - Remote" is flagged
+// onsite, and a Liberty Mutual posting located "Remote, Remote, United States"
+// is flagged hybrid. Answering false for those would hide two genuinely remote
+// jobs that the heuristic finds today, and IsRemote's contract is to err toward
+// inclusion because a false negative hides a job.
+func eightfoldRemote(workplace internal.WorkplaceType) *bool {
+	if workplace != internal.WorkplaceTypeRemote {
+		return nil
+	}
+
+	remote := true
+
+	return &remote
 }

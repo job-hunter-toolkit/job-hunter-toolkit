@@ -127,6 +127,11 @@ func TestEightfoldParsesPostings(t *testing.T) {
 	test.Eq(t, time.Unix(1784942071, 0).UTC(), first.UpdatedAt)
 	test.Eq(t, internal.PostingSource{Platform: "eightfold", Key: "bayer"}, first.Source)
 
+	// An onsite posting must leave Remote unset rather than false, so
+	// [internal.JobPosting.IsRemote]'s text fallback still runs; see
+	// TestEightfoldLeavesRemoteUnsetUnlessTheBoardSaysRemote.
+	test.Nil(t, first.Remote)
+
 	// A board that publishes no location must still produce a usable posting,
 	// and an absent date must stay the zero time rather than becoming 1970.
 	second := postings[1]
@@ -135,6 +140,97 @@ func TestEightfoldParsesPostings(t *testing.T) {
 	test.True(t, second.PostedAt.IsZero())
 	test.True(t, second.UpdatedAt.IsZero())
 	test.Eq(t, "", second.Department)
+
+	must.NotNil(t, second.Remote)
+	test.True(t, *second.Remote)
+	test.True(t, second.IsRemote())
+}
+
+// TestEightfoldLeavesRemoteUnsetUnlessTheBoardSaysRemote pins the asymmetry in
+// [eightfoldRemote], which is the whole point of that function.
+//
+// `--remote` filters on [internal.JobPosting.IsRemote], which reads Remote when
+// it is set and otherwise searches the location and title text. Setting Remote
+// true where Eightfold says remote wins postings the text search cannot see.
+// Setting it *false* for onsite and hybrid would be symmetric and would lose
+// postings: measured on the registered tenants, a Netflix posting located
+// "USA - Remote" is flagged onsite and a Liberty Mutual one located
+// "Remote, Remote, United States" is flagged hybrid. Both must stay findable.
+func TestEightfoldLeavesRemoteUnsetUnlessTheBoardSaysRemote(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"netflix.eightfold.ai": `{
+			"positions": [
+				{"id": 1, "name": "AI Engineer 6", "location": "USA - Remote", "work_location_option": "onsite"},
+				{"id": 2, "name": "Claims Adjuster", "location": "Remote, Remote, United States", "work_location_option": "hybrid"},
+				{"id": 3, "name": "Staff Engineer", "location": "New York,New York,United States", "work_location_option": "remote_local"},
+				{"id": 4, "name": "Technician", "location": "Los Gatos, California", "work_location_option": "onsite"}
+			]
+		}`,
+	})
+
+	postings, errs := drain(Eightfold(t.Context(), client, "netflix"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 4, postings)
+
+	// Flagged onsite/hybrid but the location says remote: Remote stays unset so
+	// the text heuristic still finds them.
+	test.Nil(t, postings[0].Remote)
+	test.True(t, postings[0].IsRemote())
+	test.Nil(t, postings[1].Remote)
+	test.True(t, postings[1].IsRemote())
+
+	// Flagged remote but located in a named city: only the structured flag can
+	// find this one, which is the case the flag is set for.
+	must.NotNil(t, postings[2].Remote)
+	test.True(t, postings[2].IsRemote())
+
+	// Genuinely onsite stays not-remote, via the heuristic rather than a false.
+	test.Nil(t, postings[3].Remote)
+	test.False(t, postings[3].IsRemote())
+}
+
+// TestEightfoldReportsHittingThePageCeiling checks that exhausting the bound is
+// an error rather than a quiet truncation.
+//
+// A board still serving full pages at the ceiling has been cut off mid-list.
+// Returning nil there would make `health` call the source ok and hide the exact
+// failure the ceiling exists to catch.
+func TestEightfoldReportsHittingThePageCeiling(t *testing.T) {
+	t.Parallel()
+
+	// Every offset answers with a distinct full page, so neither the short-page
+	// stop nor pageRepeatGuard can end the walk.
+	transport := &eightfoldEndlessTransport{}
+
+	postings, errs := drain(Eightfold(t.Context(), &http.Client{Transport: transport}, "endless"))
+
+	test.Len(t, eightfoldMaxPages*eightfoldPageSize, postings)
+	must.Len(t, 1, errs)
+	test.StrContains(t, errs[0].Error(), `"endless"`)
+	test.StrContains(t, errs[0].Error(), "refusing to keep paginating Eightfold")
+}
+
+// eightfoldEndlessTransport answers every offset with a distinct full page, the
+// one shape that reaches the page ceiling.
+type eightfoldEndlessTransport struct {
+	page int
+}
+
+func (tr *eightfoldEndlessTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	tr.page++
+
+	body := `{"positions":[` + eightfoldPositions(tr.page*eightfoldPageSize, eightfoldPageSize) + `]}`
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     http.StatusText(http.StatusOK),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    req,
+	}, nil
 }
 
 // TestEightfoldToleratesPolymorphicDepartment is a regression test for a real
