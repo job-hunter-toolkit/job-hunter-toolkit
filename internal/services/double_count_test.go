@@ -29,6 +29,22 @@ const (
 	// docs/adding-a-source.md is explicit about.
 	oneSided
 
+	// sameEmployerDisjointBoards means one employer publishes different work on
+	// each platform, so nothing is counted twice and both boards are worth
+	// keeping.
+	//
+	// This turned out to be the common shape for large employers, and it is the
+	// reason this list cannot be a prohibition. Home Depot serves 22,899 hourly
+	// and store roles through BrassRing and 972 corporate roles through Workday,
+	// with zero shared URLs and zero shared titles. Bechtel serves craft trades
+	// through BrassRing (Carpenter, Hydraulic Crane Operator, Material Person)
+	// and professional roles through Phenom (Field Engineer, Prime Contracts
+	// Manager). Deleting either route in the name of avoiding a duplicate would
+	// have thrown away the half of the employer this project covers least well,
+	// which is exactly the hourly and skilled-trade work docs/source-backlog.md
+	// says the registry under-represents.
+	sameEmployerDisjointBoards
+
 	// unmeasured means the comparison has not been run. New entries start here.
 	unmeasured
 )
@@ -54,9 +70,20 @@ const (
 // # What a maintainer does with this
 //
 // Adding a source that collides with an existing one fails this test. Resolve it
-// by measuring, not by guessing: crawl both, compare the titles, and add a row
-// here with what you found. Prefer keeping the route that returns more of the
-// board, and where they tie, the one that costs fewer requests per posting
+// by measuring, not by guessing: crawl both and compare.
+//
+// **Compare URLs first, then titles.** [internal.Dedupe] keys on URL, so two
+// sources returning the same URLs are already collapsed and cost nothing but a
+// request. A count is inflated only when the same opening arrives under two
+// different URLs, which is what shared titles and disjoint URLs together mean.
+// Titles alone are a weaker signal in both directions: one employer's two boards
+// can carry entirely different job families and share no title at all while
+// genuinely duplicating nothing, and two boards can share a title like "Software
+// Engineer" while belonging to unrelated companies.
+//
+// Only when both boards serve the same openings is a route worth deleting.
+// Prefer keeping the one that returns more of the board, and where they tie, the
+// one that costs fewer requests per posting
 // (docs/measurements/2026-07-28-crawl.md ranks the platforms).
 //
 // The sameEmployer rows are a known, quantified defect rather than an accepted
@@ -96,6 +123,22 @@ var reviewedDoubleCounts = map[string]struct {
 	"protectdemocracy": {oneSided, "recruitee 13, bamboohr returned none"},
 
 	"fedex": {unmeasured, "jibe and workday; the comparison timed out and has not been repeated"},
+
+	// One employer, two boards carrying different work. Both kept.
+	"homedepot": {sameEmployerDisjointBoards, "brassring 22,899 hourly and store roles, workday 972 corporate; " +
+		"zero shared URLs and zero shared titles. BrassRing is the larger board by 23x and is the half " +
+		"this registry covered not at all"},
+	"bechtel": {sameEmployerDisjointBoards, "brassring 433 craft trades (Carpenter, Hydraulic Crane Operator), " +
+		"phenom 1,018 professional roles (Field Engineer, Prime Contracts Manager); no shared title"},
+	"unitypoint": {sameEmployerDisjointBoards, "brassring 282, jibe 1,362, zero shared URLs and zero shared titles"},
+
+	// Short names that collide on the SMB platform. Breezy tenants are small and
+	// none of these is the well-known holder of the name.
+	"adobe":     {differentEmployers, "breezy 1 posting, workday 834, no shared title; the breezy tenant is not Adobe"},
+	"alasco":    {differentEmployers, "breezy 12, personio 11, no shared title"},
+	"brilliant": {differentEmployers, "breezy 2, lever 4, no shared title"},
+	"duolingo":  {differentEmployers, "breezy 3, greenhouse 59, no shared title"},
+	"framework": {differentEmployers, "breezy 10, rippling 1, no shared title"},
 }
 
 // companiesOnMoreThanOnePlatform groups the registry by company name.
