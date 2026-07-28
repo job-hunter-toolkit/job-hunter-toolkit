@@ -1,0 +1,266 @@
+name: Dedupe Sweep
+
+# The double-count guard in internal/services/double_count_test.go keys on the
+# company NAME, so an employer registered under a different name on each side is
+# invisible to it. Two real double counts hid in that blind spot while the test
+# stayed green: Southwest Airlines as `southwestair` (Phenom) against `swa`
+# (Workday), 15 postings; and Zimmer Biomet as `zimmerbiomet` (Phenom) against
+# `zimmerin01` (SuccessFactors), 362 postings, which no URL rule could reach at
+# all -- only the requisition ids matched, 362 of 365.
+#
+# Both were found by a person running a URL sweep by hand. The guard's own
+# documentation says closing the gap properly means comparing boards rather than
+# names, which is a crawl and not a unit test. This workflow is that crawl, run
+# on a schedule instead of when someone remembers.
+#
+# It REPORTS. It does not fail on a finding, it does not commit, and it cannot:
+# `contents: read`, exactly like verify_candidates.yml and for the same reason.
+# An overlap between two boards is not automatically a route to delete --
+# deletedDoubleCountRoutes records several pairs where keeping both was right,
+# and Home Depot's 22,899 BrassRing postings against 972 Workday ones is what a
+# deletion rule would have thrown away. Deciding is a human reading this report.
+# A false positive that reddened CI would get this job disabled, and then the
+# blind spot would be open again under a green checkmark.
+on:
+  schedule:
+  # Weekly, Wednesday 09:00 UTC. Deliberately not daily, and deliberately not on
+  # the same day as source_health.yml (Monday 12:00).
+  #
+  # COST. GitHub Actions minutes are this project's main running cost and the
+  # nightly crawl is nearly all of them. Measured on 2026-07-28 in a 4-vCPU
+  # container with one IP at concurrency 8: a full sweep of all 8,173 sources
+  # took 45m55s wall clock for 1,296,529 postings. Weekly, at the 75-minute
+  # budget below, that is at most ~325 minutes a month and about 200 at the
+  # measured rate -- roughly what six nightly crawls cost, on a nightly that
+  # runs 30 times a month.
+  #
+  # Daily would be seven times that bill to detect something that only changes
+  # when a source is added or an adapter's URL field changes, which is a
+  # pull-request event and not a daily one. The two duplicates this exists to
+  # catch sat undetected for months; a week is not the binding constraint on
+  # finding the next one, and a job nobody wants to pay for gets deleted.
+  #
+  # If the bill ever needs cutting further, cut scope before frequency: a
+  # dispatch with `platform` set sweeps one ATS in a fraction of the time, and
+  # the platforms that have produced every duplicate so far are the career-site
+  # front ends (phenom, radancy, jibe, eightfold) against the systems behind
+  # them (workday, successfactors, brassring).
+  - cron: "0 9 * * 3"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Comma-separated platforms to sweep; empty means the whole registry
+        required: false
+        default: ""
+        type: string
+      concurrency:
+        description: How many sources to crawl at once (1-32)
+        required: false
+        default: "8"
+        type: string
+      timeout:
+        description: Budget for the sweep itself, as Nm
+        required: false
+        default: "75m"
+        type: string
+      upload_dump:
+        description: Also upload the full NDJSON of every posting (large; off by default)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  # Read only, and deliberately so. This workflow's whole output is a claim that
+  # two boards overlap. Acting on that claim means deleting a route from the
+  # registry, which is a judgement with measured counter-examples on both sides;
+  # a job that could edit the registry would eventually make that judgement
+  # automatically and delete the half of an employer this project covers least
+  # well.
+  contents: read
+
+concurrency:
+  # One sweep at a time. Two would be two runners crawling all 8,173 sources at
+  # once, which doubles the pressure on every shared backend for no extra
+  # information.
+  group: dedupe-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Compare every board against every other
+    runs-on: ubuntu-latest
+    # BUDGET LADDER: sweep 75m < step 85m < job 100m.
+    #
+    #   measured sweep wall clock, 8,173 sources,
+    #   4-vCPU container, one IP, concurrency 8       46 min
+    #   x1.6  runner difference and growth reserve     75 min
+    #
+    # The ladder leaves 25 minutes above the sweep's own deadline, because the
+    # report is the deliverable: a sweep that hits its budget still has partial
+    # results worth printing -- sources it never reached come back empty and the
+    # report says in as many words that an empty board is unmeasured rather than
+    # clean -- and the steps that print and upload that must survive it.
+    #
+    # Raising concurrency would buy time back, and is deliberately not the first
+    # lever: httpx's per-service limiter is what bounds pressure on any one
+    # backend, but this job crawls every registered board in one pass and there
+    # is no reason for it to be pushier than a nightly that has something to
+    # deliver.
+    timeout-minutes: 100
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Validate the inputs
+      env:
+        SWEEP_CONCURRENCY: ${{ inputs.concurrency || '8' }}
+        SWEEP_TIMEOUT: ${{ inputs.timeout || '75m' }}
+      run: |
+        set -euo pipefail
+
+        if ! [[ "$SWEEP_CONCURRENCY" =~ ^[0-9]+$ ]] || [ "$SWEEP_CONCURRENCY" -lt 1 ] || [ "$SWEEP_CONCURRENCY" -gt 32 ]; then
+          echo "::error::concurrency must be between 1 and 32, got '$SWEEP_CONCURRENCY'"
+          exit 1
+        fi
+
+        # Strictly below this step's sibling timeout-minutes, which is strictly
+        # below the job's. A sweep allowed to outlive its own deadline would be
+        # killed by the runner with no report at all.
+        if ! [[ "$SWEEP_TIMEOUT" =~ ^[0-9]+m$ ]] || [ "${SWEEP_TIMEOUT%m}" -lt 1 ] || [ "${SWEEP_TIMEOUT%m}" -gt 80 ]; then
+          echo "::error::timeout must look like 75m and fit inside the job's 100 minute cap, got '$SWEEP_TIMEOUT'"
+          exit 1
+        fi
+
+    - name: Build the sweep
+      run: |
+        set -euo pipefail
+        go vet ./tools/dedupesweep
+        go build -o dedupesweep ./tools/dedupesweep
+
+    - name: Sweep the registry
+      id: sweep
+      # The middle rung of the ladder on the job's timeout-minutes. The sweep
+      # bounds itself with -timeout; this bounds the binary if it fails to
+      # unwind, and leaves the job time to still publish what it has.
+      timeout-minutes: 85
+      env:
+        SWEEP_PLATFORM: ${{ inputs.platform || '' }}
+        SWEEP_CONCURRENCY: ${{ inputs.concurrency || '8' }}
+        SWEEP_TIMEOUT: ${{ inputs.timeout || '75m' }}
+      run: |
+        # -e deliberately present: source_health.yml records what happened when
+        # it was absent -- the binary crashed, the JSON was left empty, every
+        # derived number came back blank, and the run went green having checked
+        # nothing at all.
+        set -euo pipefail
+
+        # -dump is what makes the report quote the URLs and requisition ids
+        # behind each count. Without it a finding reads "shares 362 requisition
+        # ids" and a maintainer has nothing to check; with it they have three
+        # ids they can open. It costs disk on the runner and nothing else.
+        # Progress is teed rather than redirected so the runner log shows the
+        # sweep moving. An hour of silence looks identical to a hung job and gets
+        # cancelled by the next person who looks at it. -out sends the report to
+        # a file, so stdout here is empty and the stream is progress only;
+        # pipefail is what keeps the exit status the sweep's and not tee's.
+        if ! ./dedupesweep \
+          -concurrency "$SWEEP_CONCURRENCY" \
+          -timeout "$SWEEP_TIMEOUT" \
+          -platform "$SWEEP_PLATFORM" \
+          -dump sweep.ndjson \
+          -json findings.json \
+          -out report.md \
+          2>&1 | tee sweep-stderr.txt; then
+          echo "::error::the sweep exited non-zero; no overlap report was produced"
+          tail -n 40 sweep-stderr.txt || true
+          exit 1
+        fi
+
+        if [ ! -s report.md ]; then
+          echo "::error::report.md is empty; the sweep did not complete"
+          exit 1
+        fi
+
+    - name: Publish the report
+      if: always()
+      run: |
+        set -euo pipefail
+
+        if [ ! -s report.md ]; then
+          echo "No sweep report was produced." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+
+        # A step summary is capped at 1 MiB and a sweep that found a hundred
+        # pairs with quoted evidence could reach it. Truncating with a pointer to
+        # the artifact beats a step that fails on its own output.
+        if [ "$(wc -c < report.md)" -gt 900000 ]; then
+          head -c 900000 report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "_Report truncated at 900 KB for the step summary; the whole thing is in the run's artifact._" >> "$GITHUB_STEP_SUMMARY"
+        else
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        # A notice, never an error. The count is surfaced in the run's log line
+        # so the schedule can be watched without opening the summary, and a
+        # finding still leaves the run green on purpose.
+        BLIND=$(python3 -c "
+        import json
+        with open('findings.json', encoding='utf-8') as stream:
+            findings = json.load(stream)
+        print(sum(1 for f in findings if not f.get('same_company_name')))
+        " 2>/dev/null || echo "?")
+
+        if [ "$BLIND" = "0" ]; then
+          echo "::notice::dedupe sweep found no overlap between differently-named sources"
+        else
+          echo "::notice::dedupe sweep found $BLIND overlapping pair(s) under different company names -- see the run summary. This is a report, not a failure: measure the pair with tools/dedupeprobe before deleting any route."
+        fi
+
+    - name: Assert nothing was modified
+      if: always()
+      # The registry must be exactly what it was. Prove it rather than assert it
+      # in a comment: this workflow's only legitimate output is a report.
+      run: |
+        set -euo pipefail
+
+        CHANGED=$(git status --porcelain -- . ':!report.md' ':!findings.json' ':!sweep.ndjson' ':!sweep-stderr.txt' ':!dedupesweep')
+        if [ -n "$CHANGED" ]; then
+          echo "::error::this run modified tracked files, which it must never do:"
+          echo "$CHANGED"
+          exit 1
+        fi
+
+        echo "working tree clean: the sweep changed nothing"
+
+    - name: Upload the report
+      if: always()
+      uses: actions/upload-artifact@v5
+      with:
+        name: dedupe-sweep-${{ github.run_id }}
+        path: |
+          report.md
+          findings.json
+          sweep-stderr.txt
+        if-no-files-found: warn
+        retention-days: 90
+
+    - name: Upload the full posting dump
+      # Off by default. The dump is one line per posting -- about 1.24 million of
+      # them, ~350 MB -- and storing that every week to answer a question the
+      # report already answers is the same kind of unbudgeted cost as running
+      # this daily. Turn it on from a dispatch when a finding needs re-analysing
+      # offline with `-in`.
+      if: always() && inputs.upload_dump
+      uses: actions/upload-artifact@v5
+      with:
+        name: dedupe-sweep-postings-${{ github.run_id }}
+        path: sweep.ndjson
+        if-no-files-found: warn
+        retention-days: 7
