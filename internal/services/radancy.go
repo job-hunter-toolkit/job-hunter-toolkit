@@ -61,11 +61,11 @@ const (
 	// every size tried — 100 rows in 68 KB and 1.3s, 1,000 in 673 KB and 2.3s,
 	// 5,000 in 3.4 MB and 6.8s.
 	//
-	// 1,000 is chosen where response size stops being free. Six of the sixteen
+	// 1,000 is chosen where response size stops being free. Five of the sixteen
 	// registered tenants publish fewer than 1,000 postings, so they cost exactly
-	// one request each, and the whole platform is 61 requests for ~48,900
-	// postings — about 800 postings per request, against the 144 that made
-	// SuccessFactors the cheapest lane in
+	// one request each, and the whole platform is 53 requests for the 45,768
+	// postings a full run returned — about 860 per request, against the 144 that
+	// made SuccessFactors the cheapest lane in
 	// docs/measurements/2026-07-28-crawl.md. Asking for 5,000 would save perhaps
 	// thirty requests across the registry and in exchange hold several megabytes
 	// of HTML, and then a parsed node tree several times that, in memory per
@@ -132,7 +132,7 @@ const (
 // full hostname rather than a slug. The path prefix is a per-tenant locale
 // segment that is part of the endpoint: jobs.veolia.com/search-jobs/results
 // answers HTTP 301, and jobs.veolia.com/fr/search-jobs/results answers with the
-// board. Five of the fourteen tenants below need one. And the company name is
+// board. Seven of the sixteen tenants below need one. And the company name is
 // not recoverable from the host on jobs.disneycareers.com or
 // jobs.tenethealth.com, so it is stated rather than guessed, the same decision
 // [OracleCloudTenants] made for the same reason.
@@ -338,12 +338,12 @@ func radancyAttr(n *html.Node, key string) string {
 //
 // # The invariant
 //
-// An <a> carrying BOTH an href and a data-job-id is the one thing every skin
-// measured has in common, and both halves of that are load-bearing. The "Save
-// Job" control on nine of the fourteen tenants is a <button> with the same
-// data-job-id and no href, so requiring the href is what keeps a posting from
-// being counted twice. Requiring the data-job-id is what keeps the surrounding
-// navigation out.
+// An <a> carrying BOTH an href and a data-job-id is the one thing all fourteen
+// skins probed on 2026-07-28 have in common, and both halves of that are
+// load-bearing. The "Save Job" control on nine of those tenants is a <button>
+// with the same data-job-id and no href, so requiring the href is what keeps a
+// posting from being counted twice. Requiring the data-job-id is what keeps the
+// surrounding navigation out.
 //
 // # What is deliberately NOT part of the invariant
 //
