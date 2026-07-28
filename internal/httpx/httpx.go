@@ -397,6 +397,18 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 		policy.maxConcurrent = min(defaultLimit, 2)
 		policy.interval = 100 * time.Millisecond
 		policy.cooldown = 30 * time.Second
+	case host == "www.google.com":
+		// Alphabet's own careers board, shared by every company on it.
+		//
+		// It is the one host in internal/companies with more than one source
+		// behind it, which is why it does not stay on the generic exact-host
+		// policy the rest of that package uses: the generic policy leaves the
+		// interval at zero, and the Google board alone is ~163 sequential page
+		// requests. Three unpaced sources against one host is the shape that
+		// rate-limited 56 Workable boards into looking dead.
+		policy.maxConcurrent = min(defaultLimit, 4)
+		policy.interval = 25 * time.Millisecond
+		policy.cooldown = 10 * time.Second
 	case host == "ats.rippling.com",
 		host == "jobs.gem.com",
 		host == "api.smartrecruiters.com",
