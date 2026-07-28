@@ -38,8 +38,18 @@ not obvious: the natural assumption is that a public API served for a company's
 own careers page would be same-origin only. Most of these are deliberately
 CORS-open because customers embed them in their own sites.
 
-Two caveats, both load-bearing:
+Three caveats, all load-bearing:
 
+- **This was measured with `curl`, not with a browser.** The container that
+  produced it has no browser egress: Chromium renders a network error page for
+  even `https://example.com` while `curl` gets 200 from the same host, so a
+  `js/wasm` probe was attempted and told us nothing. A response carrying
+  `Access-Control-Allow-Origin` is strong evidence a browser fetch would
+  succeed, but it is not the same claim — a preflight on a non-simple request,
+  or a header the CDN varies by client, can still fail in a browser that curl
+  never exercises. **The first task of any client-side work is to re-run this
+  table from an actual browser.** Until then, treat 57% as a hypothesis with
+  good evidence, not a measurement.
 - **A CORS header is a fact about today, not a contract.** No vendor documents
   it. It can be withdrawn without notice, and the failure mode in a browser is a
   network error indistinguishable from an outage. A client-side surface must
@@ -48,6 +58,15 @@ Two caveats, both load-bearing:
   a floor, re-measure it in CI, and never hardcode a platform as browser-safe
   without a live check. `docs/research/` exists because an endpoint assumption
   that is wrong produces an adapter that returns nothing while looking healthy.
+
+### The WASM build itself is not a risk
+
+Verified locally: `GOOS=js GOARCH=wasm go build ./...` and
+`GOOS=wasip1 GOARCH=wasm go build ./...` both succeed against the tree as it
+stands, with no source changes. The CGO-free invariant that the portability CI
+job already enforces is what bought this, and it means the WASM question is
+entirely about network reachability and payload size, not about portability of
+the code.
 
 ### What follows
 
