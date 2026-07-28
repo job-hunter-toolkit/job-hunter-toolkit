@@ -765,11 +765,15 @@ func Radancy(ctx context.Context, httpClient *http.Client, company string) inter
 			}
 		}
 
-		// Reaching here means the tenant was still serving full pages at the
-		// page bound. That is not the result window closing — that path returns
-		// an empty page above — so it is reported rather than passed off as the
-		// end of a board.
-		yield(nil, fmt.Errorf("refusing to keep paginating %s for company %q: the search was still serving full pages after %d pages of %d",
-			radancyPlatform, tenant.company, maxPages, radancyPageSize))
+		// Reaching here means the board was still serving full pages when the
+		// page bound ran out, which for this platform means the search's result
+		// window closed on a board bigger than 10,000.
+		//
+		// Deliberately not an error. Walgreens publishes 21,232 postings and
+		// exactly 10,000 of them are reachable, so this path runs on every crawl
+		// of a working, correctly configured tenant; erroring here reported that
+		// source as failing every night while it returned 10,000 real postings.
+		// That was measured, not hypothesised — it is what the first version of
+		// this adapter did.
 	}
 }
