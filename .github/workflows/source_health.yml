@@ -20,10 +20,31 @@ jobs:
   health:
     name: Check every job source
     runs-on: ubuntu-latest
-    # The full crawl now runs for hours over ~1,890 sources. Health caps each
-    # source at a 100-posting sample, but 45m under a 60m job was tight enough
-    # that the deadline, not the boards, decided the result.
-    timeout-minutes: 90
+    # BUDGET LADDER: health 50m < step 60m < job 75m.
+    #
+    # The comment this replaces said "the full crawl now runs for hours over
+    # ~1,890 sources". Both halves are stale. The registry is 8,145 sources, and
+    # docs/measurements/2026-07-28-crawl.md measured a complete crawl of all of
+    # them in 945 seconds.
+    #
+    # Health does the same fan-out over the same source set but stops each
+    # source at healthSampleLimit (100 postings, main.go), so it truncates
+    # exactly the page-heavy lanes that dominate the crawl -- jibe at 414,318
+    # postings, oraclecloud at 269,196 -- while the SMB lanes cost the same,
+    # because those are serialised on a shared limiter key rather than on pages.
+    # Health therefore cannot be materially slower than the 945-second crawl.
+    #
+    #   measured crawl wall clock                        945 s  =  15.8 min
+    #   x2.0  runner difference (container, one IP,
+    #         concurrency 32 -- not a runner)                      31.5 min
+    #   x1.6  growth and bad-night reserve                         50.0 min
+    #
+    # This ladder is tighter than the nightly's 7.6x on purpose: nothing here is
+    # written to jobs_record.txt, so under-budgeting costs a red weekly run and
+    # not a data point, and the run's own error message already says to raise
+    # --timeout. The nightly gets generous headroom because it has something to
+    # lose; this does not.
+    timeout-minutes: 75
     steps:
     - name: Checkout repository
       uses: actions/checkout@v5
@@ -38,9 +59,23 @@ jobs:
 
     - name: Check source health
       id: health
+      # The middle rung of the ladder documented on the job's timeout-minutes.
+      # `health` bounds itself with --timeout below; this bounds the binary if
+      # it fails to unwind, and leaves the job 15 minutes to still upload the
+      # artifact that says what happened.
+      timeout-minutes: 60
       env:
         # A run that reaches its deadline is not a census, so its failure rate
         # says nothing about adapters. Alarm on the two conditions separately.
+        #
+        # Both thresholds are percentages, so they scale with the registry on
+        # their own, and both are left unchanged at 8,145 sources. Worth knowing
+        # what they now mean in absolute terms before anyone tunes them: 35% is
+        # ~2,850 broken sources, against the 9 failures out of 8,145 that the
+        # 07/28 crawl measured. That is very loose. It is deliberately not
+        # tightened here, because no health census at this scale has been run
+        # yet and a false alarm on a weekly job is how a weekly job gets
+        # ignored. Tighten it once a few censuses exist to size against.
         MAX_ADAPTER_FAILURE_PCT: "35"
         MAX_DEADLINE_PCT: "20"
       run: |
@@ -52,7 +87,10 @@ jobs:
         # run went green having checked nothing at all.
         set -euo pipefail
 
-        if ! ./job-hunter-toolkit health --json --timeout=70m > health.json 2> health-summary.txt; then
+        # The innermost rung: strictly below this step's timeout-minutes, which
+        # is strictly below the job's. `health` must be able to stop itself and
+        # encode the array it has, rather than be killed holding it.
+        if ! ./job-hunter-toolkit health --json --timeout=50m > health.json 2> health-summary.txt; then
           echo "::error::health check exited non-zero; no source census was produced"
           tail -n 40 health-summary.txt || true
           exit 1
