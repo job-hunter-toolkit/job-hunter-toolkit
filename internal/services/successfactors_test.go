@@ -616,14 +616,11 @@ func TestSuccessFactorsReadsATenantThatNamesItsDepartmentsJobArea(t *testing.T) 
 	test.Eq(t, internal.WorkplaceTypeUnknown, postings[0].WorkplaceType)
 }
 
-// TestSuccessFactorsPrefersACityToAWorkplacePicklist states the ordering rule
-// directly, so a future edit to the label lists that reintroduces the Colgate
-// bug fails here with the reason rather than only in a fixture.
-//
-// The generic word "location" is a substring of every "... Location" label a
-// tenant might invent, so it is last in [successFactorsLocationLabels] and every
-// specific geography word is tried first.
-func TestSuccessFactorsPrefersACityToAWorkplacePicklist(t *testing.T) {
+// TestSuccessFactorsTellsAPicklistFromAPlaceByItsValue states the rule directly,
+// so an edit that reintroduces the Colgate bug — or "fixes" it the wrong way, by
+// excluding the "work location" label — fails here with the reason rather than
+// only inside a fixture.
+func TestSuccessFactorsTellsAPicklistFromAPlaceByItsValue(t *testing.T) {
 	t.Parallel()
 
 	facets := []successFactorsFacet{
@@ -632,6 +629,27 @@ func TestSuccessFactorsPrefersACityToAWorkplacePicklist(t *testing.T) {
 		{label: "country", value: "United States"},
 	}
 
-	test.Eq(t, "Overland Park", successFactorsFacetValue(facets, successFactorsLocationLabels, successFactorsWorkplaceLabels))
-	test.Eq(t, "Hybrid", successFactorsFacetValue(facets, successFactorsWorkplaceLabels, nil))
+	test.Eq(t, "Overland Park", successFactorsLocation(facets))
+
+	workplace, ok := successFactorsWorkplace(facets)
+	must.True(t, ok)
+	test.Eq(t, internal.WorkplaceTypeHybrid, workplace)
+
+	// The same label carrying a real place must keep it. Seven of the eight
+	// live tenants with a "... Location" facet of this family use it this way.
+	schindler := []successFactorsFacet{
+		{label: "work location", value: "Boston"},
+		{label: "country", value: "United States"},
+	}
+
+	test.Eq(t, "Boston", successFactorsLocation(schindler))
+
+	_, ok = successFactorsWorkplace(schindler)
+	test.False(t, ok)
+
+	// A place that merely contains a workplace word is a place. A substring
+	// test would have thrown this away.
+	test.Eq(t, "Home Office, Berlin", successFactorsLocation([]successFactorsFacet{
+		{label: "location", value: "Home Office, Berlin"},
+	}))
 }
