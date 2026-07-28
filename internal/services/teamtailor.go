@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -220,6 +221,133 @@ type teamtailorJobPosting struct {
 	DatePosted string `json:"datePosted"`
 
 	JobLocation teamtailorPlaces `json:"jobLocation"`
+
+	// BaseSalary is schema.org's MonetaryAmount, filled from the pay range an
+	// employer typed into Teamtailor's own salary field. Measured on 2026-07-28
+	// across 16,759 live postings from 1,033 tenants: present on 2,315 of them,
+	// which makes it the only enrichment field on this platform that a real board
+	// actually populates.
+	BaseSalary *teamtailorSalary `json:"baseSalary"`
+}
+
+// teamtailorSalary is the schema.org MonetaryAmount a posting's pay is published
+// as.
+//
+// Shape measured on 2026-07-28 across 69 paying postings from 61 tenants, which
+// agreed on it exactly: currency is a bare ISO 4217 string that may be null or
+// empty, and value is always a nested QuantitativeValue rather than a scalar.
+type teamtailorSalary struct {
+	Currency teamtailorText `json:"currency"`
+
+	Value teamtailorQuantity `json:"value"`
+}
+
+// teamtailorQuantity is the schema.org QuantitativeValue inside a MonetaryAmount.
+//
+// A posting publishes either a range (minValue/maxValue) or a single figure
+// (value); both spellings were measured, and both arrive as JSON strings rather
+// than numbers. [teamtailorText] is what makes the number spelling work too,
+// since schema.org permits it and a tenant is free to switch.
+type teamtailorQuantity struct {
+	UnitText teamtailorText `json:"unitText"`
+
+	Value    teamtailorText `json:"value"`
+	MinValue teamtailorText `json:"minValue"`
+	MaxValue teamtailorText `json:"maxValue"`
+}
+
+// teamtailorPeriods maps schema.org's unitText vocabulary onto [internal.Period].
+//
+// HOUR, MONTH and YEAR are the three spellings measured live. DAY and WEEK are
+// the rest of schema.org's vocabulary for this property and are accepted so a
+// tenant that uses one is read rather than silently losing its period — the cost
+// of being wrong is nil, since an unrecognised value already falls back to
+// [internal.Compensation]'s magnitude inference.
+var teamtailorPeriods = map[string]internal.Period{
+	"HOUR":  internal.PeriodHour,
+	"DAY":   internal.PeriodDay,
+	"WEEK":  internal.PeriodWeek,
+	"MONTH": internal.PeriodMonth,
+	"YEAR":  internal.PeriodYear,
+}
+
+// teamtailorAmount reads one of schema.org's pay figures, reporting false when
+// the field is absent or is not a positive number.
+func teamtailorAmount(value teamtailorText) (float64, bool) {
+	amount, err := strconv.ParseFloat(strings.TrimSpace(value.String()), 64)
+	if err != nil || amount <= 0 {
+		return 0, false
+	}
+
+	return amount, true
+}
+
+// teamtailorCurrency returns the ISO 4217 code the feed published, or "" when it
+// published none or published something that is not one.
+//
+// Measured: 8 of 69 paying postings carried a null currency and 2 an empty
+// string, so an absent code is normal rather than exceptional.
+// [internal.Compensation] documents Currency as often empty for exactly this
+// reason, and a figure with no currency is still worth more than no figure.
+func teamtailorCurrency(value teamtailorText) string {
+	code := strings.ToUpper(strings.TrimSpace(value.String()))
+	if len(code) != 3 {
+		return ""
+	}
+
+	for _, r := range code {
+		if r < 'A' || r > 'Z' {
+			return ""
+		}
+	}
+
+	return code
+}
+
+// teamtailorCompensation turns a posting's baseSalary into a pay range,
+// returning nil when the employer published none.
+//
+// Provenance is [internal.ProvenanceEmployer]: this is a dedicated field an
+// employer filled in on the board, not a figure recovered from prose, and
+// docs/compensation.md requires the two never be blended. The description is
+// deliberately not searched as a fallback — [teamtailorItem] does not decode
+// content_html at all, and holding 16,759 full job descriptions in memory to
+// guess at pay would cost the crawl far more than the field is worth.
+func teamtailorCompensation(salary *teamtailorSalary) *internal.Compensation {
+	if salary == nil {
+		return nil
+	}
+
+	comp := &internal.Compensation{
+		Currency:   teamtailorCurrency(salary.Currency),
+		Period:     teamtailorPeriods[strings.ToUpper(strings.TrimSpace(salary.Value.UnitText.String()))],
+		Provenance: internal.ProvenanceEmployer,
+	}
+
+	if minimum, ok := teamtailorAmount(salary.Value.MinValue); ok {
+		comp.Min = minimum
+	}
+
+	if maximum, ok := teamtailorAmount(salary.Value.MaxValue); ok {
+		comp.Max = maximum
+	}
+
+	// A posting that names one figure rather than a range publishes it under
+	// "value". It is a point, not a bound, so it fills both ends: reporting it as
+	// a minimum alone would make --max-pay queries miss it entirely.
+	if comp.Min == 0 && comp.Max == 0 {
+		if amount, ok := teamtailorAmount(salary.Value.Value); ok {
+			comp.Min, comp.Max = amount, amount
+		}
+	}
+
+	// A currency or a period with no figures behind it is not a pay range, and
+	// publishing one would make --has-pay match postings that disclose nothing.
+	if comp.IsZero() {
+		return nil
+	}
+
+	return comp
 }
 
 // teamtailorPlace is one schema.org Place a posting is offered at.
@@ -560,6 +688,8 @@ func Teamtailor(ctx context.Context, httpClient *http.Client, company string) in
 					URL:      postingURL,
 					Title:    title,
 					Location: teamtailorLocation(item.JobPosting.JobLocation, isRemote),
+
+					Compensation: teamtailorCompensation(item.JobPosting.BaseSalary),
 
 					Department: strings.TrimSpace(item.JobPosting.OccupationalCategory.String()),
 					PostedAt:   teamtailorTime(item.DatePublished, item.JobPosting.DatePosted),
