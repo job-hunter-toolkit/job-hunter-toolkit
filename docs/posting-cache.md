@@ -18,12 +18,25 @@ work.
 
 Both halves of that question have gotten sharper since, in opposite directions.
 
-The case *for* is much stronger. In 2019 a crawl was "several minutes". The
-07/26/26 baseline recorded 473,404 postings from 1,772 companies and **did not
-finish in 350 minutes** on a GitHub runner (`verified-in-code`: quoted in
-`shard_cmd.go:21-26` and `internal/enrich/README.md`). The registry is now 2,211
-sources across 19 platforms. A tool nobody can afford to run twice is a tool
-nobody runs once.
+The case *for* is stronger, though not for the reason it first appeared. In 2019
+a crawl was "several minutes". The 07/26/26 baseline recorded 473,404 postings
+from 1,772 companies and **did not finish in 350 minutes** on a GitHub runner
+(`verified-in-code`: quoted in `shard_cmd.go:21-26`). That is what this document
+was written against.
+
+It no longer holds. Measured live on 2026-07-28
+([measurements/2026-07-28-crawl.md](measurements/2026-07-28-crawl.md)), a full
+crawl of 3,685 sources returned 780,489 postings from 3,462 companies in **720
+seconds**. The 350-minute run was carrying a semaphore leak that stalled every
+large Workday tenant for a full client timeout; with that fixed the crawl
+finishes comfortably.
+
+So the argument is no longer "a tool nobody can afford to run twice". It is
+narrower and still sound: 12 minutes is cheap enough to run, and far too
+expensive to pay again for every adjustment to a filter — and it is entirely
+unaffordable for a browser tab or an agent turn, which is where this store
+stops being an optimisation and becomes load-bearing. See "What it is actually
+worth" below.
 
 The case *against* is also stronger, and it is not complexity. It is that job
 postings expire. Serving a day-old posting as though it were live sends someone
@@ -308,9 +321,15 @@ The frozen 8-column CSV set is untouched; `observed_at` is appended to
 
 The daily record is a coverage-and-health time series before it is a hiring time
 series ([jobs-record.md](jobs-record.md)), and a row assembled from observations
-taken across a day is not a measurement of anything at an instant. It would also
-quietly repair the exact symptom — a crawl that cannot finish in 350 minutes —
-that the sharded workflow exists to solve honestly.
+taken across a day is not a measurement of anything at an instant.
+
+The 2026-07-28 measurement removes the last excuse for doing it anyway. When
+this was written the temptation was real: a store could have made a crawl that
+could not finish in 350 minutes appear to finish, papering over the symptom the
+sharded workflow exists to solve honestly. Now that a true instantaneous crawl
+costs 12 minutes, there is nothing left to buy — reading the store here would
+trade the integrity of the project's headline time series for no saving worth
+having.
 
 If that ever changes, it changes with: a manifest field recording the oldest
 observation, a fourth-column status that is not the string `complete`, and a
@@ -398,22 +417,44 @@ looking. All `verified-in-code`.
 
 ## What it is actually worth
 
-`inferred` throughout — no numbers here were measured, and the environment this
-was written in has no outbound access to a job board.
+**The premise of this section changed after it was written**, and the change is
+large enough to restate the case rather than patch the numbers.
 
-| Scenario | Today | With a 24h tolerance |
+This document argued from the 07/26 baseline: 473,404 postings from 1,772
+companies, unfinished after 350 minutes. On 2026-07-28 the crawl was measured
+end to end against live boards for the first time
+([measurements/2026-07-28-crawl.md](measurements/2026-07-28-crawl.md)):
+**780,489 postings from 3,462 companies in 720 seconds**, with 3,675 of 3,685
+sources complete. The 350-minute figure described a crawl carrying a semaphore
+leak that stalled every large Workday tenant for a full client timeout; that bug
+is fixed, and the wall clock fell by a factor of about 29.
+
+| Scenario | Today (measured) | With a 24h tolerance |
 | --- | --- | --- |
 | `postings --company anthropic` | ~1 s | ~1 s (nothing to win) |
-| `postings --remote --title X`, full crawl | 350+ min, incomplete | seconds, from disk |
-| Iterating on a filter or an output format | one crawl per attempt | one crawl, then free |
-| Cold run on a new machine | 350+ min | 350+ min, unchanged |
+| `postings --remote --title X`, full crawl | **~12 min**, complete | seconds, from disk |
+| Iterating on a filter or an output format | one 12-min crawl per attempt | one crawl, then free |
+| Cold run on a new machine | ~12 min | ~12 min, unchanged |
 
-The middle two are the whole feature. The last row is worth stating plainly:
-**this makes the second run fast and does nothing at all for the first.** Every
-coverage and wall-time problem in
-[research/crawl-performance.md](research/crawl-performance.md) survives this
-design untouched, and a cache must never become the reason they stop getting
-fixed.
+So the argument is weaker than it appears above, and it is worth being honest
+about which parts survive:
+
+- **Weaker:** this is no longer the difference between impossible and possible.
+  A full crawl finishes. "12 minutes becomes 2 seconds" is a real ergonomic win
+  for iterating on a filter, but it is not rescuing a broken command.
+- **Unchanged, and still the whole point:** the second and third rows. Iterating
+  on a query is the common case, and paying 12 minutes per attempt is still
+  absurd when the postings did not change between attempts.
+- **Stronger:** every argument below about *surfaces other than the CLI*. A
+  browser tab cannot crawl 3,685 sources to answer one query, and an MCP tool
+  cannot spend 12 minutes on a conversational turn. For those, an observation
+  store is not an optimisation, it is the only way the surface exists at all.
+
+The last row still deserves its plain statement: **this makes the second run
+fast and does nothing at all for the first.** Every coverage and wall-time
+problem in [research/crawl-performance.md](research/crawl-performance.md)
+survives this design untouched, and a cache must never become the reason they
+stop getting fixed.
 
 There is a second, quieter benefit. A store of observations is the prerequisite
 for the agent-facing tools in Phase 4: `search_jobs` must be *bounded*, and
