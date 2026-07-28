@@ -1283,6 +1283,10 @@ func TestSharedBackendsAllHaveAPolicy(t *testing.T) {
 			"https://fedex.jibeapply.com/api/jobs",
 			"https://costco.jibeapply.com/api/jobs",
 		}, key: "jibeapply.com"},
+		{name: "Eightfold", urls: []string{
+			"https://hsbc.eightfold.ai/api/apply/v2/jobs?start=0&num=10",
+			"https://bayer.eightfold.ai/api/apply/v2/jobs?start=0&num=10",
+		}, key: "eightfold.ai"},
 	}
 
 	for _, tt := range tests {
