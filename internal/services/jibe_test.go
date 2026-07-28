@@ -2,6 +2,7 @@ package services
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -656,4 +657,48 @@ func TestJibeRegistersOnlyStagedHosts(t *testing.T) {
 	}
 
 	test.Less(t, len(staged), registeredHosts, test.Sprint("the registered hosts should stay a subset of the staged ones"))
+}
+
+// TestJibeDoesNotYieldAfterTheConsumerStops is a regression test for a hazard
+// the fan-out introduced.
+//
+// The page loops moved out of the iterator body into helpers, so "the consumer
+// returned false" stopped being a return from the closure and became a return
+// from a helper — after which the closure went on to its cancellation check and
+// could call yield a second time. Yielding after a range-over-func consumer has
+// returned false panics, and it takes the whole crawl worker with it.
+//
+// Both stop conditions are made true at once here: the consumer breaks on the
+// first posting while the context that governs the crawl is already cancelled.
+func TestJibeDoesNotYieldAfterTheConsumerStops(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{"acme", "careers.example.com"} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+
+			client, _ := jibePageClient(map[int]string{
+				1: jibeFullPage("a", 350),
+				2: jibeFullPage("b", 350),
+				3: jibeFullPage("c", 350),
+			})
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			var seen int
+
+			// The cancel happens while the iterator is mid-page, so the emit
+			// path sees a cancelled context on its next posting.
+			for range Jibe(ctx, client, key) {
+				seen++
+
+				cancel()
+
+				break
+			}
+
+			test.Eq(t, 1, seen)
+		})
+	}
 }
