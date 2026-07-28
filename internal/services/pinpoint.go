@@ -31,76 +31,163 @@ func init() {
 // a tenant's entire open-req list carrying department, employment type, a
 // three-state workplace type — a distinction Remote *bool cannot express, which
 // is why [internal.WorkplaceType] exists — and, for tenants that opt in, an
-// employer-published pay range.
+// employer-published pay range with its own period.
 //
-// # Why this list is short
+// # This list is measured, not staged
 //
-// The research pass behind this adapter recovered 119 candidate slugs and could
-// not probe one of them: nothing in this container can reach a job board. At
-// this project's fan-out an unverified tenant is not free — it burns a request
-// every crawl, reports as a failing source, and enough of them together trip the
-// Source Health workflow's 35%-failure alarm, which is the signal that is
-// supposed to mean a real platform broke. The full candidate list is committed
-// verbatim with its provenance headers at
-// testdata/candidates/pinpoint_tenants.txt, for a CI verification pass to
-// promote from; this adapter does not change when that happens.
+// Every entry below answered a live probe on 2026-07-28. The whole 119-slug
+// candidate file at testdata/candidates/pinpoint_tenants.txt was probed at
+// https://<slug>.pinpointhq.com/postings.json, one slug at a time, under the
+// same shared-backend pacing internal/httpx applies to *.pinpointhq.com:
 //
-// Selection rules for the entries below, in order:
+//   - 117 answered HTTP 200 with a non-empty "data" array whose elements carry
+//     "title" and "url" at the top level, which is the promotion rule the
+//     candidate file states. All 117 are registered here.
+//   - 2 answered 200 with an empty "data" array: "chancetoshine" and
+//     "savannainstitute". docs/adding-a-source.md is explicit that an empty
+//     board is not a broken one, but it is also not evidence that a board is
+//     live, so they stay in the candidate file unregistered.
+//   - 0 were dead. Not one slug 404'd, and not one failed to resolve.
 //
-//  1. Only slugs from the candidate file's two hand-curated batches, whose
-//     header records a live probe returning HTTP 200 with a non-empty "data"
-//     array and names the employer behind each slug. The file's later automated
-//     apply-URL harvest is excluded wholesale: its rows carry "?" instead of an
-//     employer name, so there is nothing to check an identity against.
-//  2. Highest annotated open-req counts first, because postings per HTTP request
-//     is the metric that matters for a crawl that already misses its deadline.
-//  3. Employers whose identity the slug makes unambiguous, per
-//     docs/adding-a-source.md's warning that short generic slugs usually belong
-//     to somebody other than the famous holder of the name. "cfc", "aria",
-//     "field", "magic", "article", "bright" and "gig" stay in the candidate file
-//     for that reason, and so does "infor": a Pinpoint tenant for an enterprise
-//     software vendor that size is a claim worth checking live first.
-//  4. Recruiting and staffing agencies are skipped where recognisable; they
-//     republish one client's role many times.
+// The 117 together published 6,406 postings at the moment they were probed —
+// about 55 postings per HTTP request, which makes this the cheapest lane per
+// posting measured in this wave and roughly two and a half times the estimate
+// docs/research/ats-platform-survey.md derived from the curator's annotations.
+// Those annotations undercount badly at the top: "trilongroup" is annotated
+// "~18" and answered with 957 postings.
 //
-// surrealdb is the one entry not drawn from the candidate file. Its source is
-// this repository's own docs/source-backlog.md, which recorded the tenant URL
-// from a live fingerprinting pass.
+// surrealdb is the one entry not drawn from the candidate file; its source is
+// this repository's own docs/source-backlog.md. It is kept although it answered
+// with an empty "data" array, because it is the tenant this platform was added
+// for and an employer that is not hiring today is not a dead source.
+//
+// Slug ambiguity was the reason several entries were held back when this file
+// was written blind, and the live probe settles those cases rather than
+// guessing at them: "infor" serves 195 postings whose own URLs are on
+// careers.infor.com, so it is the enterprise software vendor after all, and
+// "aria", "article", "bright", "cfc", "field", "gig" and "magic" all answer
+// with coherent single-employer req lists. No identity is asserted by
+// registering them in any case: [internal.JobPosting.Company] is the tenant
+// slug, and the URL published for every posting is the board's own.
 var PinpointCompanies = []string{
+	"aawdc",
+	"agencyanalytics",
+	"alcanzaclinical",
+	"alcumus",
+	"anthesisgroup",
+	"appquantum",
+	"aria",
+	"armstrongwatson",
 	"arrowglobal",
+	"article",
+	"avaaz",
 	"bathspa",
+	"bighatbiosciences",
+	"bright",
 	"british-business-bank",
+	"btny",
+	"c10labs",
+	"cartesian",
 	"carto",
+	"cfc",
+	"cfra",
+	"chetwood-bank",
+	"cnps",
 	"coforma",
 	"compasshealthnetwork",
 	"confluence",
+	"convexin",
+	"cottonholdings",
+	"crcna",
+	"cubico",
 	"davies",
+	"dbrand",
+	"deister",
 	"digitalscience",
+	"encompass",
+	"eptura",
+	"esss",
+	"field",
 	"franklin-electric",
 	"fundapps",
+	"gig",
 	"goodenergy",
+	"grasshopper",
+	"groupgti",
+	"groupo",
+	"harnham",
 	"hollandamericagroup",
+	"icario",
 	"impulsespace",
 	"indrive",
+	"infor",
 	"inmusicbrands",
+	"innovetivepetcare",
+	"intandem",
+	"intermedia",
+	"invictus-verus",
+	"jed",
+	"judge-priestley",
+	"keck",
 	"kempinski",
+	"kharon",
+	"lbresearch",
+	"londonyouth",
+	"magic",
+	"mcbains",
+	"menzies",
+	"mountainwarehouse",
+	"multiplier-careers",
+	"nasstar",
+	"navigatepower",
 	"nccgroup",
 	"networkplus",
+	"nmc",
+	"nodalexchange",
+	"northernbedrockcorps",
 	"nypl",
+	"oneplan",
+	"oxfordmetrics",
 	"penrosehealth",
+	"pinnbank",
 	"premierleague",
 	"princesscruises",
+	"pxlimited",
+	"qac",
 	"reconomy",
 	"reimaginedcareers",
+	"rockitmotors",
+	"roofsbyaspen",
+	"rwdi",
 	"safetywing",
+	"sandpiperci",
+	"scandiweb",
+	"shieldtp",
+	"sjsustudentunion",
 	"skims",
+	"smartthings",
+	"stacywitbeck",
 	"sunking",
+	"surgohealth",
 	"surrealdb",
+	"systematica",
+	"tabby",
+	"telesolvconsulting",
+	"thearchco",
+	"thorne",
+	"togethergroup",
+	"tradingtechnologies",
 	"trilongroup",
+	"twiningsovocareers",
 	"uktv",
 	"upway",
 	"vgroup",
+	"wearehuman8",
+	"weoneil",
+	"wolfe",
+	"workwithus",
 	"ymcaboston",
+	"zenergi",
 }
 
 // pinpointPostingsResponse is one tenant's whole open-req list.
@@ -146,9 +233,18 @@ type pinpointPosting struct {
 	// "Contract"), normalized rather than stored raw.
 	EmploymentTypeText string `json:"employment_type_text"`
 
-	// WorkplaceType is Pinpoint's three-state field: "remote", "hybrid" or
-	// "on_site". It is a real structured answer, not a guess from location text,
-	// which is what makes it worth more than [internal.JobPosting.IsRemote].
+	// WorkplaceType is Pinpoint's three-state field. It is a real structured
+	// answer, not a guess from location text, which is what makes it worth more
+	// than [internal.JobPosting.IsRemote].
+	//
+	// The live spelling of the third state is "onsite", not the "on_site"
+	// docs/research/ats-platform-survey.md documents: across the 6,406 postings
+	// measured on 2026-07-28 the only three values were "onsite" (4,159),
+	// "hybrid" (1,655) and "remote" (592), and "on_site" did not occur once.
+	// Nothing needs to change for that, because [internal.NormalizeWorkplaceType]
+	// squashes separators before comparing and both spellings reduce to the same
+	// key — but the survey's value is wrong and an adapter that had matched it
+	// literally would have mislabelled two thirds of the platform.
 	WorkplaceType string `json:"workplace_type"`
 
 	// CompensationVisible is the employer's own switch for showing pay. The
@@ -160,6 +256,21 @@ type pinpointPosting struct {
 	CompensationMinimum  pinpointScalar `json:"compensation_minimum"`
 	CompensationMaximum  pinpointScalar `json:"compensation_maximum"`
 	CompensationCurrency string         `json:"compensation_currency"`
+
+	// CompensationFrequency is the interval the two bounds are quoted in.
+	//
+	// It is not in docs/research/ats-platform-survey.md, which lists only
+	// minimum/maximum/currency/visible, and this adapter was originally written
+	// asserting Pinpoint "publishes no period alongside them". A probe of all
+	// 119 candidate tenants on 2026-07-28 found the key present on all 6,406
+	// postings and populated on 3,002 of the 3,169 that show pay: "year" 1,676,
+	// "hour" 1,202, "month" 113, "week" 7, "day" 2 and "two_weeks" 2.
+	//
+	// Reading it matters beyond tidiness. Without it [internal.Compensation]
+	// infers the period from magnitude, and that heuristic only ever answers
+	// hour or year — so every one of the 122 monthly, weekly and daily ranges
+	// was being republished as an annual salary.
+	CompensationFrequency string `json:"compensation_frequency"`
 
 	Location struct {
 		City     string `json:"city"`
@@ -234,6 +345,36 @@ func (s pinpointScalar) amount() (float64, bool) {
 	return value, true
 }
 
+// pinpointPeriods maps Pinpoint's compensation_frequency spelling onto
+// [internal.Period]. Every key is a value measured in the live probe.
+//
+// "two_weeks" is deliberately absent. [internal.Period] has no fortnightly unit,
+// and folding it into "week" would halve the figure a consumer reads while
+// looking exactly like a correct answer. Leaving it unmapped sends those two
+// postings back to the magnitude heuristic, which is the same place they were
+// before this field was read at all.
+var pinpointPeriods = map[string]internal.Period{
+	"hour":    internal.PeriodHour,
+	"hourly":  internal.PeriodHour,
+	"day":     internal.PeriodDay,
+	"daily":   internal.PeriodDay,
+	"week":    internal.PeriodWeek,
+	"weekly":  internal.PeriodWeek,
+	"month":   internal.PeriodMonth,
+	"monthly": internal.PeriodMonth,
+	"year":    internal.PeriodYear,
+	"yearly":  internal.PeriodYear,
+	"annual":  internal.PeriodYear,
+}
+
+// pinpointPeriod parses Pinpoint's pay interval, returning
+// [internal.PeriodUnknown] for anything unrecognised so that
+// [internal.Compensation] falls back to inferring the period from magnitude
+// rather than this adapter guessing one.
+func pinpointPeriod(raw string) internal.Period {
+	return pinpointPeriods[strings.ToLower(strings.TrimSpace(raw))]
+}
+
 // pinpointLocation renders the place a posting is offered at, preferring
 // "City, Province" and falling back to the location's own label.
 func pinpointLocation(posting pinpointPosting) string {
@@ -262,9 +403,9 @@ func pinpointLocation(posting pinpointPosting) string {
 // when the employer published none or chose not to show it.
 //
 // Provenance is [internal.ProvenanceEmployer]: these are dedicated numeric
-// fields, not figures read out of prose. No period is published alongside them,
-// so [internal.Compensation] infers one from the magnitude of the figures —
-// which is how a frontline hourly rate and a salaried range stay comparable.
+// fields, not figures read out of prose. The period comes from the board's own
+// compensation_frequency where it published one, and falls back to
+// [internal.Compensation]'s magnitude inference where it did not.
 func pinpointCompensation(posting pinpointPosting) *internal.Compensation {
 	if !posting.CompensationVisible {
 		return nil
@@ -272,6 +413,7 @@ func pinpointCompensation(posting pinpointPosting) *internal.Compensation {
 
 	comp := &internal.Compensation{
 		Currency:   strings.ToUpper(strings.TrimSpace(posting.CompensationCurrency)),
+		Period:     pinpointPeriod(posting.CompensationFrequency),
 		Provenance: internal.ProvenanceEmployer,
 	}
 
@@ -357,6 +499,10 @@ func Pinpoint(ctx context.Context, httpClient *http.Client, company string) inte
 			// excluded from --posted-since queries. That is the honest outcome:
 			// synthesising a date from the crawl time would make every posting
 			// look new every night.
+			//
+			// Measured rather than assumed: the 6,406 postings captured on
+			// 2026-07-28 carry exactly 25 keys between them, the same 25 on every
+			// posting, and the only date among them is "deadline_at".
 
 			if workplace, ok := internal.NormalizeWorkplaceType(posting.WorkplaceType); ok {
 				jobPosting.WorkplaceType = workplace
