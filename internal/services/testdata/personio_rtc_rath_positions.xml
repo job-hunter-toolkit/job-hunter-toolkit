@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<workzag-jobs>
+
+<position>
+    <id>2483204</id>
+    <subcompany>RTC-Rath GmbH</subcompany>
+    <office>Remote</office>
+    <department>Project Engineering</department>
+    <recruitingCategory>Festangestellte (Projekte)</recruitingCategory>
+    <name>(Senior) Projektsteuerer Bahnbau (m/w/d)</name>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>Deutsche Bahn,DB InfraGO,Bauingenieurwesen,Bauingenieur,Senior,projektsteuerung,PING,Projektingenieur,DB InfraGO AG,Bahnbau,LST,50 Hz,OLA,ETCS,DSTW,Senior Rolle,Verantwortung,Projektmanager,Projektmanagement,führung,team,modern,Bahn,KIB,Baugrund,Vermessun</keywords>
+    <occupation>general_and_other_project_and_program_management</occupation>
+    <occupationCategory>project_and_program_management</occupationCategory>
+    <createdAt>2026-01-11T20:04:28+00:00</createdAt>
+</position>
+
+<position>
+    <id>1830648</id>
+    <subcompany>RTC-Rath GmbH</subcompany>
+    <office>Koblenz</office>
+    <additionalOffices>
+        <office>Frankfurt am Main</office>
+        <office>Bonn</office>
+    </additionalOffices>
+    <department>Project Engineering</department>
+    <recruitingCategory>Werkstudenten</recruitingCategory>
+    <name>Aushilfskraft für Bestandsaufnahmen im Bahnbau (m/w/d)</name>
+    <employmentType>temporary</employmentType>
+    <seniority>entry-level</seniority>
+    <schedule>part-time</schedule>
+    <keywords>Werkstudent,Bauingenieur,Ingenieur,Technik,Bahn,Bahnbau,DB,Deutsche Bahn,Maschinen,Maschinenbau,Job,Studentenjob,befristet,Teilzeit,Studis,Vermessung,Aushilfe,Aushilfsjob,Nebenjob,Frankfurt,Koblenz,Teilzeit,Aushilfe,Handwerker,Handwerk,Stundenbasis</keywords>
+    <occupation>civil__structural_engineering</occupation>
+    <occupationCategory>engineering</occupationCategory>
+    <createdAt>2024-11-11T17:42:56+00:00</createdAt>
+    <salaryInformation>
+        <min>18.50</min>
+        <currencySymbol>€</currencySymbol>
+        <currencyCode>EUR</currencyCode>
+        <type>hourly</type>
+    </salaryInformation>
+</position>
+
+<position>
+    <id>2422433</id>
+    <subcompany>RTC-Rath GmbH</subcompany>
+    <office>Remote</office>
+    <department>Project Engineering</department>
+    <recruitingCategory>Festangestellte (Projekte)</recruitingCategory>
+    <name>Teamleiter:in Projektsteuerung Bahnbau (m/w/d)</name>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>5-7</yearsOfExperience>
+    <keywords>DB InfraGO,DB,DB Infra,InfraGO,Teamleiter,Teamlead,Projektmanagement,Projektsteuerung,Bauingenieur,Projektsteuerer,Bahnbau,LST,KIB,PING,Projektingenieur,KTB,Führung,Team,modern,Infrastrukturbau,Eisenbahn,ETCS,DSTW</keywords>
+    <occupation>general_and_other_project_and_program_management</occupation>
+    <occupationCategory>project_and_program_management</occupationCategory>
+    <createdAt>2025-11-10T21:54:31+00:00</createdAt>
+</position>
+
+<position>
+    <id>1830130</id>
+    <subcompany>RTC-Rath GmbH</subcompany>
+    <office>Frankfurt am Main</office>
+    <additionalOffices>
+        <office>Koblenz</office>
+        <office>Bonn</office>
+        <office>Wiesbaden</office>
+    </additionalOffices>
+    <department>Project Engineering</department>
+    <recruitingCategory>Werkstudenten</recruitingCategory>
+    <name>Werkstudent:in Bahnbau (m/w/d)</name>
+    <employmentType>intern</employmentType>
+    <seniority>entry-level</seniority>
+    <schedule>part-time</schedule>
+    <keywords>Werkstudent,Bauingenieur,Ingenieur,Technik,Bahn,Bahnbau,DB,Deutsche Bahn,Maschinen,Maschinenbau,Job,Studentenjob,befristet,Teilzeit,Studis,Vermessung,Wirtschaftsingenieur,DB Infrago</keywords>
+    <occupation>general_and_other_engineering</occupation>
+    <occupationCategory>engineering</occupationCategory>
+    <createdAt>2024-11-11T14:10:19+00:00</createdAt>
+    <salaryInformation>
+        <min>18.50</min>
+        <currencySymbol>€</currencySymbol>
+        <currencyCode>EUR</currencyCode>
+        <type>hourly</type>
+    </salaryInformation>
+</position>
+
+</workzag-jobs>
