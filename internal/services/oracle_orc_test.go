@@ -72,6 +72,49 @@ func oracleCloudFixture(t *testing.T, name string) string {
 	return string(body)
 }
 
+// oracleCloudCaptureTransport serves a captured first page at offset 0 and an
+// end-of-list page at every other offset.
+//
+// The captures keep the TotalJobsCount their sites really sent — 222 and 15,120
+// — while holding only the two requisitions they were truncated to, so an
+// adapter that believes the count will ask for more. Answering those with an
+// empty requisition list is what the live site does past its last row, and it
+// keeps the capture verbatim instead of editing its count down to match the
+// truncation.
+//
+// It exists rather than fixtureClient because that helper appends to a slice
+// without a lock, which was safe while every adapter paged serially. It is
+// shared by other adapters' tests, so the behaviour is reproduced here rather
+// than changed underneath them.
+type oracleCloudCaptureTransport struct {
+	capture string
+
+	mu       sync.Mutex
+	requests int
+}
+
+func (o *oracleCloudCaptureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	o.mu.Lock()
+	o.requests++
+	o.mu.Unlock()
+
+	body := o.capture
+
+	for _, part := range strings.Split(oracleCloudFinder(req.URL.RawQuery), ",") {
+		if value, ok := strings.CutPrefix(part, "offset="); ok && value != "0" {
+			body = `{"items":[{"TotalJobsCount":0,"requisitionList":[]}]}`
+		}
+	}
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     http.StatusText(http.StatusOK),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    req,
+	}, nil
+}
+
 func TestOracleCloudParsesRequisitions(t *testing.T) {
 	t.Parallel()
 
@@ -239,6 +282,13 @@ type oracleCloudOffsetTransport struct {
 	// total, which is what Oracle really does. Zero disables it.
 	window int
 
+	// rows is how many requisitions the site really holds, when that differs
+	// from the total it reports. A site whose TotalJobsCount overshoots what it
+	// will serve is the ordinary case for this platform: the count is a search
+	// estimate, and two requests to the same site minutes apart returned 15119
+	// and 15120. Zero means the site serves exactly what it reports.
+	rows int
+
 	// ignoreOffset serves the identical first page for every offset, which is
 	// the misbehaviour pageRepeatGuard exists to catch.
 	//
@@ -274,7 +324,12 @@ func (o *oracleCloudOffsetTransport) RoundTrip(req *http.Request) (*http.Respons
 	}
 
 	if !o.distinct {
-		if remaining := o.total - offset; remaining < count {
+		served := o.total
+		if o.rows > 0 {
+			served = o.rows
+		}
+
+		if remaining := served - offset; remaining < count {
 			count = max(remaining, 0)
 		}
 	}
@@ -460,6 +515,30 @@ func TestOracleCloudStopsAtItsPageCeiling(t *testing.T) {
 	must.Len(t, 1, errs)
 	must.StrContains(t, errs[0].Error(), "acme")
 	must.StrContains(t, errs[0].Error(), "refusing to keep paginating")
+}
+
+// TestOracleCloudDoesNotReportACeilingItDidNotHit is the regression test for
+// the first bug the live captures found in this rewrite.
+//
+// Page offsets are planned up front from the site's own TotalJobsCount, so a
+// site that over-reports — Kroger's capture says 15,120 on a page holding two
+// requisitions — plans more pages than oracleCloudMaxPages allows and would
+// have been reported as outrunning the backstop even though it ran out of rows
+// on its second request. That turns a source which finished cleanly into a
+// failing one, and at 1,203 registered tenants a false failure mode is exactly
+// what pushes the Source Health workflow toward its 35% alarm.
+func TestOracleCloudDoesNotReportACeilingItDidNotHit(t *testing.T) {
+	t.Parallel()
+
+	// Two rows per page against a claimed 100,000 plans far past the backstop;
+	// the site then runs out after four rows, which is the Kroger capture's
+	// shape without its size.
+	transport := &oracleCloudOffsetTransport{total: 100_000, perPage: 2, rows: 4}
+
+	postings, errs := drain(OracleCloud(t.Context(), &http.Client{Transport: transport}, oracleCloudTestTenant))
+
+	must.SliceEmpty(t, errs)
+	test.SliceNotEmpty(t, postings)
 }
 
 // TestOracleCloudFetchesPagesConcurrently is the whole point of the fan-out, and
@@ -789,15 +868,12 @@ func TestOracleCloudParsesACapturedLiveSite(t *testing.T) {
 
 	const tenant = "uthealthsa,fa-eomf-saasfaprod1.fa.ocs.oraclecloud.com,CX_1002"
 
-	client, transport := fixtureClient(map[string]string{
-		"fa-eomf-saasfaprod1.fa.ocs.oraclecloud.com": oracleCloudFixture(t, "oracle_uthealthsa_requisitions.json"),
-	})
+	transport := &oracleCloudCaptureTransport{capture: oracleCloudFixture(t, "oracle_uthealthsa_requisitions.json")}
 
-	postings, errs := drain(OracleCloud(t.Context(), client, tenant))
+	postings, errs := drain(OracleCloud(t.Context(), &http.Client{Transport: transport}, tenant))
 
 	must.SliceEmpty(t, errs)
 	must.Len(t, 2, postings)
-	must.Len(t, 1, transport.requests)
 
 	first := postings[0]
 
@@ -832,11 +908,9 @@ func TestOracleCloudParsesASparseCapturedSite(t *testing.T) {
 
 	const tenant = "kroger,eluq.fa.us2.oraclecloud.com,CX_2001"
 
-	client, _ := fixtureClient(map[string]string{
-		"eluq.fa.us2.oraclecloud.com": oracleCloudFixture(t, "oracle_kroger_requisitions.json"),
-	})
+	transport := &oracleCloudCaptureTransport{capture: oracleCloudFixture(t, "oracle_kroger_requisitions.json")}
 
-	postings, errs := drain(OracleCloud(t.Context(), client, tenant))
+	postings, errs := drain(OracleCloud(t.Context(), &http.Client{Transport: transport}, tenant))
 
 	must.SliceEmpty(t, errs)
 	must.Len(t, 2, postings)
@@ -857,10 +931,13 @@ func TestOracleCloudParsesASparseCapturedSite(t *testing.T) {
 	test.Eq(t, "", first.Department)
 	test.Eq(t, internal.WorkplaceTypeUnknown, first.WorkplaceType)
 
-	// This capture is the one that carries a TotalJobsCount past the
-	// deep-paging window, and the walk must not treat two requisitions as the
-	// whole of a 15,000-req employer by accident: it stops because the page was
-	// short, having asked for 200.
+	// This capture carries the real 15,120 count on a page truncated to two
+	// requisitions, so the adapter is right to keep asking; the transport
+	// answers past offset 0 the way the live site answers past its last row.
+	// What must not happen is the count being ignored, which would publish the
+	// first page of a 15,000-req employer as the whole of it.
+	test.Greater(t, 1, transport.requests)
+
 	test.Eq(t,
 		"https://eluq.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001/job/203341",
 		first.URL,
@@ -882,7 +959,7 @@ func TestOracleCloudCapturesCarryTheDocumentedFields(t *testing.T) {
 
 			var envelope struct {
 				Items []struct {
-					TotalJobsCount  int                        `json:"TotalJobsCount"`
+					TotalJobsCount  int                          `json:"TotalJobsCount"`
 					RequisitionList []map[string]json.RawMessage `json:"requisitionList"`
 				} `json:"items"`
 			}

@@ -1854,12 +1854,11 @@ func OracleCloud(ctx context.Context, httpClient *http.Client, company string) i
 			return
 		}
 
+		// capped cannot be true with no offsets — reaching the backstop means
+		// oracleCloudMaxPages-1 of them were planned — so a tenant that fits in
+		// one page is finished here.
 		offsets, capped := oracleCloudOffsets(total, totalOK, step)
 		if len(offsets) == 0 {
-			if capped {
-				yield(nil, oracleCloudPageCeilingError(tenant))
-			}
-
 			return
 		}
 
@@ -1886,7 +1885,18 @@ func OracleCloud(ctx context.Context, httpClient *http.Client, company string) i
 		// indistinguishable from a tenant hiccuping mid-crawl, and acting on it
 		// would silently truncate an employer, which is precisely the class of
 		// bug this code exists to prevent.
-		stopScheduling := func() { exhaust.Do(func() { close(exhausted) }) }
+		//
+		// It also clears the page-ceiling report. Planning more pages than
+		// oracleCloudMaxPages allows and then discovering the site had fewer is
+		// not a site that outran the backstop, and saying so would fail a source
+		// that finished cleanly.
+		var ranOut bool
+
+		stopScheduling := func() {
+			ranOut = true
+
+			exhaust.Do(func() { close(exhausted) })
+		}
 
 		go func() {
 			// results must not be closed until every sender has finished, or a
@@ -1994,7 +2004,7 @@ func OracleCloud(ctx context.Context, httpClient *http.Client, company string) i
 			return
 		}
 
-		if capped {
+		if capped && !ranOut {
 			yield(nil, oracleCloudPageCeilingError(tenant))
 		}
 	}
