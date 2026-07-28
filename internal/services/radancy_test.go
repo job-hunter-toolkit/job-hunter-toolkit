@@ -326,32 +326,35 @@ func TestRadancyStopsOnABoardThatIgnoresItsPageParameter(t *testing.T) {
 	must.Len(t, 2, transport.requests)
 }
 
-// TestRadancyRefusesToPaginateForever is the backstop for a board that varies
-// its pages without ever running out, which [pageRepeatGuard] cannot see. The
-// live result window ends a real tenant at 10,000 rows; this is what happens if
-// one ever does not.
-func TestRadancyRefusesToPaginateForever(t *testing.T) {
+// TestRadancyStopsAtTheResultWindowWithoutReportingAnError is the Walgreens
+// regression, and it is a regression against this adapter's own first version.
+//
+// jobs.walgreens.com publishes 21,232 postings and the search serves exactly
+// 10,000 of them, so a correctly configured, fully working tenant reaches the
+// page bound on every single crawl with the board still handing back full pages.
+// Treating that as "refusing to keep paginating" reported Walgreens as a failing
+// source nightly while it returned 10,000 real postings — which is precisely
+// what [radancyMaxWindow]'s comment says must not happen, and it happened
+// anyway until a live run showed it.
+func TestRadancyStopsAtTheResultWindowWithoutReportingAnError(t *testing.T) {
 	t.Parallel()
 
 	pages := map[string]string{}
 	for page := 1; page <= 100; page++ {
 		pages[fmt.Sprint(page)] = radancyEnvelope(t,
-			radancyResultsSection(1_000_000, radancyRows((page-1)*radancyPageSize+1, radancyPageSize)))
+			radancyResultsSection(21_232, radancyRows((page-1)*radancyPageSize+1, radancyPageSize)))
 	}
 
 	transport := &radancyPagedTransport{pages: pages}
 
-	postings, errs := drain(Radancy(t.Context(), &http.Client{Transport: transport}, "att,www.att.jobs"))
+	postings, errs := drain(Radancy(t.Context(), &http.Client{Transport: transport}, "walgreens,jobs.walgreens.com,/en"))
 
-	must.Len(t, 1, errs)
-	test.StrContains(t, errs[0].Error(), "refusing to keep paginating")
+	must.SliceEmpty(t, errs)
 
-	// Bounded by the result window rather than by radancyMaxPages, which is the
-	// looser of the two.
-	bound := radancyMaxWindow / radancyPageSize
-
-	must.Len(t, bound, transport.requests)
-	must.Len(t, bound*radancyPageSize, postings)
+	// The bound holds whatever the board does: it never asks past the window,
+	// and it never yields more than the window can serve.
+	must.Len(t, radancyMaxPages, transport.requests)
+	must.Len(t, radancyMaxWindow, postings)
 }
 
 // TestRadancyReadsEverySkinItWasMeasuredAgainst is the test that decides whether
