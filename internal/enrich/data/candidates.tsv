@@ -5,11 +5,25 @@
 # match_method=manual and match_confidence=high. Do not paste rows into
 # employers.tsv; the next run overwrites that file.
 platform	key	company	cik	entity_name	ticker	method	confidence	why
+brassring	bestbuy,25632,5649	bestbuy	0000764478	BEST BUY CO INC	BBY	edgar-exact-key	medium	matched only after trimming trailing digits from the tenant key; confirm by hand
+brassring	homedepot,25526,5032	homedepot	0000354950	HOME DEPOT, INC.	HD	edgar-exact-key	medium	matched only after trimming trailing digits from the tenant key; confirm by hand
+breezy	cluster-1-sa	cluster-1-sa	0001346287	Cluster Group Holdings Ltd Co	CLUS	edgar-exact-key	medium	matched only after trimming trailing digits from the tenant key; confirm by hand
+breezy	team-201	team-201	0000318833	TEAM INC	TISI	edgar-exact-key	medium	contested: peopleforce/team also matches this entity under a different name
 greenhouse	digitalocean98	digitalocean98	0001582961	DigitalOcean Holdings, Inc.	DOCN	edgar-exact-key	medium	matched only after trimming trailing digits from the tenant key; confirm by hand
+greenhouse	eve	eve	0001823652	Eve Holding, Inc.	EVEX	edgar-exact-name	medium	uncorroborated short name: Eve Holding, Inc. reduces to eve, which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer
+greenhouse	glow	glow	0001114859	Glow Holdings, Inc.	GLOH	edgar-exact-name	medium	uncorroborated short name: Glow Holdings, Inc. reduces to glow, which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer
+greenhouse	nmi	nmi	0001547903	NMI Holdings, Inc.	NMIH	edgar-exact-name	medium	uncorroborated short name: NMI Holdings, Inc. reduces to nmi, which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer
 greenhouse	upstart	upstart	0001647639	Upstart Holdings, Inc.	UPST	edgar-exact-name	medium	contested: teamtailor/upstart13 also matches this entity under a different name
 jobvite	paloaltonetworks	paloaltonetworks	0001327567	Palo Alto Networks Inc	PANW	edgar-exact-key	medium	contested: smartrecruiters/PaloAltoNetworks2 also matches this entity under a different name
+oraclecloud	chs,fa-evxo-saasfaprod1.fa.ocs.oraclecloud.com,CX_1	chs	0000823277	CHS INC	CHSCP	edgar-exact-name	medium	uncorroborated short name: CHS INC reduces to chs, which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer
+peopleforce	team	team	0000318833	TEAM INC	TISI	edgar-exact-name	medium	contested: breezy/team-201 also matches this entity under a different name
+personio	dynamix	dynamix	0002028699	Dynamix Corp	DYNC	edgar-exact-name	medium	blank-check shell: Dynamix Corp files under SIC 6770, which is a listing waiting for a merger rather than an employer with a job board
 smartrecruiters	Chubb2	Chubb2	0000896159	Chubb Ltd	CB	edgar-exact-key	medium	matched only after trimming trailing digits from the tenant key; confirm by hand
 smartrecruiters	PaloAltoNetworks2	PaloAltoNetworks2	0001327567	Palo Alto Networks Inc	PANW	edgar-exact-key	medium	contested: jobvite/paloaltonetworks also matches this entity under a different name
+smartrecruiters	Wise	Wise	0002099039	Wise Group plc	WSE	edgar-exact-name	medium	uncorroborated short name: Wise Group plc reduces to wise, which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer
+teamtailor	esg	esg	0001883835	ESG Inc.	ESGH	edgar-exact-name	medium	uncorroborated short name: ESG Inc. reduces to esg, which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer
+teamtailor	mks	mks	0001049502	MKS INC	MKSI	edgar-exact-name	medium	uncorroborated short name: MKS INC reduces to mks, which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer
 teamtailor	upstart13	upstart13	0001647639	Upstart Holdings, Inc.	UPST	edgar-exact-key	medium	contested: greenhouse/upstart also matches this entity under a different name
 workday	https://target.wd5.myworkdayjobs.com/targetcareers	target	0000027419	TARGET CORP	TGT	edgar-exact-name	medium	ambiguous: this source also matches Target Group Inc.
 workday	https://target.wd5.myworkdayjobs.com/targetcareers	target	0001586554	Target Group Inc.	CBDY	edgar-exact-name	medium	ambiguous: this source also matches TARGET CORP
+workday	https://wf.wd1.myworkdayjobs.com/WellsFargoJobs	wf	0001980210	WF Holding Ltd	WFF	edgar-exact-name	medium	uncorroborated short name: WF Holding Ltd reduces to wf, which is too short to identify a company on its own, and neither its ticker nor a published website says this board is that filer

@@ -135,6 +135,66 @@ func Query(ciks []string) string {
 }`
 }
 
+// WebsitesQuery is the SPARQL that fetches every official website Wikidata
+// publishes against a CIK.
+//
+// No VALUES clause and no chunking: this asks for the whole P5531 x P856 join
+// at once, because the resolver needs it *before* it knows which filers it
+// cares about. Measured against the live service on 2026-07-28: one request,
+// 1.4 seconds, 3,840 rows, 704 KB. Asking per matched CIK instead would be
+// cheaper in bytes and useless in fact — corroboration has to be available
+// while the match is still being decided, not after it has been committed.
+//
+// Exported so a reviewer can paste it into query.wikidata.org.
+const WebsitesQuery = `SELECT ?cik ?site WHERE {
+  ?item wdt:P5531 ?cik.
+  ?item wdt:P856 ?site.
+}`
+
+// Websites returns the official websites Wikidata publishes for each CIK.
+//
+// The join is by identifier in both directions: P5531 is the CIK the entity
+// filed under, P856 the domain it publishes as its own. That is what makes the
+// result usable as corroboration for a name match — see [resolve.Corroborated]
+// — where a label search would only be the same coincidence twice.
+//
+// A CIK with no item, or an item with no website, is simply absent. Wikidata's
+// coverage of small filers is patchy and the resolver treats absence as "not
+// corroborated", never as "contradicted".
+func Websites(ctx context.Context, client *http.Client) (map[string][]string, error) {
+	endpoint := Endpoint + "?" + url.Values{
+		"query":  {WebsitesQuery},
+		"format": {"json"},
+	}.Encode()
+
+	var payload results
+
+	if err := fetch.JSON(ctx, client, endpoint, "application/sparql-results+json", &payload); err != nil {
+		return nil, fmt.Errorf("querying Wikidata for filer websites: %w", err)
+	}
+
+	sites := make(map[string][]string, len(payload.Results.Bindings))
+
+	for _, binding := range payload.Results.Bindings {
+		cik := strings.TrimSpace(binding["cik"].Value)
+		site := strings.TrimSpace(binding["site"].Value)
+
+		if cik == "" || site == "" {
+			continue
+		}
+
+		// P5531 is hand-entered and appears both zero-padded and bare, so the
+		// key is normalized here rather than at every call site.
+		cik = padCIK(cik)
+
+		if !slices.Contains(sites[cik], site) {
+			sites[cik] = append(sites[cik], site)
+		}
+	}
+
+	return sites, nil
+}
+
 // results is the SPARQL JSON results shape.
 type results struct {
 	Results struct {

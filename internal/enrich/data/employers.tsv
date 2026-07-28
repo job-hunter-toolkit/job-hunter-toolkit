@@ -4,7 +4,7 @@
 #   go run ./tools/enrichgen -out internal/enrich/data -contact you@example.com
 # 
 # Generated 2026-07-28 from SEC EDGAR (public domain) and Wikidata (CC0).
-# Coverage: 248/6620 sources matched (8017 filers seen, 8 candidates for review), 248 submissions fetched, 0 failed, 164 decorated from Wikidata of 248 asked.
+# Coverage: 254/8173 sources matched (8017 filers seen, 3415 with a corroborating website, 1 shells refused, 22 candidates for review), 255 submissions fetched, 0 failed, 174 decorated from Wikidata of 254 asked.
 # 
 # Only matches that are unique in both directions are written here. Everything
 # else is in candidates.tsv for a human to confirm and promote into manual.tsv.
@@ -15,13 +15,28 @@ ashby	lemonade	lemonade	Lemonade, Inc.	0001691421	LMND	NYSE	6331	Fire, Marine & 
 ashby	nerdwallet	nerdwallet	NERDWALLET, INC.	0001625278	NRDS	Nasdaq	7374	Services-Computer Processing & Data Preparation	true			SAN MATEO, CA			edgar-exact-name	high	sec-edgar	2026-07-28
 ashby	netgear	netgear	NETGEAR, INC.	0001122904	NTGR	Nasdaq	3576	Computer Communications Equipment	true	791	1996	SAN JOSE, CA		Q979690	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 ashby	post	post	Post Holdings, Inc.	0001530950	POST	NYSE	2040	Grain Mill Products	true		2012	ST. LOUIS, MO		Q27988145	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
-ashby	snowflake	snowflake	Snowflake Inc.	0001640147	SNOW	NYSE	7372	Services-Prepackaged Software	true	1400	2012	MENLO PARK, CA		Q22078063	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+ashby	snowflake	snowflake	Snowflake Inc.	0001640147	SNOW	NYSE	7372	Services-Prepackaged Software	true	1400	2012	MENLO PARK, CA		Q124040368	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 ashby	uipath	uipath	UiPath, Inc.	0001734722	PATH	NYSE	7372	Services-Prepackaged Software	true	4000	2005	NEW YORK, NY		Q55080120	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+brassring	infosys,25633,5439	infosys	Infosys Ltd	0001067491	INFY	NYSE	7371	Services-Computer Programming Services	true			BANGALORE			edgar-exact-name	high	sec-edgar	2026-07-28
+breezy	adobe	adobe	ADOBE INC.	0000796343	ADBE	Nasdaq	7372	Services-Prepackaged Software	true	25988	1982	SAN JOSE, CA		Q11463	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+breezy	authentic	authentic	Authentic Holdings, Inc.	0001338929	AHRO	OTC	5130	Wholesale-Apparel, Piece Goods & Notions	true	9500	2011	MORRISTOWN, NJ		Q27926304	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+breezy	beta-bionics-inc	beta-bionics-inc	Beta Bionics, Inc.	0001674632	BBNX	Nasdaq	3841	Surgical & Medical Instruments & Apparatus	true			IRVINE, CA			edgar-exact-name	high	sec-edgar	2026-07-28
+breezy	duolingo	duolingo	Duolingo, Inc.	0001562088	DUOL	Nasdaq	7372	Services-Prepackaged Software	true			PITTSBURGH, PA			edgar-exact-name	high	sec-edgar	2026-07-28
+breezy	fastenal	fastenal	FASTENAL CO	0000815556	FAST	Nasdaq	5200	Retail-Building Materials, Hardware, Garden Supply	true		1967	WINONA, MN		Q3067119	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+breezy	giftify	giftify	GIFTIFY, INC.	0001760233	GIFT	Nasdaq	5961	Retail-Catalog & Mail-Order Houses	true			SCHAUMBURG, IL			edgar-exact-name	high	sec-edgar	2026-07-28
+breezy	marex	marex	Marex Group Ltd	0001997464	MRX	Nasdaq	6200	Security & Commodity Brokers, Dealers, Exchanges & Services	true			LONDON			edgar-exact-name	high	sec-edgar	2026-07-28
+breezy	sportradar	sportradar	Sportradar Group AG	0001836470	SRAD	Nasdaq	7370	Services-Computer Programming, Data Processing, Etc.	true			ST. GALLEN, V8			edgar-exact-name	high	sec-edgar	2026-07-28
+breezy	sunpower	sunpower	SunPower Inc.	0001838987	SPWR	Nasdaq	1700	Construction - Special Trade Contractors	true			OREM, UT			edgar-exact-name	high	sec-edgar	2026-07-28
+breezy	under-armour	under-armour	Under Armour, Inc.	0001336917	UAA	NYSE	2300	Apparel & Other Finishd Prods of  Fabrics & Similar Matl	true		1996	BALTIMORE, MD		Q2031485	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+eightfold	albemarle	albemarle	ALBEMARLE CORP	0000915913	ALB	NYSE	2821	Plastic Materials, Synth Resins & Nonvulcan Elastomers	true		1994	CHARLOTTE, NC		Q127074	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+eightfold	costar	costar	COSTAR GROUP, INC.	0001057352	CSGP	Nasdaq	7389	Services-Business Services, NEC	true		1987	ARLINGTON, VA		Q16988748	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+eightfold	fluor	fluor	FLUOR CORP	0001124198	FLR	NYSE	1600	Heavy Construction Other Than Bldg Const - Contractors	true	43717	1890	IRVING, TX		Q653581	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+eightfold	hsbc	hsbc	HSBC HOLDINGS PLC	0001089113	HSBC	NYSE	6035	Savings Institution, Federally Chartered	true	219697	1865	LONDON, X0		Q190464	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+eightfold	netflix	netflix	NETFLIX INC	0001065280	NFLX	Nasdaq	7841	Services-Video Tape Rental	true	11300	1997	LOS GATOS, CA		Q116452644	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 gem	agora	agora	Agora, Inc.	0001802883	API	Nasdaq	7372	Services-Prepackaged Software	true			SANTA CLARA, CA		Q106309492	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 gem	doordash	doordash	DoorDash, Inc.	0001792789	DASH	Nasdaq	7389	Services-Business Services, NEC	true		2012	SAN FRANCISCO, CA		Q20714323	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 greenhouse	affirm	affirm	Affirm Holdings, Inc.	0001820953	AFRM	Nasdaq	6141	Personal Credit Institutions	true		2012	SAN FRANCISCO, CA		Q65085822	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 greenhouse	airbnb	airbnb	Airbnb, Inc.	0001559720	ABNB	Nasdaq	7340	Services-To Dwellings & Other Buildings	true	5597	2008	SAN FRANCISCO, CA		Q63327	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
-greenhouse	amplitude	amplitude	Amplitude, Inc.	0001866692	AMPL	Nasdaq	7372	Services-Prepackaged Software	true			SAN FRANCISCO, CA			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	asana	asana	Asana, Inc.	0001477720	ASAN	NYSE	7372	Services-Prepackaged Software	true			SAN FRANCISCO, CA			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	aurorainnovation	aurorainnovation	Aurora Innovation, Inc.	0001828108	AUR	Nasdaq	7373	Services-Computer Integrated Systems Design	true		2016	PITTSBURGH, PA		Q101606525	edgar-exact-key	high	sec-edgar wikidata	2026-07-28
 greenhouse	bandwidth	bandwidth	Bandwidth Inc.	0001514416	BAND	Nasdaq	7372	Services-Prepackaged Software	true		1999	RALEIGH, NC		Q4854759	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
@@ -41,7 +56,6 @@ greenhouse	datadog	datadog	Datadog, Inc.	0001561550	DDOG	Nasdaq	7372	Services-Pr
 greenhouse	doximity	doximity	Doximity, Inc.	0001516513	DOCS	NYSE	7371	Services-Computer Programming Services	true		2011	SAN FRANCISCO, CA		Q5303699	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 greenhouse	dropbox	dropbox	DROPBOX, INC.	0001467623	DBX	Nasdaq	7372	Services-Prepackaged Software	true	1200	2007	SAN FRANCISCO, CA		Q15589464	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 greenhouse	duolingo	duolingo	Duolingo, Inc.	0001562088	DUOL	Nasdaq	7372	Services-Prepackaged Software	true			PITTSBURGH, PA			edgar-exact-name	high	sec-edgar	2026-07-28
-greenhouse	eve	eve	Eve Holding, Inc.	0001823652	EVEX	NYSE	3721	Aircraft	true			MELBOURNE, FL			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	everquote	everquote	EverQuote, Inc.	0001640428	EVER	Nasdaq	7370	Services-Computer Programming, Data Processing, Etc.	true			CAMBRIDGE, MA			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	fastly	fastly	Fastly, Inc.	0001517413	FSLY	Nasdaq	7372	Services-Prepackaged Software	true		2011	SAN FRANCISCO, CA		Q34045622	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 greenhouse	figma	figma	Figma, Inc.	0001579878	FIG	NYSE	7372	Services-Prepackaged Software	true		2012	SAN FRANCISCO, CA		Q138548226	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
@@ -51,7 +65,6 @@ greenhouse	generatebiomedicines	generatebiomedicines	Generate Biomedicines, Inc.
 greenhouse	geniussports	geniussports	Genius Sports Ltd	0001834489	GENI	NYSE	7990	Services-Miscellaneous Amusement & Recreation	true			LONDON, X0			edgar-exact-key	high	sec-edgar	2026-07-28
 greenhouse	ginkgobioworks	ginkgobioworks	Ginkgo Bioworks Holdings, Inc.	0001830214	DNA	NYSE	2836	Biological Products, (No Diagnostic Substances)	true		2009	BOSTON, MA		Q29026065	edgar-exact-key	high	sec-edgar wikidata	2026-07-28
 greenhouse	gitlab	gitlab	Gitlab Inc.	0001653482	GTLB	Nasdaq	7372	Services-Prepackaged Software	true		2011	SAN FRANCISCO, CA		Q16639197	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
-greenhouse	glow	glow	Glow Holdings, Inc.	0001114859	GLOH		7372	Services-Prepackaged Software	true			HOUSTON, TX			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	groupon	groupon	Groupon, Inc.	0001490281	GRPN	Nasdaq	7311	Services-Advertising Agencies	true	3675	2008	CHICAGO, IL		Q852787	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 greenhouse	ionq	ionq	IonQ, Inc.	0001824920	IONQ	NYSE	7373	Services-Computer Integrated Systems Design	true			COLLEGE PARK, MD		Q47462183	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 greenhouse	jfrog	jfrog	JFrog Ltd	0001800667	FROG	Nasdaq	7372	Services-Prepackaged Software	true	1300	2008	SUNNYVALE, CA		Q98608948	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
@@ -62,7 +75,6 @@ greenhouse	marqeta	marqeta	Marqeta, Inc.	0001522540	MQ	Nasdaq	7372	Services-Prep
 greenhouse	mongodb	mongodb	MongoDB, Inc.	0001441816	MDB	Nasdaq	7372	Services-Prepackaged Software	true	5640	2007	NEW YORK, NY		Q4546965	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 greenhouse	netskope	netskope	Netskope Inc	0002063196	NTSK	Nasdaq	7372	Services-Prepackaged Software	true			SANTA CLARA, CA			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	nextdoor	nextdoor	Nextdoor Holdings, Inc.	0001846069	NXDR	NYSE	7370	Services-Computer Programming, Data Processing, Etc.	true			SAN FRANCISCO, CA			edgar-exact-name	high	sec-edgar	2026-07-28
-greenhouse	nmi	nmi	NMI Holdings, Inc.	0001547903	NMIH	Nasdaq	6351	Surety Insurance	true			EMERYVILLE, CA			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	nuvalent	nuvalent	Nuvalent, Inc.	0001861560	NUVL	Nasdaq	2834	Pharmaceutical Preparations	true			CAMBRIDGE, MA			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	oklo	oklo	Oklo Inc.	0001849056	OKLO	NYSE	4911	Electric Services	true			SANTA CLARA, CA			edgar-exact-name	high	sec-edgar	2026-07-28
 greenhouse	okta	okta	Okta, Inc.	0001660134	OKTA	Nasdaq	7372	Services-Prepackaged Software	true		2009	SAN FRANCISCO, CA		Q55627388	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
@@ -130,7 +142,6 @@ oraclecloud	arcelormittal,emfg.fa.em4.oraclecloud.com,CX_4001	arcelormittal	Arce
 oraclecloud	autozone,egud.fa.us2.oraclecloud.com,CX_1	autozone	AUTOZONE INC	0000866787	AZO	NYSE	5531	Retail-Auto & Home Supply Stores	true		1979	MEMPHIS, TN		Q4826087	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 oraclecloud	bxp,edxn.fa.us2.oraclecloud.com,CX_5001	bxp	BXP, Inc.	0001037540	BXP	NYSE	6798	Real Estate Investment Trusts	true		1970	BOSTON, MA		Q4844439	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 oraclecloud	carnival,eicl.fa.em5.oraclecloud.com,CX_2	carnival	Carnival Corp Ltd.	0000815097	CCL	NYSE	4400	Water Transportation	true		1972	MIAMI, FL		Q1044059	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
-oraclecloud	chs,fa-evxo-saasfaprod1.fa.ocs.oraclecloud.com,CX_1	chs	CHS INC	0000823277	CHSCP	Nasdaq	5150	Wholesale-Farm Product Raw Materials	true			INVER GROVE HEIGHTS, MN			edgar-exact-name	high	sec-edgar	2026-07-28
 oraclecloud	citizens,hcgn.fa.us2.oraclecloud.com,CX_1	citizens	CITIZENS, INC.	0000024090	CIA	NYSE	6311	Life Insurance	true			AUSTIN, TX			edgar-exact-name	high	sec-edgar	2026-07-28
 oraclecloud	civeo,fa-esyi-saasfaprod1.fa.ocs.oraclecloud.com,CX_1	civeo	Civeo Corp	0001590584	CVEO	NYSE	7000	Hotels, Rooming Houses, Camps & Other Lodging Places	true			HOUSTON, TX		Q17153461	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 oraclecloud	csx,fa-eowa-saasfaprod1.fa.ocs.oraclecloud.com,CSXCareers	csx	CSX CORP	0000277948	CSX	Nasdaq	4011	Railroads, Line-Haul Operating	true		1980	JACKSONVILLE, FL		Q1024454	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
@@ -157,12 +168,11 @@ oraclecloud	vertiv,egup.fa.us2.oraclecloud.com,CX	vertiv	Vertiv Holdings Co	0001
 oraclecloud	waste-management,emcm.fa.us2.oraclecloud.com,CX_4001	waste-management	WASTE MANAGEMENT INC	0000823768	WM	NYSE	4953	Refuse Systems	true	43000	1968	HOUSTON, TX		Q2552219	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 oraclecloud	wingstop,iaxmqy.fa.ocs.oraclecloud.com,Wingstop-Restaurant	wingstop	Wingstop Inc.	0001636222	WING	Nasdaq	5812	Retail-Eating  Places	true		1994	DALLAS, TX		Q8025339	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 peopleforce	swarmer	swarmer	Swarmer, Inc	0002092574	SWMR	Nasdaq	7372	Services-Prepackaged Software	true			AUSTIN, TX			edgar-exact-name	high	sec-edgar	2026-07-28
-peopleforce	team	team	TEAM INC	0000318833	TISI	NYSE	7600	Services-Miscellaneous Repair Services	true			SUGAR LAND, TX			edgar-exact-name	high	sec-edgar	2026-07-28
-personio	dynamix	dynamix	Dynamix Corp	0002028699	DYNC	Nasdaq	6770	Blank Checks	true			GRAND CAYMAN			edgar-exact-name	high	sec-edgar	2026-07-28
 phenom	careers.humana.com	humana	HUMANA INC	0000049071	HUM	NYSE	6324	Hospital & Medical Service Plans	true	51600	1961	LOUISVILLE, KY		Q910866	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
-phenom	careers.kbr.com	kbr	KBR, INC.	0001357615	KBR	NYSE	1600	Heavy Construction Other Than Bldg Const - Contractors	true	27000	1998	HOUSTON, TX		Q596499	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 phenom	careers.pentair.com	pentair	PENTAIR plc	0000077360	PNR	NYSE	3550	Special Industry Machinery (No Metalworking Machinery)	true		1950	LONDON, X0		Q7165001	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 pinpoint	franklin-electric	franklin-electric	FRANKLIN ELECTRIC CO INC	0000038725	FELE	Nasdaq	3621	Motors & Generators	true			FORT WAYNE, IN			edgar-exact-name	high	sec-edgar	2026-07-28
+radancy	carnival,jobs.carnival.com	carnival	Carnival Corp Ltd.	0000815097	CCL	NYSE	4400	Water Transportation	true		1972	MIAMI, FL		Q1044059	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
+radancy	sanofi,jobs.sanofi.com,/en	sanofi	Sanofi	0001121404	SNY	Nasdaq	2834	Pharmaceutical Preparations	true	106566	2004	PARIS, I0		Q158205	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 recruitee	balchem	balchem	BALCHEM CORP	0000009326	BCPC	Nasdaq	2800	Chemicals & Allied Products	true			MONTVALE, NJ			edgar-exact-name	high	sec-edgar	2026-07-28
 rippling	droneshield	droneshield	DroneShield Ltd	0001671541	DRSHF	OTC			true			LANE COVE WEST, C3			edgar-exact-name	high	sec-edgar	2026-07-28
 rippling	livewire	livewire	LiveWire Group, Inc.	0001898795	LVWR	NYSE	3751	Motorcycles, Bicycles & Parts	true			MILWAUKEE, WI			edgar-exact-name	high	sec-edgar	2026-07-28
@@ -177,7 +187,6 @@ smartrecruiters	ServiceNow	ServiceNow	ServiceNow, Inc.	0001373715	NOW	NYSE	7372	
 smartrecruiters	SonicAutomotive	SonicAutomotive	SONIC AUTOMOTIVE INC	0001043509	SAH	NYSE	5500	Retail-Auto Dealers & Gasoline Stations	true		1997	CHARLOTTE, NC		Q7561788	edgar-exact-key	high	sec-edgar wikidata	2026-07-28
 smartrecruiters	TTEC	TTEC	TTEC Holdings, Inc.	0001013880	TTEC	Nasdaq	7363	Services-Help Supply Services	true		1982	AUSTIN, TX		Q7695737	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 smartrecruiters	visa	visa	VISA INC.	0001403161	V	NYSE	7389	Services-Business Services, NEC	true	31600	1958	SAN FRANCISCO, CA		Q328840	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
-smartrecruiters	Wise	Wise	Wise Group plc	0002099039	WSE	Nasdaq	7389	Services-Business Services, NEC	true			LONDON			edgar-exact-name	high	sec-edgar	2026-07-28
 successfactors	ball,ballcorpor,career4.successfactors.com	ball	BALL Corp	0000009389	BALL	NYSE	3411	Metal Cans	true	15500	1880	WESTMINSTER, CO		Q4034815	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 successfactors	bce,bcci,career8.successfactors.com	bce	BCE INC	0000718940	BCE	NYSE	4813	Telephone Communications (No Radiotelephone)	true	52100	1983	VERDUN		Q24525746	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 successfactors	belden,beldeninc,career4.successfactors.com	belden	BELDEN INC.	0000913142	BDC	NYSE	3357	Drawing & Insulating of  Nonferrous Wire	true		1902	ST. LOUIS, MO		Q815327	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
@@ -209,8 +218,6 @@ successfactors	timken,PROD,career8.successfactors.com	timken	TIMKEN CO	000009836
 successfactors	transalta,TransAlta,career4.successfactors.com	transalta	TRANSALTA CORP	0001144800	TAC	NYSE	4911	Electric Services	true		1909	CALGARY, A0		Q2448801	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 successfactors	vistra,vistracorp,career5.successfactors.eu	vistra	Vistra Corp.	0001692819	VST	NYSE	4911	Electric Services	true		2016	IRVING, TX		Q104158381	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 teamtailor	bunzl	bunzl	BUNZL PLC	0001072397	BZLFY	OTC	5141	Wholesale-Groceries, General Line	true			LONDON W1K 6NX, X0			edgar-exact-name	high	sec-edgar	2026-07-28
-teamtailor	esg	esg	ESG Inc.	0001883835	ESGH	OTC	0100	Agricultural Production-Crops	true			CHADDS FORD, PA			edgar-exact-name	high	sec-edgar	2026-07-28
-teamtailor	mks	mks	MKS INC	0001049502	MKSI	Nasdaq	3823	Industrial Instruments For Measurement, Display, and Control	true			ANDOVER, MA			edgar-exact-name	high	sec-edgar	2026-07-28
 teamtailor	sinclair	sinclair	Sinclair, Inc.	0001971213	SBGI	Nasdaq	4833	Television Broadcasting Stations	true			HUNT VALLEY, MD			edgar-exact-name	high	sec-edgar	2026-07-28
 teamtailor	waterdrop-1732181682	waterdrop	Waterdrop Inc.	0001823986	WDH	NYSE	6411	Insurance Agents, Brokers & Service	true			BEIJING			edgar-exact-name	high	sec-edgar	2026-07-28
 workday	https://3m.wd1.myworkdayjobs.com/Search	3m	3M CO	0000066740	MMM	NYSE	3841	Surgical & Medical Instruments & Apparatus	true	94987	1902	ST PAUL, MN		Q159433	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
@@ -256,5 +263,4 @@ workday	https://sysco.wd5.myworkdayjobs.com/syscocareers	sysco	SYSCO CORP	000009
 workday	https://unisys.wd5.myworkdayjobs.com/External	unisys	UNISYS CORP	0000746838	UIS	NYSE	7373	Services-Computer Integrated Systems Design	true			BLUE BELL, PA			edgar-exact-name	high	sec-edgar	2026-07-28
 workday	https://unum.wd1.myworkdayjobs.com/External	unum	Unum Group	0000005513	UNM	NYSE	6321	Accident & Health Insurance	true		1999	CHATTANOOGA, TN		Q143435	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
 workday	https://visa.wd5.myworkdayjobs.com/Visa	visa	VISA INC.	0001403161	V	NYSE	7389	Services-Business Services, NEC	true	31600	1958	SAN FRANCISCO, CA		Q328840	edgar-exact-name	high	sec-edgar wikidata	2026-07-28
-workday	https://wf.wd1.myworkdayjobs.com/WellsFargoJobs	wf	WF Holding Ltd	0001980210	WFF	Nasdaq	3990	Miscellaneous Manufacturing Industries	true			SHAH ALAM, SELANGOR, N8			edgar-exact-name	high	sec-edgar	2026-07-28
 workday	https://workday.wd5.myworkdayjobs.com/Workday	workday	Workday, Inc.	0001327811	WDAY	Nasdaq	7374	Services-Computer Processing & Data Preparation	true	20000	2005	PLEASANTON, CA		Q8034666	edgar-exact-name	high	sec-edgar wikidata	2026-07-28

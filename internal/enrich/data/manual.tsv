@@ -1,6 +1,6 @@
 # manual.tsv -- HUMAN-AUTHORED. The generator never writes this file.
 #
-# Rows here are overlaid on top of the generated employers.tsv, keyed by
+# Rows here are applied on top of the generated employers.tsv, keyed by
 # platform+key, so a row here wins and survives every refresh. This is where a
 # reviewer records:
 #
@@ -9,8 +9,56 @@
 #   * a correction to a row the generator got wrong;
 #   * a company whose facts came from a source the generator does not read.
 #
+# A row whose match_method is "refuted" DELETES the generated row instead of
+# replacing it, and the source is served no employer at all. That is the
+# correction for the only mistake the generator actually makes: a name
+# collision, where the honest answer is not better facts about the wrong
+# company but no facts about this one.
+#
 # Every row must say where its facts came from in data_sources and when they
 # were retrieved. A row nobody can audit is a row nobody can fix.
 #
 # Same schema as employers.tsv.
 platform	key	company	legal_name	cik	ticker	exchange	sic	industry	public	employees	founded	headquarters	parent	wikidata_id	match_method	match_confidence	data_sources	retrieved
+#
+# Confirmed by hand and promoted from candidates.tsv.
+#
+# The generator refused this one because "wise" is four letters, and neither
+# the ticker (WSE) nor a Wikidata website corroborated it. Checked on
+# 2026-07-28: api.smartrecruiters.com/v1/companies/Wise/postings returns 398
+# openings at "Worship Square, 65 Clifton Street, London EC2A 4JE", which is
+# Wise's registered office, and EDGAR CIK 0002099039 is "Wise Group plc" in
+# LONDON, listed on Nasdaq as WSE. Same company.
+smartrecruiters	Wise	Wise	Wise Group plc	0002099039	WSE	Nasdaq	7389	Services-Business Services, NEC	true			LONDON			manual	high	sec-edgar smartrecruiters	2026-07-28
+#
+# Refuted: the generated row names a real SEC filer that is not this employer.
+# Each was checked against the live board on 2026-07-28, and the evidence is
+# the domain the board itself links to.
+#
+# jobs.ashbyhq.com/post is Post (post.news), a software company. CIK
+# 0001530950 is Post Holdings, the St. Louis cereal maker (SIC 2040).
+ashby	post	post													refuted	high	jobs.ashbyhq.com/post	2026-07-28
+#
+# authentic.breezy.hr links to authentic.org and lists paid-media and email
+# strategist roles: a digital agency. CIK 0001338929 is Authentic Holdings,
+# an OTC apparel wholesaler.
+breezy	authentic	authentic													refuted	high	authentic.breezy.hr	2026-07-28
+#
+# giftify.breezy.hr links to giftify.me and hires a Customer Support Agent
+# (FR+EN) in Brussels. CIK 0001760233 is GIFTIFY, INC. of Chicago
+# (Restaurant.com, CardCash).
+breezy	giftify	giftify													refuted	high	giftify.breezy.hr	2026-07-28
+#
+# CIK 0000024090 is CITIZENS, INC., an Austin life insurer (SIC 6311). The
+# board is Citizens Financial Group. Carried over from the 2026-07-28 audit
+# and not re-checked against the live tenant.
+oraclecloud	citizens,hcgn.fa.us2.oraclecloud.com,CX_1	citizens													refuted	high	prior-review	2026-07-28
+#
+# sinclair.teamtailor.com links to sinclair.com, the aesthetics company.
+# CIK 0001971213 is Sinclair, Inc. (SBGI), the US broadcaster, whose site is
+# sbgi.net.
+teamtailor	sinclair	sinclair													refuted	high	sinclair.teamtailor.com	2026-07-28
+#
+# the board is titled "Job openings at waterdrop(R)", the Austrian microdrink
+# brand. CIK 0001823986 is Waterdrop Inc. (WDH), a Chinese insurtech.
+teamtailor	waterdrop-1732181682	waterdrop													refuted	high	waterdrop-1732181682.teamtailor.com	2026-07-28

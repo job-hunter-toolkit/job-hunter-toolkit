@@ -92,7 +92,8 @@ func LoadFS(fsys fs.FS) (*Table, error) {
 	// entire correction mechanism. The generator rewrites employers.tsv wholesale
 	// on every run, so a human fix made there would be silently reverted by the
 	// next refresh; a fix made in manual.tsv survives, and survives visibly,
-	// because the file contains nothing except decisions a person made.
+	// because the file contains nothing except decisions a person made. A row
+	// whose method is [MethodRefuted] deletes rather than replaces; see below.
 	manual, err := readTable(fsys, manualFile, employerColumns)
 	if err != nil {
 		return nil, err
@@ -100,7 +101,23 @@ func LoadFS(fsys fs.FS) (*Table, error) {
 
 	rows := make(map[string]*Employer, len(employers)+len(manual))
 	maps.Copy(rows, employers)
-	maps.Copy(rows, manual)
+
+	for key, employer := range manual {
+		// A refutation removes the generated row instead of replacing it. The
+		// generator's wrong answers are name collisions — a board called "post"
+		// resolved to the cereal company, one called "waterdrop" to a Chinese
+		// insurer — and the correct fact about those sources is that nobody has
+		// identified them. Overlaying an empty row instead would leave them
+		// counted as covered by [Table.Coverage], which is the same lie in a
+		// quieter place.
+		if employer.Match.Method == MethodRefuted {
+			delete(rows, key)
+
+			continue
+		}
+
+		rows[key] = employer
+	}
 
 	if err := attachWages(fsys, rows); err != nil {
 		return nil, err

@@ -136,3 +136,44 @@ func padded(n int) string {
 
 	return string(digits)
 }
+
+// TestWebsitesKeysByPaddedCIK: P5531 is hand-entered and appears both padded
+// and bare, and a corroboration table keyed inconsistently corroborates
+// nothing.
+func TestWebsitesKeysByPaddedCIK(t *testing.T) {
+	t.Parallel()
+
+	client, transport := enrichtest.Client(map[string]string{
+		"query.wikidata.org": `{"results": {"bindings": [
+      {"cik": {"value": "0000000077"}, "site": {"value": "https://www.cae.com/"}},
+      {"cik": {"value": "77"},         "site": {"value": "https://careers.cae.com/"}},
+      {"cik": {"value": "77"},         "site": {"value": "https://www.cae.com/"}},
+      {"cik": {"value": "1000002"},    "site": {"value": "https://example.test/"}},
+      {"cik": {"value": ""},           "site": {"value": "https://orphan.test/"}}
+    ]}}`,
+	})
+
+	sites, err := wikidata.Websites(t.Context(), client)
+	must.NoError(t, err)
+
+	must.MapLen(t, 2, sites)
+	must.Eq(t, []string{"https://www.cae.com/", "https://careers.cae.com/"}, sites["0000000077"],
+		must.Sprint("both spellings of one CIK are one filer, and a repeated site is not two"))
+	must.Eq(t, []string{"https://example.test/"}, sites["0001000002"])
+
+	must.Len(t, 1, transport.Requests(), must.Sprint(
+		"the whole P5531 x P856 join is one query; chunking it would be one request per chunk for no gain"))
+}
+
+// TestWebsitesReportsAFailedQuery: an empty corroboration table silently turns
+// every short-name match into a candidate, so a failure has to be an error
+// rather than a map with nothing in it.
+func TestWebsitesReportsAFailedQuery(t *testing.T) {
+	t.Parallel()
+
+	client, _ := enrichtest.Client(nil)
+
+	_, err := wikidata.Websites(t.Context(), client)
+	must.Error(t, err)
+	must.StrContains(t, err.Error(), "filer websites")
+}

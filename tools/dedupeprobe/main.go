@@ -33,6 +33,21 @@
 //
 // This talks to live boards through [httpx.NewClient], so it inherits the pacing
 // a crawl uses. It is not part of the binary's dependency closure.
+//
+// # Where this ends and dedupesweep begins
+//
+// This command answers "are these two named boards the same board?" once a
+// suspect pair is already in hand, and it answers it in full: every row, no
+// thresholds, nothing filtered. Finding the suspects is the other half, and it
+// is [tools/dedupesweep] — the same fetch loop widened to the whole registry,
+// with the pairwise comparison built in and a weekly workflow behind it
+// (docs/dedupe-sweep.md). The two speak the same NDJSON, so a sweep's -dump can
+// be sliced with the shell commands above and a probe's output can be handed
+// back to `dedupesweep -in`.
+//
+// Reach for this one when a sweep finding needs settling, because a threshold
+// that keeps a weekly report readable is exactly the wrong thing to have in the
+// way when a specific pair is being measured for a deletion decision.
 package main
 
 import (

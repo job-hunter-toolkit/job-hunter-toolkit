@@ -349,7 +349,15 @@ func TestJibeParsesACapturedVanityHost(t *testing.T) {
 	test.Eq(t, "jcp", manager.Company)
 	test.Eq(t, "Store Manager", manager.Title)
 	test.Eq(t, "Thornton, Colorado", manager.Location)
-	test.Eq(t, "https://careers-jcpenney.icims.com/jobs/9291/login", manager.URL)
+	// The canonical board route, not the apply URL. The capture's own apply_url
+	// is https://careers-jcpenney.icims.com/jobs/9291/login — an iCIMS link
+	// published under a `jibe` source label, which is the defect
+	// [jibeCanonicalURL] exists to fix. The live board is the reason it matters
+	// beyond tidiness: sampled on 2026-07-28, jcpenney's postings carry apply
+	// URLs on both careers-jcpenney.icims.com and careers-catalystbrand.icims.com,
+	// so the board's own /jobs/<slug> is the only spelling that puts one
+	// employer's openings under one host.
+	test.Eq(t, "https://jobs.jcp.com/jobs/9291", manager.URL)
 	test.Eq(t, internal.EmploymentTypeFullTime, manager.EmploymentType)
 	test.Eq(t, "9291", manager.RequisitionID)
 	test.Eq(t, "9291", manager.ExternalID)
@@ -771,4 +779,404 @@ func TestJibeResolvesRelativeApplyURLs(t *testing.T) {
 			test.Eq(t, tt.want, jibeApplyURL(tt.key, tt.in))
 		})
 	}
+}
+
+// jibeSlugPage builds a one-posting page carrying a slug and an apply URL, which
+// jibeFullPage deliberately does not: it predates the canonical route and its
+// postings have no slug at all.
+func jibeSlugPage(slug, applyURL string) string {
+	return fmt.Sprintf(
+		`{"jobs":[{"data":{"title":"Job","slug":%q,"apply_url":%q,"full_location":"Chicago, IL"}}],"totalCount":1,"meta_data":false}`,
+		slug, applyURL,
+	)
+}
+
+// TestJibeYieldsTheCanonicalBoardURL pins the fix for the largest URL defect in
+// the registry.
+//
+// Jibe's "apply_url" is another vendor's application link on 39.6% of the
+// platform — 164,143 of 414,311 postings across 818 distinct hosts, measured on
+// 2026-07-28 and written up in docs/dedupe-audit.md. A posting crawled from a
+// `jibe` source that publishes a Workday URL is the same defect that made Lowe's
+// and KBR double-count invisibly on Phenom, and it is four times the size here.
+//
+// The board's own page is the fix, and it costs no request. The cases below are
+// the ones the 247-tenant sweep turned up, in the order the code decides them.
+func TestJibeYieldsTheCanonicalBoardURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		key  string
+		slug string
+		want string
+	}{
+		{
+			name: "bare slug is a jibeapply.com tenant",
+			key:  "costco",
+			slug: "30389",
+			want: "https://costco.jibeapply.com/jobs/30389",
+		},
+		{
+			name: "employer's own careers host is used verbatim",
+			key:  "careers.kehe.com",
+			slug: "29745",
+			want: "https://careers.kehe.com/jobs/29745",
+		},
+		{
+			// PetSmart's feed is Cadient, not iCIMS, so its slug is a compound
+			// posting-and-location id rather than a requisition number. Six of
+			// six sampled live on 2026-07-28 rendered on this route.
+			name: "a non-iCIMS compound slug",
+			key:  "petsmart",
+			slug: "81362829352-1213340497",
+			want: "https://petsmart.jibeapply.com/jobs/81362829352-1213340497",
+		},
+		{
+			// Bare /jobs/<slug> answers 200 with CubeSmart's careers home page
+			// here -- a soft 404, and the reason a probe that only checked
+			// status would have shipped a wrong URL for all 257 postings.
+			name: "landing-path override, bare slug",
+			key:  "cubesmart",
+			want: "https://cubesmart.jibeapply.com/careers-home/jobs/26163",
+			slug: "26163",
+		},
+		{
+			name: "landing-path override, vanity host",
+			key:  "careers.busybeeschildcare.co.uk",
+			slug: "28837",
+			want: "https://careers.busybeeschildcare.co.uk/busybees/jobs/28837",
+		},
+		{
+			name: "a tenant whose board renders only part of itself yields nothing",
+			key:  "careers.se.com",
+			slug: "128148",
+			want: "",
+		},
+		{
+			// Not observed live -- slug was populated on 3,735 of 3,735 postings
+			// sampled across 45 tenants -- but a missing slug must fall through
+			// to apply_url rather than build https://host/jobs/.
+			name: "no slug yields nothing",
+			key:  "costco",
+			slug: "  ",
+			want: "",
+		},
+		{
+			name: "a slug is escaped into the path",
+			key:  "costco",
+			slug: "a b/c?d",
+			want: "https://costco.jibeapply.com/jobs/a%20b%2Fc%3Fd",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			test.Eq(t, tt.want, jibeCanonicalURL(tt.key, tt.slug))
+		})
+	}
+}
+
+// TestJibePrefersTheCanonicalURLOverApplyURL is the end-to-end half: the
+// decision has to reach [internal.JobPosting.URL], not just the helper.
+//
+// The apply URL below is Costco's real one. Before this change it was what the
+// crawl published under a `jibe` source label.
+func TestJibePrefersTheCanonicalURLOverApplyURL(t *testing.T) {
+	t.Parallel()
+
+	client, _ := jibePageClient(map[int]string{
+		1: jibeSlugPage("30389", "https://careers-costco.icims.com/jobs/30389/login"),
+	})
+
+	postings, errs := drain(Jibe(t.Context(), client, "costco"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	test.Eq(t, "https://costco.jibeapply.com/jobs/30389", postings[0].URL)
+
+	// The apply URL's own id stays reachable as the external id, so nothing that
+	// keyed on it loses the link between the two spellings.
+	test.Eq(t, "30389", postings[0].ExternalID)
+}
+
+// TestJibeKeepsTheApplyURLFallback covers the other branch, and is the
+// regression test for the relative-URL fix landing underneath the new one.
+//
+// fedex is in [jibeApplyURLOnly], so every one of its postings takes the
+// fallback — including the 4,249 that publish "apply_url" as a root-relative
+// path with no scheme or host. Those are the postings this project once shipped
+// with a URL nobody could open, and the canonical route must not quietly step
+// over the code that fixed them.
+func TestJibeKeepsTheApplyURLFallback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		key   string
+		slug  string
+		apply string
+		want  string
+	}{
+		{
+			// The shape is FedEx's, which is where the root-relative apply_url was
+			// found and fixed. That route has since been deleted as a historical
+			// feed, so the case is re-anchored on a tenant that is still on the
+			// fallback: the resolution is a property of the adapter, not of FedEx,
+			// and it must keep working for whichever board sends one next.
+			name:  "relative apply URL is still resolved against the board",
+			key:   "careers.se.com",
+			slug:  "POSTING-3-958978",
+			apply: "/freight-apply/apply/POSTING-3-958978",
+			want:  "https://careers.se.com/freight-apply/apply/POSTING-3-958978",
+		},
+		{
+			name:  "absolute apply URL on a fallback tenant is untouched",
+			key:   "careers.se.com",
+			slug:  "128148",
+			apply: "https://zhcareers-se.icims.com/jobs/128148/login",
+			want:  "https://zhcareers-se.icims.com/jobs/128148/login",
+		},
+		{
+			// A canonical-route tenant that sent no slug still gets a link
+			// rather than being dropped.
+			name:  "a slugless posting on a canonical tenant falls back",
+			key:   "costco",
+			slug:  "",
+			apply: "https://careers-costco.icims.com/jobs/30389/login",
+			want:  "https://careers-costco.icims.com/jobs/30389/login",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, _ := jibePageClient(map[int]string{1: jibeSlugPage(tt.slug, tt.apply)})
+
+			postings, errs := drain(Jibe(t.Context(), client, tt.key))
+
+			must.SliceEmpty(t, errs)
+			must.Len(t, 1, postings)
+			test.Eq(t, tt.want, postings[0].URL)
+		})
+	}
+}
+
+// jibeSweepRow is one tenant's line in the canonical-route sweep.
+type jibeSweepRow struct {
+	host   string
+	total  int
+	probes int
+	passed int
+	route  string
+}
+
+// jibeSweep reads testdata/jibe_canonical_route_sweep.tsv.
+func jibeSweep(t *testing.T) map[string]jibeSweepRow {
+	t.Helper()
+
+	file, err := os.Open(filepath.Join("testdata", "jibe_canonical_route_sweep.tsv"))
+	must.NoError(t, err)
+
+	defer file.Close()
+
+	rows := make(map[string]jibeSweepRow)
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		fields := strings.Split(line, "\t")
+		must.Len(t, 6, fields, must.Sprintf("malformed sweep row %q", line))
+
+		total, err := strconv.Atoi(fields[2])
+		must.NoError(t, err)
+
+		probes, err := strconv.Atoi(fields[3])
+		must.NoError(t, err)
+
+		passed, err := strconv.Atoi(fields[4])
+		must.NoError(t, err)
+
+		rows[fields[0]] = jibeSweepRow{host: fields[1], total: total, probes: probes, passed: passed, route: fields[5]}
+	}
+
+	must.NoError(t, scanner.Err())
+
+	return rows
+}
+
+// TestJibeCanonicalRouteMatchesTheSweep keeps the code and the evidence in step.
+//
+// [jibeApplyURLOnly] is a claim about live boards, and a claim nobody can check
+// is how this registry decayed before. testdata/jibe_canonical_route_sweep.tsv
+// is the 2026-07-28 measurement it came from — every registered tenant, what was
+// probed, and what passed — and this test is what makes the two disagree loudly.
+//
+// It also closes the hole a denylist leaves open: a tenant added to
+// [JibeCompanies] without being swept would otherwise inherit the canonical
+// route on nobody's evidence, and start publishing URLs that may be soft 404s.
+func TestJibeCanonicalRouteMatchesTheSweep(t *testing.T) {
+	t.Parallel()
+
+	rows := jibeSweep(t)
+
+	// The sweep must COVER the registry, not equal it. A tenant deleted after being
+	// swept keeps its row, because the row is the evidence for the deletion --
+	// jibe/fedex is exactly that case. What must not happen is the reverse: a
+	// registered tenant with no row would inherit the canonical route on nobody's
+	// measurement, which the per-tenant assertion below catches.
+	must.GreaterEq(t, len(JibeCompanies), len(rows), must.Sprint("the sweep must cover every registered tenant"))
+
+	var canonicalPostings, fallbackPostings, probes, passed int
+
+	for _, key := range JibeCompanies {
+		row, swept := rows[key]
+
+		must.True(t, swept, must.Sprintf("registered tenant %q is not in the canonical-route sweep", key))
+
+		test.Eq(t, jibeHost(key), row.host, test.Sprintf("sweep host for %q", key))
+		test.Greater(t, 0, row.probes, test.Sprintf("tenant %q was recorded with no probes", key))
+		test.LessEq(t, row.probes, row.passed, test.Sprintf("tenant %q passed more probes than it ran", key))
+
+		reason, applyOnly := jibeApplyURLOnly[key]
+
+		switch row.route {
+		case "canonical":
+			test.False(t, applyOnly, test.Sprintf("%q swept clean but is in jibeApplyURLOnly", key))
+			test.Eq(t, row.probes, row.passed, test.Sprintf("%q is on the canonical route with a failed probe", key))
+
+			canonicalPostings += row.total
+		case "fallback":
+			test.True(t, applyOnly, test.Sprintf("%q failed a probe but is not in jibeApplyURLOnly", key))
+			test.NotEq(t, "", reason, test.Sprintf("%q needs a measured reason", key))
+			test.Less(t, row.probes, row.passed, test.Sprintf("%q is on the fallback with nothing failing", key))
+
+			fallbackPostings += row.total
+		default:
+			t.Errorf("tenant %q has unknown route %q", key, row.route)
+		}
+
+		probes += row.probes
+		passed += row.passed
+	}
+
+	// The headline the change is worth, pinned so a later edit that quietly
+	// moves a large tenant onto the fallback shows up as a number.
+	//
+	// These are the totals over REGISTERED tenants, so they exclude jibe/fedex,
+	// whose sweep row remains in the fixture as the evidence for its deletion.
+	// Its removal is most of the difference between the fallback figure here and
+	// the 143,143 measured on 2026-07-28: that board alone was 138,214 of it,
+	// and every bucket of it that could be checked was delisted.
+	test.Eq(t, 2091, probes)
+	test.Eq(t, 2015, passed)
+	test.Eq(t, 241, len(JibeCompanies)-len(jibeApplyURLOnly))
+	test.Eq(t, 293757, canonicalPostings)
+	test.Eq(t, 4929, fallbackPostings)
+}
+
+// TestJibeCanonicalTablesNameRegisteredTenants stops either table from carrying
+// a key the crawl never asks about.
+//
+// Both are keyed exactly as [JibeCompanies] spells a tenant — "cubesmart", not
+// "cubesmart.jibeapply.com" — so a plausible-looking wrong spelling silently
+// does nothing: the override would not apply and the tenant would publish soft
+// 404s, or the fallback would not apply and the tenant would publish dead links.
+func TestJibeCanonicalTablesNameRegisteredTenants(t *testing.T) {
+	t.Parallel()
+
+	registered := make(map[string]bool, len(JibeCompanies))
+	for _, key := range JibeCompanies {
+		registered[key] = true
+	}
+
+	for key, path := range jibeLandingPaths {
+		test.True(t, registered[key], test.Sprintf("jibeLandingPaths names unregistered tenant %q", key))
+		test.StrHasPrefix(t, "/", path, test.Sprintf("landing path for %q", key))
+		test.StrNotHasSuffix(t, "/", path, test.Sprintf("landing path for %q", key))
+	}
+
+	for key := range jibeApplyURLOnly {
+		test.True(t, registered[key], test.Sprintf("jibeApplyURLOnly names unregistered tenant %q", key))
+	}
+
+	// A tenant cannot both need a landing path and be excluded from the route
+	// the landing path is for.
+	for key := range jibeLandingPaths {
+		_, applyOnly := jibeApplyURLOnly[key]
+
+		test.False(t, applyOnly, test.Sprintf("%q is in both canonical-route tables", key))
+	}
+}
+
+// TestJibeFedExBoardIsAHistoricalFeed carries the freshness measurement
+// docs/dedupe-audit.md asked for and could not finish.
+//
+// The audit compared one FedEx Workday site — 4,933 jibe postings against
+// Workday's own reported 337 — and recorded the reading that "jibe's index is
+// stale rather than richer", with the caveat that it wanted its own measurement.
+// testdata/jibe_fedex_freshness.tsv is that measurement, and the answer is not
+// "some are stale":
+//
+//   - the board's own "ats_code" is "fedex-prod-historical-jobs-feed" on all
+//     2,400 postings sampled across its 1,383 pages;
+//   - 320 of 320 sampled Workday-backed requisitions — 66.2% of the board —
+//     answered 403 from FedEx's own CXS API. Zero are still listed. The method
+//     was validated against 12 requisitions taken off the live board, which all
+//     answered 200;
+//   - all five BrassRing gateways it points at report zero jobs, and 15 of 15
+//     sampled Taleo apply URLs answered 404.
+//
+// This test is not a claim that the file is fresh — it cannot be. It keeps the
+// evidence in the tree next to the adapter that depends on it, and it fails if
+// the headline is ever quietly rewritten: no sampled requisition is live.
+//
+// It is deliberately NOT a deletion. Removing jibe/fedex would drop 138,214
+// postings, and that is a registry decision with a `--company fedex` user on the
+// other side of it, not an adapter one. The number is here so it can be made.
+func TestJibeFedExBoardIsAHistoricalFeed(t *testing.T) {
+	t.Parallel()
+
+	body, err := os.ReadFile(filepath.Join("testdata", "jibe_fedex_freshness.tsv"))
+	must.NoError(t, err)
+
+	statuses := make(map[int]int)
+
+	for line := range strings.Lines(string(body)) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		fields := strings.Split(line, "\t")
+		must.Len(t, 3, fields, must.Sprintf("malformed freshness row %q", line))
+
+		status, err := strconv.Atoi(fields[1])
+		must.NoError(t, err)
+
+		count, err := strconv.Atoi(fields[2])
+		must.NoError(t, err)
+
+		statuses[status] += count
+	}
+
+	test.Eq(t, 320, statuses[http.StatusForbidden], test.Sprint("withdrawn requisitions"))
+	test.Eq(t, 0, statuses[http.StatusOK], test.Sprint("requisitions FedEx's own board still lists"))
+
+	// The measurement is why the route is gone rather than why it is special.
+	// A board advertising 138,214 postings against 693 live requisitions, naming
+	// itself a historical feed, is not a source with an awkward link shape -- it
+	// is 11% of this project's corpus that does not exist. FedEx stays covered
+	// through its two registered Workday sites.
+	test.False(t, slices.Contains(JibeCompanies, "fedex"), test.Sprint(
+		"jibe/fedex is a historical feed and was deleted; re-registering it would publish "+
+			"~138,000 delisted requisitions. See deletedDoubleCountRoutes."))
 }

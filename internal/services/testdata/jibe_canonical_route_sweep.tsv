@@ -1,0 +1,273 @@
+# Canonical-route sweep of every registered Jibe tenant, 2026-07-28.
+#
+# Jibe's search payload carries no link of its own: "apply_url" is another
+# vendor's application URL on 39.6% of the platform (818 distinct hosts across
+# 414,311 postings). The posting's own page is "https://<board host>/<landing>/
+# jobs/<slug>", which costs no extra request because jibeHost already computes
+# the host and slug is already decoded. docs/dedupe-audit.md verified that route
+# on four tenants; this file is the sweep of all 247.
+#
+# Method: for each tenant, GET https://<host>/api/jobs?limit=100&page=<n>, sample
+# postings (page 1 for every tenant, plus randomly chosen deeper pages for the
+# larger samples), and GET the canonical route for each. A probe PASSES only when
+# the response is 200 AND the rendered page carries that posting's own title.
+# Status alone is not enough: three boards answer 200 with their careers home
+# page for a slug they do not serve, which is the silent-failure shape this
+# sweep exists to catch.
+#
+# Columns: key, board host, the board's live totalCount, probes, probes passed,
+# and the route this adapter uses for the tenant. "fallback" means apply_url,
+# and every one is listed in jibeApplyURLOnly with the reason.
+#
+# Totals: 247 tenants, 2,094 probes, 2,015 passed. 241 tenants on the canonical
+# route covering 293,757 of 436,900 postings (67.2%); 6 on the fallback covering
+# 143,143, of which fedex alone is 138,214.
+#
+# key	host	total_count	probes	passed	route
+84lumber	84lumber.jibeapply.com	374	33	33	canonical
+alaskaair	alaskaair.jibeapply.com	46	3	3	canonical
+amedisys	amedisys.jibeapply.com	1200	3	3	canonical
+ascension	ascension.jibeapply.com	3461	3	3	canonical
+aus.jibeapply.com	aus.jibeapply.com	3915	3	3	canonical
+bjc	bjc.jibeapply.com	1146	3	3	canonical
+brightspring	brightspring.jibeapply.com	2911	3	3	canonical
+careers.aarp.org	careers.aarp.org	55	3	3	canonical
+careers.accentcare.com	careers.accentcare.com	1367	3	3	canonical
+careers.adisseo.com	careers.adisseo.com	45	3	3	canonical
+careers.akima.com	careers.akima.com	617	3	3	canonical
+careers.amd.com	careers.amd.com	1052	3	3	canonical
+careers.amica.ca	careers.amica.ca	99	3	3	canonical
+careers.appliedmedical.com	careers.appliedmedical.com	217	3	3	canonical
+careers.arcfield.com	careers.arcfield.com	163	33	33	canonical
+careers.avalara.com	careers.avalara.com	135	43	42	fallback
+careers.avispl.com	careers.avispl.com	212	88	80	fallback
+careers.axa.com	careers.axa.com	1539	3	3	canonical
+careers.beazley.com	careers.beazley.com	39	42	39	fallback
+careers.bjsrestaurants.com	careers.bjsrestaurants.com	2040	3	3	canonical
+careers.bowman.com	careers.bowman.com	330	3	3	canonical
+careers.brasfieldgorrie.com	careers.brasfieldgorrie.com	491	3	3	canonical
+careers.brightviewseniorliving.com	careers.brightviewseniorliving.com	319	3	3	canonical
+careers.busybeeschildcare.co.uk	careers.busybeeschildcare.co.uk	839	40	40	canonical
+careers.canyonranch.com	careers.canyonranch.com	146	3	3	canonical
+careers.carlehealth.org	careers.carlehealth.org	738	3	3	canonical
+careers.cbna.com	careers.cbna.com	133	3	3	canonical
+careers.certara.com	careers.certara.com	31	3	3	canonical
+careers.chenega.com	careers.chenega.com	473	3	3	canonical
+careers.chick-fil-a.com	careers.chick-fil-a.com	88	3	3	canonical
+careers.cnb.com	careers.cnb.com	196	3	3	canonical
+careers.confluencehealth.org	careers.confluencehealth.org	173	3	3	canonical
+careers.covenanthealthcare.com	careers.covenanthealthcare.com	105	3	3	canonical
+careers.crowley.com	careers.crowley.com	57	3	3	canonical
+careers.docusign.com	careers.docusign.com	305	3	3	canonical
+careers.doyon.com	careers.doyon.com	66	3	3	canonical
+careers.emera.com	careers.emera.com	18	3	3	canonical
+careers.enlyte.com	careers.enlyte.com	115	29	29	canonical
+careers.fairview.org	careers.fairview.org	1222	33	33	canonical
+careers.farmandfleet.com	careers.farmandfleet.com	195	3	3	canonical
+careers.fluxys.com	careers.fluxys.com	23	3	3	canonical
+careers.flydubai.com	careers.flydubai.com	15	3	3	canonical
+careers.fm.com	careers.fm.com	58	33	33	canonical
+careers.foundationfinance.com	careers.foundationfinance.com	14	3	3	canonical
+careers.fultonbank.com	careers.fultonbank.com	126	3	3	canonical
+careers.garmin.com	careers.garmin.com	319	3	3	canonical
+careers.gateshudson.com	careers.gateshudson.com	57	3	3	canonical
+careers.gilbaneco.com	careers.gilbaneco.com	407	3	3	canonical
+careers.gmr.net	careers.gmr.net	868	3	3	canonical
+careers.gov2x.com	careers.gov2x.com	771	3	3	canonical
+careers.govcio.com	careers.govcio.com	220	3	3	canonical
+careers.graitec.com	careers.graitec.com	31	3	3	canonical
+careers.guard.com	careers.guard.com	37	3	3	canonical
+careers.haskell.com	careers.haskell.com	125	3	3	canonical
+careers.haymarket.com	careers.haymarket.com	15	3	3	canonical
+careers.herzog.com	careers.herzog.com	90	3	3	canonical
+careers.ice.com	careers.ice.com	292	3	3	canonical
+careers.incyte.com	careers.incyte.com	181	3	3	canonical
+careers.infirmaryhealth.org	careers.infirmaryhealth.org	285	3	3	canonical
+careers.insightglobal.com	careers.insightglobal.com	104	3	3	canonical
+careers.jhuapl.edu	careers.jhuapl.edu	346	3	3	canonical
+careers.kansascityymca.org	careers.kansascityymca.org	67	3	3	canonical
+careers.kehe.com	careers.kehe.com	167	3	3	canonical
+careers.keo.com	careers.keo.com	120	3	3	canonical
+careers.kindermorgan.com	careers.kindermorgan.com	273	3	3	canonical
+careers.landrysinc.com	careers.landrysinc.com	2498	3	3	canonical
+careers.mastec.com	careers.mastec.com	1300	3	3	canonical
+careers.matthews.com	careers.matthews.com	40	3	3	canonical
+careers.mcdean.com	careers.mcdean.com	1654	3	3	canonical
+careers.medpace.com	careers.medpace.com	745	3	3	canonical
+careers.msasafety.com	careers.msasafety.com	103	3	3	canonical
+careers.mymichigan.org	careers.mymichigan.org	949	3	3	canonical
+careers.myrgroup.com	careers.myrgroup.com	115	3	3	canonical
+careers.navistar.com	careers.navistar.com	94	3	3	canonical
+careers.noblis.org	careers.noblis.org	246	3	3	canonical
+careers.orkin.com	careers.orkin.com	1235	3	3	canonical
+careers.pacira.com	careers.pacira.com	21	3	3	canonical
+careers.patelco.org	careers.patelco.org	18	3	3	canonical
+careers.pnnl.gov	careers.pnnl.gov	58	33	33	canonical
+careers.pplweb.com	careers.pplweb.com	143	3	3	canonical
+careers.primehealthcare.com	careers.primehealthcare.com	3321	3	3	canonical
+careers.principal.com	careers.principal.com	191	3	3	canonical
+careers.promega.com	careers.promega.com	19	3	3	canonical
+careers.publicisgroupe.com	careers.publicisgroupe.com	3272	3	3	canonical
+careers.radnet.com	careers.radnet.com	1080	3	3	canonical
+careers.redeemerhealth.org	careers.redeemerhealth.org	144	3	3	canonical
+careers.reliance.com	careers.reliance.com	314	3	3	canonical
+careers.riversidehealthcare.org	careers.riversidehealthcare.org	184	3	3	canonical
+careers.rivian.com	careers.rivian.com	622	3	3	canonical
+careers.royalfarms.com	careers.royalfarms.com	567	3	3	canonical
+careers.rti.org	careers.rti.org	21	3	3	canonical
+careers.sammonsfinancialgroup.com	careers.sammonsfinancialgroup.com	38	33	33	canonical
+careers.sarnova.com	careers.sarnova.com	1	1	1	canonical
+careers.sca.health	careers.sca.health	684	3	3	canonical
+careers.se.com	careers.se.com	3078	133	115	fallback
+careers.selectquote.com	careers.selectquote.com	24	33	33	canonical
+careers.shrinerschildrens.org	careers.shrinerschildrens.org	15	18	18	canonical
+careers.sightsavers.org	careers.sightsavers.org	3	3	3	canonical
+careers.smh.com	careers.smh.com	385	3	3	canonical
+careers.smilebrands.com	careers.smilebrands.com	546	3	3	canonical
+careers.softwareone.com	careers.softwareone.com	346	3	3	canonical
+careers.solusarc.co.uk	careers.solusarc.co.uk	65	3	3	canonical
+careers.southglos.gov.uk	careers.southglos.gov.uk	35	3	3	canonical
+careers.spiritaero.com	careers.spiritaero.com	192	3	3	canonical
+careers.stlukes-stl.com	careers.stlukes-stl.com	232	3	3	canonical
+careers.sunriseseniorliving.com	careers.sunriseseniorliving.com	64	3	3	canonical
+careers.superiorambulance.com	careers.superiorambulance.com	130	33	33	canonical
+careers.teamues.com	careers.teamues.com	261	3	3	canonical
+careers.thezenith.com	careers.thezenith.com	10	23	23	canonical
+careers.thompsonhospitality.com	careers.thompsonhospitality.com	514	3	3	canonical
+careers.tkcholdings.com	careers.tkcholdings.com	264	3	3	canonical
+careers.tompkinsfinancial.com	careers.tompkinsfinancial.com	39	29	29	canonical
+careers.usa.skanska.com	careers.usa.skanska.com	222	3	3	canonical
+careers.usoncology.com	careers.usoncology.com	858	3	3	canonical
+careers.versiti.org	careers.versiti.org	123	33	33	canonical
+careers.viasat.com	careers.viasat.com	251	3	3	canonical
+careers.willowbridgepc.com	careers.willowbridgepc.com	417	3	3	canonical
+carenewengland	carenewengland.jibeapply.com	558	30	30	canonical
+casella	casella.jibeapply.com	300	33	33	canonical
+celanese	celanese.jibeapply.com	148	3	3	canonical
+chsli	chsli.jibeapply.com	1096	3	3	canonical
+chugach.jibeapply.com	chugach.jibeapply.com	198	3	3	canonical
+commonspirit	commonspirit.jibeapply.com	6356	3	3	canonical
+communitymedical.jibeapply.com	communitymedical.jibeapply.com	157	3	3	canonical
+conduent.jibeapply.com	conduent.jibeapply.com	1243	3	3	canonical
+conehealth	conehealth.jibeapply.com	12	3	3	canonical
+connection.jibeapply.com	connection.jibeapply.com	100	3	3	canonical
+costco	costco.jibeapply.com	26369	3	3	canonical
+crashchampions.jibeapply.com	crashchampions.jibeapply.com	527	3	3	canonical
+cubesmart	cubesmart.jibeapply.com	257	40	40	canonical
+danone.jibeapply.com	danone.jibeapply.com	706	3	3	canonical
+delawarenorth	delawarenorth.jibeapply.com	741	3	3	canonical
+designerbrands.jibeapply.com	designerbrands.jibeapply.com	53	30	30	canonical
+discounttire	discounttire.jibeapply.com	994	3	3	canonical
+dollargeneral	dollargeneral.jibeapply.com	88820	3	3	canonical
+dunhamssports	dunhamssports.jibeapply.com	1610	3	3	canonical
+eagleview	eagleview.jibeapply.com	32	3	3	canonical
+einstein	einstein.jibeapply.com	36	3	3	canonical
+emory	emory.jibeapply.com	1931	3	3	canonical
+empowerai.jibeapply.com	empowerai.jibeapply.com	117	3	3	canonical
+exeloncorp	exeloncorp.jibeapply.com	96	3	3	canonical
+explore.enercon.com	explore.enercon.com	84	33	33	canonical
+farmersinsurance	farmersinsurance.jibeapply.com	2	2	2	canonical
+fedex	fedex.jibeapply.com	138214	3	0	fallback
+fedexfreight.jibeapply.com	fedexfreight.jibeapply.com	759	3	3	canonical
+firstcitizens.jibeapply.com	firstcitizens.jibeapply.com	395	3	3	canonical
+footlocker	footlocker.jibeapply.com	2896	3	3	canonical
+gdms.jibeapply.com	gdms.jibeapply.com	693	3	3	canonical
+generalmills	generalmills.jibeapply.com	274	3	3	canonical
+githubinc	githubinc.jibeapply.com	73	29	29	canonical
+gnc	gnc.jibeapply.com	3	3	3	canonical
+gopilot.pilotcat.com	gopilot.pilotcat.com	7	3	3	canonical
+gopuff.jibeapply.com	gopuff.jibeapply.com	537	33	33	canonical
+greenstate.jibeapply.com	greenstate.jibeapply.com	37	3	3	canonical
+harvard.jibeapply.com	harvard.jibeapply.com	257	33	33	canonical
+hazelden.jibeapply.com	hazelden.jibeapply.com	71	3	3	canonical
+heb	heb.jibeapply.com	716	3	3	canonical
+highgate.jibeapply.com	highgate.jibeapply.com	1361	3	3	canonical
+jcpenney	jcpenney.jibeapply.com	6176	3	3	canonical
+jobportal.reyesholdings.com	jobportal.reyesholdings.com	597	3	3	canonical
+jobs.ajg.com	jobs.ajg.com	1417	3	3	canonical
+jobs.aon.com	jobs.aon.com	1115	3	3	canonical
+jobs.ardenthealth.com	jobs.ardenthealth.com	1471	3	3	canonical
+jobs.bassett.org	jobs.bassett.org	339	33	33	canonical
+jobs.booking.com	jobs.booking.com	136	3	3	canonical
+jobs.cumulusmedia.com	jobs.cumulusmedia.com	118	3	3	canonical
+jobs.firstwatch.com	jobs.firstwatch.com	1189	3	3	canonical
+jobs.fraserhealth.ca	jobs.fraserhealth.ca	2213	33	33	canonical
+jobs.geogroup.com	jobs.geogroup.com	711	3	3	canonical
+jobs.keysight.com	jobs.keysight.com	576	33	33	canonical
+jobs.pdshealth.com	jobs.pdshealth.com	1977	3	3	canonical
+jobs.postholdings.com	jobs.postholdings.com	316	3	3	canonical
+jobs.selective.com	jobs.selective.com	79	3	3	canonical
+jobs.smoothieking.com	jobs.smoothieking.com	858	3	3	canonical
+jobs.tdindustries.com	jobs.tdindustries.com	133	33	33	canonical
+jobs.trilogyhs.com	jobs.trilogyhs.com	1565	3	3	canonical
+jobs.tufts.edu	jobs.tufts.edu	120	3	3	canonical
+jobs.ufhealth.org	jobs.ufhealth.org	1371	3	3	canonical
+jobs.vnshealth.org	jobs.vnshealth.org	209	40	40	canonical
+jobs.ynhhs.org	jobs.ynhhs.org	1542	3	3	canonical
+join.readingandmath.org	join.readingandmath.org	44	3	3	canonical
+karriere.korian.de	karriere.korian.de	1465	104	58	fallback
+lennox.jibeapply.com	lennox.jibeapply.com	366	33	33	canonical
+ltcrevolution.jibeapply.com	ltcrevolution.jibeapply.com	704	3	3	canonical
+marriott	marriott.jibeapply.com	1	1	1	canonical
+marvin.jibeapply.com	marvin.jibeapply.com	248	3	3	canonical
+medicalsolutions.jibeapply.com	medicalsolutions.jibeapply.com	15	3	3	canonical
+medstarhealth	medstarhealth.jibeapply.com	1209	3	3	canonical
+mercy	mercy.jibeapply.com	2285	3	3	canonical
+merlinentertainments	merlinentertainments.jibeapply.com	174	3	3	canonical
+mountsinai	mountsinai.jibeapply.com	1779	3	3	canonical
+naturalgrocers	naturalgrocers.jibeapply.com	325	3	3	canonical
+nfiindustries	nfiindustries.jibeapply.com	570	3	3	canonical
+noodles	noodles.jibeapply.com	956	3	3	canonical
+nortonhealthcare.jibeapply.com	nortonhealthcare.jibeapply.com	708	3	3	canonical
+novanthealth	novanthealth.jibeapply.com	1668	3	3	canonical
+obhs	obhs.jibeapply.com	162	3	3	canonical
+ohsu	ohsu.jibeapply.com	533	3	3	canonical
+orlandohealth	orlandohealth.jibeapply.com	1301	3	3	canonical
+osi-systems.jibeapply.com	osi-systems.jibeapply.com	184	3	3	canonical
+paychex	paychex.jibeapply.com	556	3	3	canonical
+penfed	penfed.jibeapply.com	54	33	33	canonical
+pennentertainment	pennentertainment.jibeapply.com	1131	3	3	canonical
+pepsico	pepsico.jibeapply.com	2880	3	3	canonical
+peraton.jibeapply.com	peraton.jibeapply.com	1532	3	3	canonical
+petsmart	petsmart.jibeapply.com	10865	3	3	canonical
+piedmont	piedmont.jibeapply.com	1814	3	3	canonical
+pinkerton.jibeapply.com	pinkerton.jibeapply.com	107	3	3	canonical
+pittohio.jibeapply.com	pittohio.jibeapply.com	204	3	3	canonical
+prideindustries.jibeapply.com	prideindustries.jibeapply.com	307	3	3	canonical
+redlobster	redlobster.jibeapply.com	3836	3	3	canonical
+regiscorp.jibeapply.com	regiscorp.jibeapply.com	40	3	3	canonical
+rei	rei.jibeapply.com	269	33	33	canonical
+rentokil.jibeapply.com	rentokil.jibeapply.com	852	3	3	canonical
+riteaid	riteaid.jibeapply.com	983	3	3	canonical
+rockefelleruniversity	rockefelleruniversity.jibeapply.com	31	3	3	canonical
+rush	rush.jibeapply.com	530	3	3	canonical
+sheetz	sheetz.jibeapply.com	1412	3	3	canonical
+siteone	siteone.jibeapply.com	215	3	3	canonical
+sixflags	sixflags.jibeapply.com	504	3	3	canonical
+spa.jibeapply.com	spa.jibeapply.com	330	3	3	canonical
+spglobal.jibeapply.com	spglobal.jibeapply.com	284	3	3	canonical
+sprouts	sprouts.jibeapply.com	1938	3	3	canonical
+statefarm	statefarm.jibeapply.com	236	3	3	canonical
+stifel.jibeapply.com	stifel.jibeapply.com	165	3	3	canonical
+stjude	stjude.jibeapply.com	163	3	3	canonical
+suncoastcreditunion	suncoastcreditunion.jibeapply.com	19	3	3	canonical
+sutterhealth	sutterhealth.jibeapply.com	484	3	3	canonical
+talent.firsthealth.org	talent.firsthealth.org	554	3	3	canonical
+talent.goldbelt.com	talent.goldbelt.com	371	3	3	canonical
+talent.orrick.com	talent.orrick.com	75	3	3	canonical
+thecheesecakefactory	thecheesecakefactory.jibeapply.com	2780	3	3	canonical
+towerhealth	towerhealth.jibeapply.com	314	3	3	canonical
+ucla	ucla.jibeapply.com	93	3	3	canonical
+uhs	uhs.jibeapply.com	5980	3	3	canonical
+uicalaska.jibeapply.com	uicalaska.jibeapply.com	359	3	3	canonical
+ulta	ulta.jibeapply.com	10082	3	3	canonical
+umms	umms.jibeapply.com	110	30	30	canonical
+unitypoint	unitypoint.jibeapply.com	1358	3	3	canonical
+wakemed	wakemed.jibeapply.com	599	3	3	canonical
+wellpath.jibeapply.com	wellpath.jibeapply.com	650	3	3	canonical
+wendys	wendys.jibeapply.com	71	3	3	canonical
+westerndental.jibeapply.com	westerndental.jibeapply.com	300	33	33	canonical
+www.gbcijobs.com	www.gbcijobs.com	136	3	3	canonical
+www.genesiscareers.jobs	www.genesiscareers.jobs	3938	33	33	canonical
+xanterra	xanterra.jibeapply.com	192	3	3	canonical
+zenimax.jibeapply.com	zenimax.jibeapply.com	1	1	1	canonical

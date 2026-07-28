@@ -171,6 +171,17 @@ const (
 	// enter the table without the generator agreeing.
 	MethodManual Method = "manual"
 
+	// MethodRefuted means a human checked a generated row and found it to be a
+	// different company. A manual row carrying it deletes the generated row
+	// rather than overlaying it, and nothing is served for that source.
+	//
+	// It exists because the generator's mistakes are name collisions, and the
+	// correction for a name collision is not better facts about the wrong
+	// company — it is no facts at all. Without it the only way to unship a
+	// wrong row would be to hand-edit employers.tsv, which the next run
+	// overwrites. See [LoadFS].
+	MethodRefuted Method = "refuted"
+
 	// MethodEDGARExactName means the source's display name and an EDGAR filer's
 	// name normalized to the same string, and that match was unique in both
 	// directions: exactly one source and exactly one filer. Ambiguity is not

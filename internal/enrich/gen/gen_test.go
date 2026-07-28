@@ -262,3 +262,99 @@ func TestSourcesFromKeepsTheCrawlerIdentity(t *testing.T) {
 		must.Eq(t, services.Builtin[i].Company, source.Company)
 	}
 }
+
+// TestShortNamesAreCorroboratedFromWikidataBeforeTheyAreCommitted covers the
+// two gates the first live run paid for, in the order a run applies them: a
+// two-to-four letter name needs an identifier behind it, and a blank-check
+// shell is not an employer whatever it is called.
+//
+// The websites query has to happen before resolution, so this also asserts the
+// order: a corroboration table that arrives after the match has been committed
+// corroborates nothing.
+func TestShortNamesAreCorroboratedFromWikidataBeforeTheyAreCommitted(t *testing.T) {
+	t.Parallel()
+
+	edgarClient, _ := enrichtest.Client(map[string]string{
+		"company_tickers.json": `{
+  "0": {"cik_str": 2000001, "ticker": "XQZ", "title": "XQZ Inc."},
+  "1": {"cik_str": 2000002, "ticker": "PDQI", "title": "PDQ Corp"},
+  "2": {"cik_str": 2000003, "ticker": "ZZY", "title": "Zzyx Example Holdings"}
+}`,
+		"CIK0002000001.json": `{"cik": "2000001", "name": "XQZ Inc.", "sic": "7372", "sicDescription": "Services-Prepackaged Software"}`,
+		"CIK0002000002.json": `{"cik": "2000002", "name": "PDQ Corp", "sic": "7372", "sicDescription": "Services-Prepackaged Software"}`,
+		"CIK0002000003.json": `{"cik": "2000003", "name": "Zzyx Example Holdings", "sic": "6770", "sicDescription": "Blank Checks"}`,
+	})
+
+	wikidataClient, transport := enrichtest.Client(map[string]string{
+		// The whole-join websites query, told apart from the decoration query
+		// by the properties each one asks for.
+		"P856": `{"results": {"bindings": [
+      {"cik": {"value": "2000001"}, "site": {"value": "https://www.xqz.example/"}},
+      {"cik": {"value": "2000002"}, "site": {"value": "https://www.pdqindustrial.example/"}}
+    ]}}`,
+		"P1128": `{"results": {"bindings": []}}`,
+	})
+
+	result, err := gen.Run(t.Context(), gen.Options{
+		EDGAR:    edgarClient,
+		Wikidata: wikidataClient,
+		Now:      time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC),
+		Sources: []resolve.Source{
+			{Platform: "greenhouse", Key: "xqz", Company: "xqz"},
+			{Platform: "greenhouse", Key: "pdq", Company: "pdq"},
+			{Platform: "personio", Key: "zzyxexample", Company: "zzyxexample"},
+		},
+	})
+	must.NoError(t, err)
+
+	must.Len(t, 1, result.Employers)
+	must.Eq(t, "xqz", result.Employers[0].Source.Key, must.Sprint(
+		"only the short name whose registered domain agrees may be committed"))
+	must.Eq(t, 1, result.Stats.Matched)
+	must.Eq(t, 1, result.Stats.Shells)
+	must.Eq(t, 2, result.Stats.FilerWebsites)
+
+	reasons := map[string]string{}
+	for _, candidate := range result.Candidates {
+		reasons[candidate.Source.Key] = candidate.Why
+	}
+
+	must.MapLen(t, 2, reasons)
+	must.StrContains(t, reasons["pdq"], "uncorroborated short name")
+	must.StrContains(t, reasons["zzyxexample"], "blank-check shell")
+
+	must.StrContains(t, transport.Requests()[0], "P856", must.Sprint(
+		"corroboration has to be fetched before the matching decision, not after it"))
+}
+
+// TestWithoutWikidataShortNamesGoToReview states what -skip-wikidata now costs.
+// Corroboration by ticker still works offline; corroboration by domain does
+// not, so those matches wait for a reviewer instead of being guessed.
+func TestWithoutWikidataShortNamesGoToReview(t *testing.T) {
+	t.Parallel()
+
+	edgarClient, _ := enrichtest.Client(map[string]string{
+		"company_tickers.json": `{
+  "0": {"cik_str": 2000001, "ticker": "XQZ", "title": "XQZ Inc."},
+  "1": {"cik_str": 2000002, "ticker": "PDQ", "title": "Kwik Corp"}
+}`,
+		"CIK0002000001.json": `{"cik": "2000001", "name": "XQZ Inc."}`,
+		"CIK0002000002.json": `{"cik": "2000002", "name": "Kwik Corp"}`,
+	})
+
+	result, err := gen.Run(t.Context(), gen.Options{
+		EDGAR: edgarClient,
+		Now:   time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC),
+		Sources: []resolve.Source{
+			{Platform: "greenhouse", Key: "xqz", Company: "xqz"},
+			{Platform: "greenhouse", Key: "kwik", Company: "kwik"},
+		},
+	})
+	must.NoError(t, err)
+
+	must.Len(t, 1, result.Employers, must.Sprint(
+		"XQZ trades as XQZ, which is corroboration the seed file already carries"))
+	must.Eq(t, "xqz", result.Employers[0].Source.Key)
+	must.Len(t, 1, result.Candidates)
+	must.Eq(t, "kwik", result.Candidates[0].Source.Key)
+}
