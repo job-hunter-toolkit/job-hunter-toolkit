@@ -246,6 +246,12 @@ stays visible rather than merely tested.
 
 ## Historical storage
 
+[posting-cache.md](posting-cache.md) proposes the first increment of this
+model — per-source observations in files, behind an interface SQLite can
+implement later — as the answer to
+[#1](https://github.com/job-hunter-toolkit/job-hunter-toolkit/issues/1). It is a
+design, not an implementation.
+
 Start with SQLite through a pure-Go driver. It preserves the single-binary,
 local-first experience and is enough to validate the data model and real query
 patterns before operating an OLAP service.
