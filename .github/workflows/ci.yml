@@ -3,6 +3,23 @@ name: CI
 on:
   push:
     branches: [ master ]
+    # A push to master that only touches prose cannot change what any of these
+    # jobs would report, and this repository takes a lot of them: the research,
+    # design and measurement documents are large and land often. Skipping the
+    # matrix for those saves nine jobs a time.
+    #
+    # Deliberately NOT applied to `pull_request` below. When a workflow is
+    # skipped by a path filter its checks are never reported at all, so if any
+    # of these is ever made a required check, a documentation-only pull request
+    # would wait forever for a run that is never going to start. The push
+    # trigger has no such trap, which is why the saving is taken only there.
+    #
+    # jobs_record.txt and jobs_record.png are the nightly's own commits, several
+    # a week, and no job here reads either -- except the chart job, which
+    # renders from them, so they stay out of this list.
+    paths-ignore:
+    - '**.md'
+    - 'LICENSE'
   pull_request:
   workflow_dispatch:
   schedule:
