@@ -156,7 +156,21 @@ var reviewedDoubleCounts = map[string]struct {
 		"the eightfold tenant: the lever slug is stale rather than duplicated, and is left registered because " +
 		"an empty board is not evidence of a dead one"},
 
-	"fedex": {unmeasured, "jibe and workday; the comparison timed out and has not been repeated"},
+	// Measured 2026-07-28 by the URL sweep in docs/dedupe-audit.md, which is why
+	// this is no longer `unmeasured`. The two routes are structurally the same
+	// board -- jibe emits .../en-us/FXE-EU_External/job/.../apply where workday
+	// emits .../FXE-EU_External/job/... -- but content overlap is ONE posting,
+	// because Workday's own API reports total 337 against jibe's 4,933 view of
+	// the same site, and Workday answers 403 for a requisition jibe still
+	// advertises (RC720040) while answering 200 for one it lists (RC772413-1).
+	//
+	// Both kept, but not comfortably: the honest reading is that jibe's index is
+	// stale rather than richer, so ~4,600 of those postings may be delisted reqs
+	// this project is still publishing. That is a data-quality question about one
+	// adapter's freshness, not a double count, and it wants its own measurement
+	// rather than a deletion decided here.
+	"fedex": {sameEmployerPartialOverlap, "jibe 4,933, workday FXE-EU_External 337 by its own total, " +
+		"1 shared posting; jibe advertises reqs workday answers 403 for, so jibe's index is likely stale"},
 
 	// One employer, two boards carrying different work. Both kept.
 	"homedepot": {sameEmployerDisjointBoards, "brassring 22,899 hourly and store roles, workday 972 corporate; " +
