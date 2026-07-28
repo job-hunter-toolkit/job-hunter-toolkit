@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Job-Listing>
+
+<Job>
+<JobTitle><![CDATA[Advanced Analytics - Retail]]></JobTitle>
+<Job-Description><![CDATA[<p>Trimmed for the fixture; see the header comment.</p>]]></Job-Description>
+<ReqId>173126</ReqId>
+<>375852015</>
+<Department></Department>
+<filter1>
+<label>Country</label>
+<value>United States</value>
+</filter1>
+<filter2>
+<label>State/Province</label>
+<value>Kansas</value>
+</filter2>
+<filter3>
+<label>City</label>
+<value>Overland Park</value>
+</filter3>
+<filter5>
+<label>Company</label>
+<value>Hill&#39;s Pet Nutrition</value>
+</filter5>
+<filter7>
+<label>Travel Required?</label>
+<value>Travel - up to 10% of time</value>
+</filter7>
+<filter12>
+<label>Work Location</label>
+<value>Hybrid</value>
+</filter12>
+</Job>
+
+<Job>
+<JobTitle><![CDATA[(Manufacturing) Operations Assistant]]></JobTitle>
+<Job-Description><![CDATA[<p>Trimmed for the fixture; see the header comment.</p>]]></Job-Description>
+<ReqId>164817</ReqId>
+<>375852014</>
+<Department></Department>
+<filter1>
+<label>Country</label>
+<value>United States</value>
+</filter1>
+<filter2>
+<label>State/Province</label>
+<value>Kansas</value>
+</filter2>
+<filter3>
+<label>City</label>
+<value>Emporia</value>
+</filter3>
+<filter5>
+<label>Company</label>
+<value>Hill&#39;s Pet Nutrition</value>
+</filter5>
+<filter7>
+<label>Travel Required?</label>
+<value>No Travel</value>
+</filter7>
+<filter12>
+<label>Work Location</label>
+<value></value>
+</filter12>
+</Job>
+
+</Job-Listing>

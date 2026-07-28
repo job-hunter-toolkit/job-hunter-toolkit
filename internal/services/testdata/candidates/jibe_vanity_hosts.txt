@@ -1,215 +1,297 @@
 # Jibe/iCIMS employer-owned career hostnames, one per line (# = comment, inline OK).
-# Staged, NOT registered: unverified from this container, which cannot reach a job board.
-# Promote a host only after a live `health --company <host>` run confirms it.
-# The highest-volume 60 of this survey are registered in jibe.go; these are the rest.
 #
-careers.parkchildcare.ie   # parkchildcare (~882)
-careers.giraffe.ie   # giraffe (~866)
-jobs.smoothieking.com   # Smoothie King (~849)
-rentokil.jibeapply.com   # Rentokil / Terminix (~840)
-careers.gmr.net   # gmr (~817)
-careers.usoncology.com   # US Oncology Network, TX (~784)
-danone.jibeapply.com   # Danone (~759)
-careers.carlehealth.org   # Carle Health, IL (~739)
-careers.medpace.com   # Medpace (~721)
-jobportal.reyescocacola.com   # jobportal (~709)
-jobportal.reyesholdings.com   # jobportal (~706)
-jobportal.reyesfleet.com   # jobportal (~706)
-jobportal.martinbrower.com   # jobportal (~706)
-ltcrevolution.jibeapply.com   # ltcrevolution (~693)
-gdms.jibeapply.com   # gdms (~693)
-fedexfreight.jibeapply.com   # FedEx Freight (~685)
-jobportal.reyesbeveragegroup.com   # jobportal (~682)
-signaturehealthcarejobs.com   # signaturehealthcarejobs (~670)
-careers.sca.health   # sca (~666)
-geogroup.jibeapply.com   # geogroup (~657)
-jobs.geogroup.com   # geogroup (~651)
-nortonhealthcare.jibeapply.com   # nortonhealthcare (~628)
-careers.nortonhealthcareprovider.com   # nortonhealthcareprovider (~621)
-wellpath.jibeapply.com   # Wellpath (~582)
-careers.keysight.com   # Keysight Technologies (~567)
-careers.akima.com   # Akima — Alaska Native govcon (~565)
-careers.thompsonhospitality.com   # Thompson Hospitality (~557)
-careers.royalfarms.com   # royalfarms (~556)
-talent.firsthealth.org   # talent (~550)
-jobs.keysight.com   # keysight (~549)
-jobs.dish.com   # dish (~548)
-careers.rivian.com   # Rivian (~546)
-careers.firsthealth.org   # FirstHealth Carolinas (~538)
-gopuff.jibeapply.com   # Gopuff (~537)
-jobs.echostar.com   # EchoStar / DISH Network (~531)
-join.readingandmath.org   # join (~509)
-careers.smilebrands.com   # smilebrands (~504)
-careers.gov2x.com   # V2X (former Vectrus) — base ops/LOGCAP (~475)
-careers.brasfieldgorrie.com   # Brasfield & Gorrie (~451)
-careers.chenega.com   # Chenega — Alaska Native defense/IC (~432)
-careers.gilbaneco.com   # Gilbane (~423)
-careers.kpmg.ca   # kpmg (~419)
-goldbelt.jibeapply.com   # goldbelt (~390)
-crashchampions.jibeapply.com   # crashchampions (~385)
-talent.goldbelt.com   # talent (~385)
-careers.smh.com   # Sarasota Memorial Health, FL (~381)
-lincolnapts2.jibeapply.com   # Willow Bridge Property Company (~375)
-careers.bowman.com   # Bowman Consulting (~373)
-www.towercareers.org   # towercareers (~370)
-lennox.jibeapply.com   # Lennox International (~366)
-uicalaska.jibeapply.com   # uicalaska (~362)
-careers.willowbridgepc.com   # willowbridgepc (~361)
-careers.softwareone.com   # softwareone (~354)
-jobs.bassett.org   # Bassett Healthcare Network, NY (~347)
-careers.infirmaryhealth.org   # Infirmary Health (~337)
-careers.shrinerschildrens.org   # Shriners Children's (~323)
-prideindustries.jibeapply.com   # prideindustries (~319)
-firstcitizens.jibeapply.com   # First Citizens Bank (~309)
-careers.docusign.com   # docusign (~306)
-careers.garmin.com   # Garmin (~305)
-westerndental.jibeapply.com   # westerndental (~300)
-join.casella.com   # Casella Waste Systems (~299)
-careers.brightviewseniorliving.com   # Brightview Senior Living (~296)
-jobs.postholdings.com   # postholdings (~292)
-postholdings.jibeapply.com   # postholdings (~288)
-careers.ice.com   # Intercontinental Exchange (~284)
-careers.reliance.com   # reliance (~282)
-careers.kindermorgan.com   # Kinder Morgan (~274)
-spa.jibeapply.com   # Systems Planning and Analysis (~274)
-careers.trinityservicesgroup.com   # Trinity Services Group (~272)
-reliance.jibeapply.com   # Reliance Steel & Aluminum (~271)
-careers.viasat.com   # Viasat (~270)
-careers.jhuapl.edu   # Johns Hopkins APL (~253)
-villagecareers.thebicestercollection.com   # villagecareers (~252)
-careers.teamues.com   # teamues (~252)
-careers.keefegroup.com   # keefegroup (~248)
-careers.tkcholdings.com   # tkcholdings (~248)
-harvard.jibeapply.com   # Harvard University (~241)
-marvin.jibeapply.com   # marvin (~238)
-careers.govcio.com   # govcio (~237)
-careers.spiritaero.com   # Spirit AeroSystems (~224)
-careers.noblis.org   # Noblis — nonprofit science/tech (~216)
-careers.usa.skanska.com   # Skanska USA (~215)
-careers.cnb.com   # cnb (~214)
-careers.avispl.com   # avispl (~214)
-careers.appliedmedical.com   # appliedmedical (~211)
-spglobal.jibeapply.com   # S&P Global (~204)
-jobs.vnshealth.org   # vnshealth (~199)
-vnshealth.jibeapply.com   # vnshealth (~197)
-careers.chugachgov.com   # chugachgov (~191)
-careers.confluencehealth.org   # Confluence Health (~190)
-pittohio.jibeapply.com   # PITT OHIO (~188)
-chugach.jibeapply.com   # chugach (~188)
-careers.farmandfleet.com   # farmandfleet (~187)
-careers.stlukes-stl.com   # St. Luke's Hospital, St. Louis MO (~185)
-careers.principal.com   # Principal Financial (~178)
-careers.onebrooklynhealth.org   # onebrooklynhealth (~178)
-jobs.tdindustries.com   # tdindustries (~174)
-careers.riversidehealthcare.org   # Riverside Healthcare (~173)
-redeemerhealth.jibeapply.com   # redeemerhealth (~172)
-careers.kehe.com   # KeHE Distributors (~169)
-osi-systems.jibeapply.com   # OSI Systems (~168)
-stifel.jibeapply.com   # Stifel (~164)
-careers.redeemerhealth.org   # redeemerhealth (~160)
-careers.arcfield.com   # Arcfield — intel/C5ISR (~157)
-communitymedical.jibeapply.com   # communitymedical (~157)
-www.gbcijobs.com   # gbcijobs (~150)
-careers.canyonranch.com   # canyonranch (~145)
-jobs.booking.com   # booking (~140)
-careers.pplweb.com   # pplweb (~138)
-careers.incyte.com   # Incyte (~137)
-careers.fultonbank.com   # Fulton Bank (~136)
-cumulusmedia.jibeapply.com   # cumulusmedia (~134)
-careers.keo.com   # keo (~134)
-careers.comed.com   # comed (~133)
-careers.bge.com   # bge (~133)
-careers.pepco.com   # pepco (~133)
-careers.atlanticcityelectric.com   # atlanticcityelectric (~133)
-careers.peco.com   # peco (~133)
-canyonranch.jibeapply.com   # canyonranch (~132)
-careers.superiorambulance.com   # superiorambulance (~132)
-careers.avalara.com   # avalara (~130)
-jobs.cumulusmedia.com   # cumulusmedia (~129)
-careers.covenanthealthcare.com   # covenanthealthcare (~128)
-careers.versiti.org   # versiti (~126)
-www.bookingholdings-coe.com   # bookingholdings-coe (~126)
-careers.cbna.com   # communitybankna (~124)
-jobs.tufts.edu   # tuftscareers (~121)
-careers.haskell.com   # Haskell (~116)
-empowerai.jibeapply.com   # empowerai (~116)
-careers.navistar.com   # Navistar (~115)
-covenanthealthcare.jibeapply.com   # covenanthealthcare (~112)
-navistar.jibeapply.com   # Navistar (~111)
-amica.jibeapply.com   # amica (~110)
-careers.amica.ca   # amica (~110)
-careers.enlyte.com   # enlyte (~110)
-careers.evergreen.insightglobal.com   # evergreen (~104)
-careers.myrgroup.com   # MYR Group (~103)
-careers.international.com   # international (~103)
-msasafety.jibeapply.com   # MSA Safety (~100)
-careers.insightglobal.com   # Insight Global (~99)
-connection.jibeapply.com   # connection (~98)
-careers.msasafety.com   # msasafety (~98)
-careers.monumentconsulting.com   # monumentconsulting (~95)
-careers.delmarva.com   # delmarva (~93)
-talent.orrick.com   # talent (~90)
-selective.jibeapply.com   # Selective Insurance (~89)
-jobs.selective.com   # selective (~88)
-chickfila.jibeapply.com   # Chick-fil-A (~85)
-careers.cfa-supply.com   # cfa-supply (~83)
-explore.enercon.com   # explore (~83)
-pinkerton.jibeapply.com   # pinkerton (~82)
-careers.selectquote.com   # selectquote (~81)
-careers.chick-fil-a.com   # Chick-fil-A (~80)
-careers.herzog.com   # herzog (~79)
-careers.beazley.com   # Beazley (~72)
-jobs.hazeldenbettyford.org   # hazeldenbettyford (~71)
-hazelden.jibeapply.com   # hazelden (~69)
-careers.doyon.com   # doyon (~64)
-careers.kansascityymca.org   # kansascityymca (~63)
-careers.solusarc.co.uk   # solusarc (~61)
-careers.fm.com   # fm (~59)
-careers.gateshudson.com   # gateshudson (~57)
-doyon.jibeapply.com   # doyon (~56)
-careers.designerbrandscanada.com   # designerbrandscanada (~54)
-careers.crowley.com   # crowley (~51)
-careers.adisseo.com   # adisseo (~50)
-designerbrands.jibeapply.com   # Designer Brands / DSW (~49)
-careers.aarp.org   # AARP (~45)
-careers.pnnl.gov   # Pacific Northwest National Lab (~40)
-careers.einsteinmed.edu   # Albert Einstein College of Medicine (~40)
-regiscorp.jibeapply.com   # Regis Corporation (~40)
-careers.guard.com   # guard (~38)
-careers.matthews.com   # matthews (~38)
-careers.tompkinsfinancial.com   # tompkinsfinancial (~36)
-careers.sammonsfinancialgroup.com   # sammonsfinancialgroup (~36)
-careers.rockefeller.edu   # rockefeller (~33)
-greenstate.jibeapply.com   # greenstate (~32)
-careers.graitec.com   # graitec (~31)
-careers.fluxys.com   # fluxys (~30)
-careers.southglos.gov.uk   # southglos (~30)
-careers.pacira.com   # Pacira BioSciences (~29)
-zenimax.jibeapply.com   # ZeniMax Media (~29)
-careers.certara.com   # certara (~27)
-sequoia.jibeapply.com   # Sequoia Equities (~23)
-careers.rti.org   # rti (~19)
-medicalsolutions.jibeapply.com   # medicalsolutions (~18)
-careers.promega.com   # promega (~18)
-careers.patelco.org   # Patelco Credit Union (~16)
-emera.jibeapply.com   # Emera / Tampa Electric (~15)
-careers.emera.com   # emera (~15)
-careers.foundationfinance.com   # foundationfinance (~11)
-careers.flydubai.com   # flydubai (~10)
-careers.haymarket.com   # Haymarket Media (~8)
-careers.thezenith.com   # The Zenith (~7)
-gopilot.pilotcat.com   # gopilot (~6)
-genesishcc.jibeapply.com   # Genesis HealthCare (~3,887)
-pacificdentalservices.jibeapply.com   # Pacific Dental Services (~2,002)
-peraton.jibeapply.com   # Peraton (~1,746)
-axa.jibeapply.com   # AXA (~1,555)
-careers.sarnova.com   # sarnova (~1)
-careers.sightsavers.org   # sightsavers (~1)
+# Every host here was probed on 2026-07-28 from a container with real outbound
+# access, through this repository's own internal/httpx client and the Jibe
+# adapter itself: GET https://<host>/api/jobs?limit=100&page=1. All 262 answered
+# HTTP 200 with at least one posting complete enough for the adapter to yield.
+# The number on each line is that board's live totalCount, not an estimate. None
+# was dead, none was empty, and no host in this file has ever been observed to
+# 404.
 #
-# Mirrors of an employer already registered under another host. Left unregistered
-# so one employer is not crawled twice and listed twice; kept here because they
-# are live boards, not dead ones, and are the fallback if the registered host dies.
-bjsrestaurants.jibeapply.com   # mirror
-firstwatch.jibeapply.com   # mirror
-jobs.mastec.com   # mirror
-mymichigan.jibeapply.com   # mirror
+# "registered" marks a host that is now in JibeCompanies. "alias of X" marks one
+# that is deliberately NOT registered because it serves the same board as X.
+# That is the finding this file exists to carry: one iCIMS tenant is published
+# under many employer domains, /api/jobs has no per-brand filter, and so an alias
+# re-downloads the same requisitions under a different company name. It was
+# confirmed by content, not by size — for every host, the apply_url list of the
+# first five postings was hashed, and hosts sharing a hash serve the same board.
+# careers.orkin.com, careers.rollins.com, careers.westernpest.com and ten more
+# all hash the same and all report 1,231 postings behind
+# orkin-careers-rollins.icims.com.
+#
+# Size alone is not sufficient and this file records why: careers.mastec.com and
+# jobs.mastec.com were measured minutes apart, differed by a single requisition,
+# and would have been called distinct boards by any count-based comparison.
+#
+# 47 alias groups cover 129 of these 262 hosts, so the file describes 180
+# distinct boards. Promoting one host per board is worth 38,501 net-new postings
+# for 469 page requests per crawl; promoting all of them would have added 26,226
+# duplicate postings and 288 wasted requests on top.
+#
+# To promote a host: confirm it still answers with postings, confirm by content
+# hash that it is not an alias of something already registered, then add it to
+# JibeCompanies in internal/services/jibe.go. Everything in JibeCompanies that
+# contains a dot must also appear in this file; TestJibeRegistersOnlyStagedHosts
+# enforces it.
+amica.jibeapply.com   # 103 live; alias of careers.amica.ca
+aus.jibeapply.com   # 3915 live; registered
+axa.jibeapply.com   # AXA; 1537 live; alias of careers.axa.com
+bjsrestaurants.jibeapply.com   # 2040 live; alias of careers.bjsrestaurants.com
+canyonranch.jibeapply.com   # 146 live; alias of careers.canyonranch.com
+careers.aarp.org   # AARP; 55 live; registered
+careers.accentcare.com   # 1359 live; registered
+careers.adisseo.com   # 45 live; registered
+careers.akima.com   # Akima — Alaska Native govcon; 615 live; registered
+careers.alignmedpartners.com   # 3945 live; alias of www.genesiscareers.jobs
+careers.amd.com   # 1057 live; registered
+careers.amica.ca   # 103 live; registered
+careers.appliedmedical.com   # 215 live; registered
+careers.arcfield.com   # Arcfield — intel/C5ISR; 164 live; registered
+careers.atlanticcityelectric.com   # 93 live; alias of exeloncorp
+careers.avalara.com   # 133 live; registered
+careers.avispl.com   # 212 live; registered
+careers.axa.com   # 1537 live; registered
+careers.beazley.com   # Beazley; 39 live; registered
+careers.bge.com   # 93 live; alias of exeloncorp
+careers.bjsrestaurants.com   # 2040 live; registered
+careers.bowman.com   # Bowman Consulting; 333 live; registered
+careers.brasfieldgorrie.com   # Brasfield & Gorrie; 494 live; registered
+careers.brightviewseniorliving.com   # Brightview Senior Living; 325 live; registered
+careers.busybeeschildcare.co.uk   # 824 live; registered
+careers.callnorthwest.com   # 1231 live; alias of careers.orkin.com
+careers.canyonranch.com   # 146 live; registered
+careers.carlehealth.org   # Carle Health, IL; 742 live; registered
+careers.cbna.com   # 126 live; registered
+careers.certara.com   # 32 live; registered
+careers.cfa-supply.com   # 86 live; alias of careers.chick-fil-a.com
+careers.chenega.com   # Chenega — Alaska Native defense/IC; 472 live; registered
+careers.chick-fil-a.com   # Chick-fil-A; 86 live; registered
+careers.chugachgov.com   # 197 live; alias of chugach.jibeapply.com
+careers.clarkpest.com   # 1231 live; alias of careers.orkin.com
+careers.cnb.com   # 198 live; registered
+careers.comed.com   # 93 live; alias of exeloncorp
+careers.confluencehealth.org   # Confluence Health; 178 live; registered
+careers.covenanthealthcare.com   # 106 live; registered
+careers.cranepestcontrol.com   # 1231 live; alias of careers.orkin.com
+careers.crittercontrol.com   # 1231 live; alias of careers.orkin.com
+careers.crowley.com   # 57 live; registered
+careers.delmarva.com   # 93 live; alias of exeloncorp
+careers.designerbrandscanada.com   # 52 live; alias of designerbrands.jibeapply.com
+careers.docusign.com   # 311 live; registered
+careers.doyon.com   # 67 live; registered
+careers.einsteinmed.edu   # Albert Einstein College of Medicine; 36 live; alias of einstein
+careers.emera.com   # 18 live; registered
+careers.enlyte.com   # 118 live; registered
+careers.evergreen.insightglobal.com   # 103 live; alias of careers.insightglobal.com
+careers.fairview.org   # 1208 live; registered
+careers.farmandfleet.com   # 192 live; registered
+careers.firsthealth.org   # FirstHealth Carolinas; 552 live; alias of talent.firsthealth.org
+careers.fluxys.com   # 24 live; registered
+careers.flydubai.com   # 13 live; registered
+careers.fm.com   # 57 live; registered
+careers.foundationfinance.com   # 15 live; registered
+careers.fultonbank.com   # Fulton Bank; 132 live; registered
+careers.garmin.com   # Garmin; 314 live; registered
+careers.gateshudson.com   # 57 live; registered
+careers.gilbaneco.com   # Gilbane; 411 live; registered
+careers.giraffe.ie   # 824 live; alias of careers.busybeeschildcare.co.uk
+careers.gmr.net   # 865 live; registered
+careers.gov2x.com   # V2X (former Vectrus) — base ops/LOGCAP; 775 live; registered
+careers.govcio.com   # 216 live; registered
+careers.graitec.com   # 31 live; registered
+careers.guard.com   # 37 live; registered
+careers.haskell.com   # Haskell; 125 live; registered
+careers.haymarket.com   # Haymarket Media; 15 live; registered
+careers.herzog.com   # 90 live; registered
+careers.ice.com   # Intercontinental Exchange; 290 live; registered
+careers.ieaconstructors.com   # 1283 live; alias of careers.mastec.com
+careers.incyte.com   # Incyte; 182 live; registered
+careers.indfumco.com   # 1231 live; alias of careers.orkin.com
+careers.infirmaryhealth.org   # Infirmary Health; 307 live; registered
+careers.insightglobal.com   # Insight Global; 103 live; registered
+careers.international.com   # 94 live; alias of careers.navistar.com
+careers.jhuapl.edu   # Johns Hopkins APL; 346 live; registered
+careers.kansascityymca.org   # 70 live; registered
+careers.keefegroup.com   # 266 live; alias of careers.tkcholdings.com
+careers.kehe.com   # KeHE Distributors; 163 live; registered
+careers.keo.com   # 118 live; registered
+careers.keysight.com   # Keysight Technologies; 582 live; alias of jobs.keysight.com
+careers.kindermorgan.com   # Kinder Morgan; 273 live; registered
+careers.kpmg.ca   # 423 live; held: name collides with the successfactors kpmg tenant (KPMGHESPROD, 204 live) though this is KPMG Canada
+careers.landrysinc.com   # 2499 live; registered
+careers.lemartec.com   # 1283 live; alias of careers.mastec.com
+careers.mastec.com   # 1283 live; registered
+careers.masteccommunicationsgroup.com   # 1283 live; alias of careers.mastec.com
+careers.mastecindustrial.com   # 1283 live; alias of careers.mastec.com
+careers.matthews.com   # 40 live; registered
+careers.mcdean.com   # 1652 live; registered
+careers.medpace.com   # Medpace; 750 live; registered
+careers.monumentconsulting.com   # 103 live; alias of careers.insightglobal.com
+careers.msasafety.com   # 104 live; registered
+careers.mymichigan.org   # 953 live; registered
+careers.myrgroup.com   # MYR Group; 115 live; registered
+careers.navistar.com   # Navistar; 94 live; registered
+careers.noblis.org   # Noblis — nonprofit science/tech; 247 live; registered
+careers.nortonhealthcareprovider.com   # 738 live; alias of nortonhealthcare.jibeapply.com
+careers.onebrooklynhealth.org   # 163 live; alias of obhs
+careers.opcpest.com   # 1231 live; alias of careers.orkin.com
+careers.orkin.com   # 1231 live; registered
+careers.pacira.com   # Pacira BioSciences; 22 live; registered
+careers.parkchildcare.ie   # 824 live; alias of careers.busybeeschildcare.co.uk
+careers.patelco.org   # Patelco Credit Union; 19 live; registered
+careers.peco.com   # 93 live; alias of exeloncorp
+careers.pepco.com   # 93 live; alias of exeloncorp
+careers.permatreat.com   # 1231 live; alias of careers.orkin.com
+careers.pestdefense.com   # 1231 live; alias of careers.orkin.com
+careers.pnnl.gov   # Pacific Northwest National Lab; 55 live; registered
+careers.powerbackrehab.com   # 3945 live; alias of www.genesiscareers.jobs
+careers.pplweb.com   # 142 live; registered
+careers.primehealthcare.com   # 3310 live; registered
+careers.principal.com   # Principal Financial; 187 live; registered
+careers.promega.com   # 19 live; registered
+careers.publicisgroupe.com   # 3293 live; registered
+careers.radnet.com   # 1084 live; registered
+careers.redeemerhealth.org   # 140 live; registered
+careers.reliance.com   # 312 live; registered
+careers.riversidehealthcare.org   # Riverside Healthcare; 187 live; registered
+careers.rivian.com   # Rivian; 617 live; registered
+careers.rockefeller.edu   # 31 live; alias of rockefelleruniversity
+careers.rollins.com   # 1231 live; alias of careers.orkin.com
+careers.royalfarms.com   # 568 live; registered
+careers.rti.org   # 21 live; registered
+careers.sammonsfinancialgroup.com   # 40 live; registered
+careers.sarnova.com   # 1 live; registered
+careers.sca.health   # 685 live; registered
+careers.se.com   # 3070 live; registered
+careers.selectquote.com   # 23 live; registered
+careers.shrinerschildrens.org   # Shriners Children's; 15 live; registered
+careers.sightsavers.org   # 3 live; registered
+careers.smh.com   # Sarasota Memorial Health, FL; 386 live; registered
+careers.smilebrands.com   # 547 live; registered
+careers.softwareone.com   # 344 live; registered
+careers.solusarc.co.uk   # 64 live; registered
+careers.southglos.gov.uk   # 34 live; registered
+careers.spiritaero.com   # Spirit AeroSystems; 188 live; registered
+careers.stlukes-stl.com   # St. Luke's Hospital, St. Louis MO; 233 live; registered
+careers.sunriseseniorliving.com   # 64 live; registered
+careers.superiorambulance.com   # 129 live; registered
+careers.teamues.com   # 261 live; registered
+careers.thezenith.com   # The Zenith; 10 live; registered
+careers.thompsonhospitality.com   # Thompson Hospitality; 513 live; registered
+careers.tkcholdings.com   # 266 live; registered
+careers.tompkinsfinancial.com   # 36 live; registered
+careers.trinityservicesgroup.com   # Trinity Services Group; 266 live; alias of careers.tkcholdings.com
+careers.trutechinc.com   # 1231 live; alias of careers.orkin.com
+careers.usa.skanska.com   # Skanska USA; 220 live; registered
+careers.usoncology.com   # US Oncology Network, TX; 855 live; registered
+careers.versiti.org   # 123 live; registered
+careers.viasat.com   # Viasat; 253 live; registered
+careers.walthamservices.com   # 1231 live; alias of careers.orkin.com
+careers.wanzek.com   # 1283 live; alias of careers.mastec.com
+careers.westernpest.com   # 1231 live; alias of careers.orkin.com
+careers.willowbridgepc.com   # 408 live; registered
+chickfila.jibeapply.com   # Chick-fil-A; 86 live; alias of careers.chick-fil-a.com
+chugach.jibeapply.com   # 197 live; registered
+communitymedical.jibeapply.com   # 153 live; registered
+conduent.jibeapply.com   # 1243 live; registered
+connection.jibeapply.com   # 96 live; registered
+covenanthealthcare.jibeapply.com   # 106 live; alias of careers.covenanthealthcare.com
+crashchampions.jibeapply.com   # 530 live; registered
+cumulusmedia.jibeapply.com   # 119 live; alias of jobs.cumulusmedia.com
+danone.jibeapply.com   # Danone; 698 live; registered
+designerbrands.jibeapply.com   # Designer Brands / DSW; 52 live; registered
+doyon.jibeapply.com   # 67 live; alias of careers.doyon.com
+emera.jibeapply.com   # Emera / Tampa Electric; 18 live; alias of careers.emera.com
+empowerai.jibeapply.com   # 117 live; registered
+explore.enercon.com   # 84 live; registered
+fedexfreight.jibeapply.com   # FedEx Freight; 746 live; registered
+firstcitizens.jibeapply.com   # First Citizens Bank; 390 live; registered
+firstwatch.jibeapply.com   # 1194 live; alias of jobs.firstwatch.com
+gdms.jibeapply.com   # 693 live; registered
+genesishcc.jibeapply.com   # Genesis HealthCare; 3945 live; alias of www.genesiscareers.jobs
+geogroup.jibeapply.com   # 697 live; alias of jobs.geogroup.com
+goldbelt.jibeapply.com   # 370 live; alias of talent.goldbelt.com
+gopilot.pilotcat.com   # 7 live; registered
+gopuff.jibeapply.com   # Gopuff; 537 live; registered
+greenstate.jibeapply.com   # 37 live; registered
+harvard.jibeapply.com   # Harvard University; 256 live; registered
+hazelden.jibeapply.com   # 71 live; registered
+highgate.jibeapply.com   # 1370 live; registered
+jobportal.martinbrower.com   # 598 live; alias of jobportal.reyesholdings.com
+jobportal.reyesbeveragegroup.com   # 598 live; alias of jobportal.reyesholdings.com
+jobportal.reyescocacola.com   # 598 live; alias of jobportal.reyesholdings.com
+jobportal.reyesfleet.com   # 598 live; alias of jobportal.reyesholdings.com
+jobportal.reyesholdings.com   # 598 live; registered
+jobs.ajg.com   # 1379 live; registered
+jobs.aon.com   # 1114 live; registered
+jobs.ardenthealth.com   # 1454 live; registered
+jobs.bassett.org   # Bassett Healthcare Network, NY; 348 live; registered
+jobs.booking.com   # 129 live; registered
+jobs.cumulusmedia.com   # 119 live; registered
+jobs.dish.com   # 525 live; alias of jobs.echostar.com
+jobs.echostar.com   # EchoStar / DISH Network; 525 live; held: name collides with the workday echostar tenant
+jobs.firstwatch.com   # 1200 live; registered
+jobs.fraserhealth.ca   # 2209 live; registered
+jobs.geogroup.com   # 697 live; registered
+jobs.hazeldenbettyford.org   # 71 live; alias of hazelden.jibeapply.com
+jobs.jcp.com   # 6172 live; alias of jcpenney
+jobs.keysight.com   # 582 live; registered
+jobs.mastec.com   # 1282 live; alias of careers.mastec.com
+jobs.mastecat.com   # 1283 live; alias of careers.mastec.com
+jobs.pdshealth.com   # 1971 live; registered
+jobs.postholdings.com   # 313 live; registered
+jobs.selective.com   # 81 live; registered
+jobs.smoothieking.com   # Smoothie King; 857 live; registered
+jobs.tdindustries.com   # 135 live; registered
+jobs.trilogyhs.com   # 1563 live; registered
+jobs.tufts.edu   # 118 live; registered
+jobs.ufhealth.org   # 1354 live; registered
+jobs.uhsinc.com   # 5979 live; alias of uhs
+jobs.vnshealth.org   # 206 live; registered
+jobs.ynhhs.org   # 1538 live; registered
+join.casella.com   # Casella Waste Systems; 301 live; alias of casella
+join.readingandmath.org   # 45 live; registered
+karriere.korian.de   # 1478 live; registered
+lennox.jibeapply.com   # Lennox International; 366 live; registered
+lincolnapts2.jibeapply.com   # Willow Bridge Property Company; 408 live; alias of careers.willowbridgepc.com
+ltcrevolution.jibeapply.com   # 710 live; registered
+marvin.jibeapply.com   # 251 live; registered
+medicalsolutions.jibeapply.com   # 15 live; registered
+msasafety.jibeapply.com   # MSA Safety; 104 live; alias of careers.msasafety.com
+mymichigan.jibeapply.com   # 953 live; alias of careers.mymichigan.org
+navistar.jibeapply.com   # Navistar; 94 live; alias of careers.navistar.com
+nortonhealthcare.jibeapply.com   # 738 live; registered
+osi-systems.jibeapply.com   # OSI Systems; 177 live; registered
+pacificdentalservices.jibeapply.com   # Pacific Dental Services; 1971 live; alias of jobs.pdshealth.com
+peraton.jibeapply.com   # Peraton; 1530 live; registered
+pinkerton.jibeapply.com   # 105 live; registered
+pittohio.jibeapply.com   # PITT OHIO; 205 live; registered
+postholdings.jibeapply.com   # 313 live; alias of jobs.postholdings.com
+prideindustries.jibeapply.com   # 308 live; registered
+redeemerhealth.jibeapply.com   # 140 live; alias of careers.redeemerhealth.org
+regiscorp.jibeapply.com   # Regis Corporation; 40 live; registered
+reliance.jibeapply.com   # Reliance Steel & Aluminum; 312 live; alias of careers.reliance.com
+rentokil.jibeapply.com   # Rentokil / Terminix; 847 live; registered
+selective.jibeapply.com   # Selective Insurance; 81 live; alias of jobs.selective.com
+sequoia.jibeapply.com   # Sequoia Equities; 21 live; held: name collides with the ashby sequoia board
+signaturehealthcarejobs.com   # 710 live; alias of ltcrevolution.jibeapply.com
+spa.jibeapply.com   # Systems Planning and Analysis; 331 live; registered
+spglobal.jibeapply.com   # S&P Global; 286 live; registered
+stifel.jibeapply.com   # Stifel; 165 live; registered
+talent.firsthealth.org   # 552 live; registered
+talent.goldbelt.com   # 370 live; registered
+talent.orrick.com   # 74 live; registered
+uicalaska.jibeapply.com   # 354 live; registered
+villagecareers.thebicestercollection.com   # 247 live; held: name collides with the successfactors thebicestercollection tenant
+vnshealth.jibeapply.com   # 206 live; alias of jobs.vnshealth.org
+wellpath.jibeapply.com   # Wellpath; 642 live; registered
+westerndental.jibeapply.com   # 299 live; registered
+www.bookingholdings-coe.com   # 129 live; alias of jobs.booking.com
+www.cakecareers.com   # 2789 live; alias of thecheesecakefactory
+www.foxrccareers.com   # 2789 live; alias of thecheesecakefactory
+www.gbcijobs.com   # 140 live; registered
+www.genesiscareers.jobs   # 3945 live; registered
+www.grandluxcareers.com   # 2789 live; alias of thecheesecakefactory
+www.northitaliacareers.com   # 2789 live; alias of thecheesecakefactory
+www.towercareers.org   # 331 live; alias of towerhealth
+zenimax.jibeapply.com   # ZeniMax Media; 1 live; registered

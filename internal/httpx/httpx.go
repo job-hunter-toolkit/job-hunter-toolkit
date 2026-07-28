@@ -451,11 +451,27 @@ func servicePolicyFor(req *http.Request, defaultLimit int) servicePolicy {
 		strings.HasSuffix(host, ".jobs.personio.de"):
 		// Four SMB platforms that give every tenant its own subdomain on one
 		// shared backend, exactly like bamboohr.com and peopleforce.io above.
-		// The generic policy keys on the exact host, so without this each of
-		// their ~35 tenants would get a private limiter and the platform would
-		// see up to 35*4 concurrent requests from one crawl. That is how 56
-		// Workable boards were rate-limited into looking dead, which is the
-		// incident the shared keys exist to prevent. One key per platform.
+		// The generic policy keys on the exact host, so without this each
+		// tenant would get a private limiter and the platform would see
+		// tenants*4 concurrent requests from one crawl. That is how 56 Workable
+		// boards were rate-limited into looking dead, which is the incident the
+		// shared keys exist to prevent. One key per platform.
+		//
+		// These four were ~35 tenants each when this policy was written. After
+		// probing the staged candidate lists they are 970 Personio, 492
+		// Recruitee, 117 Pinpoint and 34 Teamtailor, so the pressure this
+		// prevents is now up to 3,880 concurrent requests rather than 140, and
+		// the case for one key per platform is correspondingly stronger.
+		//
+		// It has a cost worth naming, because it is the same shape as the tail
+		// docs/research/crawl-performance.md measured on Greenhouse and Ashby:
+		// 970 Personio sources can only make progress four at a time no matter
+		// how many workers are idle, so this platform alone is ~243 sequential
+		// rounds. That is affordable in a 330-minute budget and it is NOT a
+		// reason to raise maxConcurrent -- the ceiling is politeness, not
+		// scheduling. It is a reason to shard: internal/shard keys on this same
+		// limiter table, so a shared backend stays whole on one runner and
+		// parallelism comes from the tenant-isolated platforms instead.
 		policy.key = registrableSuffix(host)
 		policy.maxConcurrent = min(defaultLimit, 4)
 		policy.interval = 25 * time.Millisecond

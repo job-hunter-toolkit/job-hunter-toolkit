@@ -1,0 +1,160 @@
+{
+  "data": [
+    {
+      "id": "541307",
+      "benefits_header": "Job Benefits",
+      "compensation": "$105,000 - $135,000 / year",
+      "compensation_minimum": 105000.0,
+      "compensation_maximum": 135000.0,
+      "compensation_currency": "USD",
+      "compensation_frequency": "year",
+      "compensation_visible": true,
+      "deadline_at": "2026-08-14T23:59:59-04:00",
+      "employment_type": "permanent_full_time",
+      "employment_type_text": "Permanent - Full Time",
+      "key_responsibilities_header": "Key Responsibilities",
+      "reporting_to": "VP,  Research & Evaluation",
+      "skills_knowledge_expertise_header": "Skills, Knowledge & Expertise",
+      "title": "Senior Data Management Specialist",
+      "url": "https://jed.pinpointhq.com/en/postings/fceb8b47-bed5-45bd-b7f4-9161fbe78428",
+      "path": "/en/postings/fceb8b47-bed5-45bd-b7f4-9161fbe78428",
+      "workplace_type": "remote",
+      "workplace_type_text": "Fully remote",
+      "job": {
+        "id": "545547",
+        "requisition_id": "JED-0297",
+        "department": {
+          "id": "6279",
+          "name": "KNA-Research & Evaluation"
+        },
+        "division": null,
+        "structure_custom_group_one": null
+      },
+      "location": {
+        "id": "3810",
+        "city": "New York City",
+        "name": "Remote",
+        "postal_code": "10018",
+        "province": "New York",
+        "street_address": null
+      }
+    },
+    {
+      "id": "542171",
+      "benefits_header": "Job Benefits",
+      "compensation": "$135,000 - $190,000 / year",
+      "compensation_minimum": 135000.0,
+      "compensation_maximum": 190000.0,
+      "compensation_currency": "USD",
+      "compensation_frequency": "year",
+      "compensation_visible": true,
+      "deadline_at": "2026-08-14T23:59:59-04:00",
+      "employment_type": "permanent_full_time",
+      "employment_type_text": "Permanent - Full Time",
+      "key_responsibilities_header": "Key Responsibilities",
+      "reporting_to": "VP, Research & Evaluation",
+      "skills_knowledge_expertise_header": "Skills, Knowledge & Expertise",
+      "title": " Senior Director, Implementation Science",
+      "url": "https://jed.pinpointhq.com/en/postings/ea9af00d-a6c9-4b4e-87a3-062cc098616d",
+      "path": "/en/postings/ea9af00d-a6c9-4b4e-87a3-062cc098616d",
+      "workplace_type": "remote",
+      "workplace_type_text": "Fully remote",
+      "job": {
+        "id": "546333",
+        "requisition_id": "JED-0296",
+        "department": {
+          "id": "6279",
+          "name": "KNA-Research & Evaluation"
+        },
+        "division": null,
+        "structure_custom_group_one": null
+      },
+      "location": {
+        "id": "3810",
+        "city": "New York City",
+        "name": "Remote",
+        "postal_code": "10018",
+        "province": "New York",
+        "street_address": null
+      }
+    },
+    {
+      "id": "542977",
+      "benefits_header": "Application Timeline",
+      "compensation": "$31.25 / hour",
+      "compensation_minimum": 31.25,
+      "compensation_maximum": 31.25,
+      "compensation_currency": "USD",
+      "compensation_frequency": "hour",
+      "compensation_visible": true,
+      "deadline_at": "2026-08-12T23:59:59-04:00",
+      "employment_type": "programme",
+      "employment_type_text": "Programme",
+      "key_responsibilities_header": "Personal Summary/Write-Up Submission Requirement",
+      "reporting_to": "Director of Policy",
+      "skills_knowledge_expertise_header": "Commitment",
+      "title": "Texas Mental Health Youth Advocacy Coalition Fellowship (Fall 2026)",
+      "url": "https://jed.pinpointhq.com/en/postings/0504f7b7-ea60-4693-b919-8c116188d681",
+      "path": "/en/postings/0504f7b7-ea60-4693-b919-8c116188d681",
+      "workplace_type": "hybrid",
+      "workplace_type_text": "Hybrid",
+      "job": {
+        "id": "547074",
+        "requisition_id": "JED-0300",
+        "department": {
+          "id": "49440",
+          "name": "PAG-Policy, Advocacy & Government Relations"
+        },
+        "division": null,
+        "structure_custom_group_one": null
+      },
+      "location": {
+        "id": "14654",
+        "city": "ALL",
+        "name": "Texas",
+        "postal_code": "",
+        "province": "Texas",
+        "street_address": ""
+      }
+    },
+    {
+      "id": "547046",
+      "benefits_header": "Job Benefits",
+      "compensation": "$80,000 - $115,000 / year",
+      "compensation_minimum": 80000.0,
+      "compensation_maximum": 115000.0,
+      "compensation_currency": "USD",
+      "compensation_frequency": "year",
+      "compensation_visible": true,
+      "deadline_at": "2026-08-21T23:59:59-04:00",
+      "employment_type": "permanent_full_time",
+      "employment_type_text": "Permanent - Full Time",
+      "key_responsibilities_header": "Key Responsibilities",
+      "reporting_to": "Senior Consultant, Mental Health & Suicide Prevention, District Programs",
+      "skills_knowledge_expertise_header": "Skills, Knowledge & Expertise",
+      "title": "Consultant, Mental Health & Suicide Prevention, District Programs",
+      "url": "https://jed.pinpointhq.com/en/postings/b4c942ba-b264-41a8-866c-73f50b36cec7",
+      "path": "/en/postings/b4c942ba-b264-41a8-866c-73f50b36cec7",
+      "workplace_type": "remote",
+      "workplace_type_text": "Fully remote",
+      "job": {
+        "id": "550831",
+        "requisition_id": "JED-0301",
+        "department": {
+          "id": "49436",
+          "name": "SPC-School Programs & Consulting"
+        },
+        "division": null,
+        "structure_custom_group_one": null
+      },
+      "location": {
+        "id": "3810",
+        "city": "New York City",
+        "name": "Remote",
+        "postal_code": "10018",
+        "province": "New York",
+        "street_address": null
+      }
+    }
+  ]
+}
