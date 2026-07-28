@@ -65,7 +65,10 @@ var genericPolicyPlatforms = map[string]string{
 	"phenom": "tenant-isolated employer hostnames, same reasoning as Workday",
 	"direct": "the bespoke internal/companies adapters, each of which talks to one " +
 		"employer's own careers site (oxide.computer, uber.com); there is no shared " +
-		"backend for tenants to contend over",
+		"backend for tenants to contend over. The exception is the Alphabet board, " +
+		"where three sources share www.google.com, and that host does have an " +
+		"explicit policy — this excuse covers the platform's representative " +
+		"source, not every host in it",
 }
 
 // TestEveryPlatformHasAPacingPolicy is a regression test for a whole class of
