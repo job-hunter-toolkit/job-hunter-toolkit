@@ -4,16 +4,26 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
+	"unicode"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 )
 
+// workdayPlatform is the ATS family this file registers, and the value that
+// reaches [internal.PostingSource.Platform].
+const workdayPlatform = "workday"
+
 func init() {
-	registerBuiltin("workday", multiJobsFuncNamed(Workday, WorkdayCompanyURLs, workdayCompanyName))
+	registerBuiltin(workdayPlatform, multiJobsFuncNamed(Workday, WorkdayCompanyURLs, workdayCompanyName))
 
 	for _, companyURL := range WorkdayCompanyURLs {
 		WorkdayCompanies = append(WorkdayCompanies, workdayCompanyName(companyURL))
@@ -274,16 +284,63 @@ var WorkdayCompanyURLs = []string{
 	"https://wwecorp.wd5.myworkdayjobs.com/wwecorp",
 }
 
+// Paging behaviour for a Workday tenant's "cxs" endpoint.
+const (
+	// workdayPageSize is how many postings each request asks for.
+	//
+	// Workday's own careers UI asks for 20, which is what this adapter used to
+	// do, so a tenant with 3,000 open roles needed 150 strictly sequential round
+	// trips. The cxs endpoint is widely used with larger windows and 100 is the
+	// value other integrations settle on, so that is what we ask for.
+	//
+	// This is NOT verified against all ~216 tenants in [WorkdayCompanyURLs];
+	// there is no way to probe them from CI, and a page size that some tenant
+	// rejects would be a far worse bug than the slow crawl it replaces. So the
+	// value is treated as a request rather than a promise, in two ways:
+	//
+	//   - the pagination stride is taken from how many postings the first page
+	//     actually contained, not from what was asked for, so a tenant that
+	//     silently clamps to 20 is paged at 20 and nothing is skipped; and
+	//   - a first page refused outright is retried once at
+	//     [workdayBaselinePageSize] (see workdayShouldRetrySmaller), so a picky
+	//     tenant degrades to the old behaviour instead of vanishing from the
+	//     crawl.
+	workdayPageSize = 100
+
+	// workdayBaselinePageSize is the window Workday's own careers UI uses, and
+	// therefore the only one every tenant is known to accept. It is the fallback
+	// when a tenant refuses [workdayPageSize].
+	workdayBaselinePageSize = 20
+
+	// workdayPageFetchers bounds how many page requests are in flight for one
+	// tenant at a time.
+	//
+	// Workday tenants are host-isolated: httpx.servicePolicyFor deliberately
+	// does not group *.myworkdayjobs.com into a shared bucket, so each tenant
+	// gets its own limiter key. This bound is therefore per employer, not
+	// global.
+	//
+	// It is deliberately equal to httpx's default per-service limit. The
+	// limiter, not this constant, is the politeness ceiling: a larger value here
+	// would not send more requests, it would only park more goroutines on the
+	// limiter's semaphore.
+	workdayPageFetchers = 4
+
+	// workdayMaxPages caps how many pages a single tenant may be asked for.
+	//
+	// Page offsets are derived from the "total" the tenant itself reports, so a
+	// tenant that reports an absurd total, or that ignores the offset parameter
+	// and serves page one forever, would otherwise keep the crawl busy until its
+	// deadline. At the clamped-to-20 worst case this still allows 20,000
+	// postings from one employer, comfortably above the largest tenant observed
+	// here, while bounding a misbehaving one at 1,000 requests.
+	workdayMaxPages = 1000
+)
+
 type workdayInfo struct {
-	Total       int `json:"total"`
-	JobPostings []struct {
-		Title         string   `json:"title"`
-		ExternalPath  string   `json:"externalPath"`
-		LocationsText string   `json:"locationsText"`
-		PostedOn      string   `json:"postedOn"`
-		BulletFields  []string `json:"bulletFields"`
-	} `json:"jobPostings"`
-	Facets []struct {
+	Total       int              `json:"total"`
+	JobPostings []workdayPosting `json:"jobPostings"`
+	Facets      []struct {
 		FacetParameter string `json:"facetParameter"`
 		Descriptor     string `json:"descriptor,omitempty"`
 		Values         []struct {
@@ -295,7 +352,171 @@ type workdayInfo struct {
 	UserAuthenticated bool `json:"userAuthenticated"`
 }
 
+// workdayPosting is one opening on a page of a tenant's search results.
+//
+// PostedOn and BulletFields have been decoded since this adapter was written and
+// were never read. Both need interpreting rather than copying, which is why they
+// have helpers of their own below.
+type workdayPosting struct {
+	Title         string `json:"title"`
+	ExternalPath  string `json:"externalPath"`
+	LocationsText string `json:"locationsText"`
+
+	// PostedOn is relative English prose, not a timestamp: "Posted Today",
+	// "Posted 5 Days Ago", "Posted 30+ Days Ago".
+	PostedOn string `json:"postedOn"`
+
+	// BulletFields is whatever the tenant chose to show under a posting's title,
+	// so it is a list of arbitrary strings rather than a typed record. It
+	// commonly leads with the requisition number.
+	BulletFields []string `json:"bulletFields"`
+}
+
+// unlabelledEmploymentTypes are the exact values that mean an employment type
+// when they turn up in a list of strings the board did not label.
+//
+// Two platforms here publish such a list: Workday's per-tenant "bulletFields"
+// and the unnamed cells of a Jobvite search row. Either may hold a job family, a
+// requisition number, a brand, or a time type, in a per-tenant order, so the
+// only way to read one is to recognise its contents.
+//
+// The gate is exact on purpose. [internal.NormalizeEmploymentType] deliberately
+// matches a distinctive word *inside* a value, which is how it reads "Full Time
+// Position" and "Intern (Summer 2026)" — correct when the board has told you the
+// field is an employment type, and wrong the moment it has not: an unfiltered
+// bullet would file a job family named "Contracts Management" as contract work.
+// A wrong employment type is worse than an absent one, because a filter cannot
+// tell it from a right one.
+var unlabelledEmploymentTypes = map[string]bool{
+	"full time":  true,
+	"full-time":  true,
+	"fulltime":   true,
+	"part time":  true,
+	"part-time":  true,
+	"parttime":   true,
+	"intern":     true,
+	"internship": true,
+	"temporary":  true,
+	"seasonal":   true,
+	"contract":   true,
+	"contractor": true,
+	"volunteer":  true,
+}
+
+// employmentTypeFromUnlabelled normalizes one string out of an unlabelled list,
+// reporting false unless it is recognisably an employment type on its own.
+func employmentTypeFromUnlabelled(field string) (internal.EmploymentType, bool) {
+	if !unlabelledEmploymentTypes[strings.ToLower(strings.TrimSpace(field))] {
+		return internal.EmploymentTypeUnknown, false
+	}
+
+	return internal.NormalizeEmploymentType(field)
+}
+
+// workdayEmploymentType reads a tenant's time type out of its bullet fields,
+// returning unknown when none of them is one.
+func workdayEmploymentType(bulletFields []string) internal.EmploymentType {
+	for _, field := range bulletFields {
+		if employment, ok := employmentTypeFromUnlabelled(field); ok {
+			return employment
+		}
+	}
+
+	return internal.EmploymentTypeUnknown
+}
+
+// workdayRequisitionID picks the employer's requisition number out of a
+// posting's bullet fields, returning "" when none of them looks like one.
+//
+// Workday does not label the bullets, so the value has to be recognised by
+// shape. A requisition number holds at least one letter and at least one digit
+// and no whitespace: "JR0012345", "R-00012345", "REQ-4821". That shape excludes
+// the other things tenants put in this list — a time type ("Full time") and a
+// site ("San Francisco, CA") contain spaces, a job family ("Engineering") has no
+// digit, and a bare date ("2024-01-15") has no letter. It also declines
+// all-numeric requisition numbers, which some tenants do use: leaving a field
+// empty is recoverable, filling it with a posting's headcount or its salary band
+// is not.
+func workdayRequisitionID(bulletFields []string) string {
+	for _, field := range bulletFields {
+		field = strings.TrimSpace(field)
+
+		if len(field) < 3 || len(field) > 40 || strings.ContainsFunc(field, unicode.IsSpace) {
+			continue
+		}
+
+		var hasLetter, hasDigit bool
+
+		for _, r := range field {
+			hasLetter = hasLetter || unicode.IsLetter(r)
+			hasDigit = hasDigit || unicode.IsDigit(r)
+		}
+
+		if hasLetter && hasDigit {
+			return field
+		}
+	}
+
+	return ""
+}
+
+// workdayPostedAt converts Workday's relative posting prose into an instant,
+// reporting false when the tenant said nothing that pins one down.
+//
+// Workday publishes "Posted Today", "Posted Yesterday" and "Posted 5 Days Ago"
+// rather than a date, so the only way to get a timestamp is to resolve it
+// against the clock at crawl time; now is passed in so that one crawl dates
+// every posting from a single instant, and so this is testable without a fake
+// clock.
+//
+// Two limits are deliberate. The result is truncated to the day, because that is
+// all the precision the board gave and a to-the-second value would imply more
+// than the source supports. And "Posted 30+ Days Ago" is refused outright: the
+// "+" makes it a lower bound covering everything from a month to three years,
+// and recording it as exactly thirty days would hand [internal.Filter.PostedSince]
+// a date this project made up. An absent PostedAt excludes such a posting from a
+// date filter, which is the same treatment an undisclosed salary gets from a pay
+// floor.
+func workdayPostedAt(raw string, now time.Time) (time.Time, bool) {
+	fields := strings.Fields(strings.ToLower(raw))
+
+	// Every observed value leads with "Posted", but a tenant that renders the
+	// bare phrase is still readable.
+	if len(fields) > 0 && fields[0] == "posted" {
+		fields = fields[1:]
+	}
+
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+
+	switch {
+	case len(fields) == 1 && fields[0] == "today":
+		return day, true
+	case len(fields) == 1 && fields[0] == "yesterday":
+		return day.AddDate(0, 0, -1), true
+	case len(fields) == 3 && (fields[1] == "day" || fields[1] == "days") && fields[2] == "ago":
+		if strings.HasSuffix(fields[0], "+") {
+			return time.Time{}, false
+		}
+
+		days, err := strconv.Atoi(fields[0])
+		if err != nil || days < 0 || days > 3650 {
+			return time.Time{}, false
+		}
+
+		return day.AddDate(0, 0, -days), true
+	}
+
+	return time.Time{}, false
+}
+
 // Workday returns the job postings found at a given Workday URL using the provided HTTP client.
+//
+// The first page carries the tenant's total, so every remaining page offset is
+// known immediately; they are fetched with bounded concurrency
+// ([workdayPageFetchers]) and their postings are yielded as they arrive rather
+// than in page order. Ordering within one employer was never meaningful, and
+// waiting for page N-1 before emitting page N would reintroduce the serial
+// round trips this exists to remove.
 func Workday(ctx context.Context, httpClient *http.Client, rawURL string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
 		parsedURL, err := url.Parse(rawURL)
@@ -308,64 +529,298 @@ func Workday(ctx context.Context, httpClient *http.Client, rawURL string) intern
 			host    = parsedURL.Hostname()
 			company = workdayCompanyName(rawURL)
 			cxsURL  = workdayCXSURL(host, company, parsedURL.Path)
-			offset  = 0
-			limit   = 20
 		)
 
-		for {
-			payload := fmt.Sprintf(`{"appliedFacets":{},"limit":%d,"offset":%d,"searchText":""}`, limit, offset)
+		// Cancelling this context is how a consumer that stops early, or a page
+		// that fails, tells the in-flight fetchers to wind down at once. The
+		// caller's context is kept separately so "the caller cancelled us" can
+		// be told apart from "we cancelled ourselves on the way out".
+		parentCtx := ctx
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, cxsURL, strings.NewReader(payload))
-			if err != nil {
-				yield(nil, fmt.Errorf("failed to create request for workday URL %q: %w", rawURL, err))
-				return
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json")
+		ctx, cancel := context.WithCancel(parentCtx)
+		defer cancel()
 
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				yield(nil, fmt.Errorf("failed to make request to workday URL %q: %w", rawURL, err))
-				return
-			}
-			defer resp.Body.Close()
+		// One instant for the whole tenant, taken before any page is fetched, so
+		// that a crawl of a large employer does not date its first page and its
+		// last page against clocks minutes apart. Workday publishes posting age
+		// relative to "now" rather than as a date; see [workdayPostedAt].
+		crawledAt := time.Now().UTC()
 
-			if resp.StatusCode != http.StatusOK {
-				yield(nil, fmt.Errorf("unexpected status code from workday URL %q: %s", rawURL, resp.Status))
-				return
-			}
-
-			var doc workdayInfo
-			if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
-				yield(nil, fmt.Errorf("failed to decode response from workday URL %q: %w", rawURL, err))
-				return
-			}
-
-			if doc.Total == 0 || len(doc.JobPostings) == 0 {
-				return
-			}
-
+		// emit hands one page's postings to the consumer. It reports whether
+		// iteration should continue; a false result means either the consumer
+		// asked to stop or the caller's context was cancelled, and in the latter
+		// case the error has already been yielded.
+		emit := func(doc *workdayInfo) bool {
 			for _, job := range doc.JobPostings {
-				if ctx.Err() != nil {
-					yield(nil, ctx.Err())
-					return
+				if err := parentCtx.Err(); err != nil {
+					yield(nil, err)
+
+					return false
 				}
 
-				if !yield(&internal.JobPosting{
+				posting := &internal.JobPosting{
 					Title:    job.Title,
 					URL:      fmt.Sprintf("%s%s", rawURL, job.ExternalPath),
 					Location: cmp.Or(job.LocationsText, "unknown"),
 					Company:  company,
-				}, nil) {
-					return
+
+					EmploymentType: workdayEmploymentType(job.BulletFields),
+					RequisitionID:  workdayRequisitionID(job.BulletFields),
+					Source:         internal.PostingSource{Platform: workdayPlatform, Key: rawURL},
+				}
+
+				if postedAt, ok := workdayPostedAt(job.PostedOn, crawledAt); ok {
+					posting.PostedAt = postedAt
+				}
+
+				if !yield(posting, nil) {
+					return false
 				}
 			}
 
-			if doc.Total <= offset+len(doc.JobPostings) {
+			return true
+		}
+
+		limit := workdayPageSize
+
+		first, err := workdayFetchPage(ctx, httpClient, cxsURL, rawURL, limit, 0)
+		if workdayShouldRetrySmaller(limit, first, err) {
+			limit = workdayBaselinePageSize
+			first, err = workdayFetchPage(ctx, httpClient, cxsURL, rawURL, limit, 0)
+		}
+
+		if err != nil {
+			yield(nil, err)
+
+			return
+		}
+
+		// The stride is what the tenant actually served, not what was asked for,
+		// so a tenant that clamps the page size is still paged without gaps.
+		total, step := first.Total, len(first.JobPostings)
+
+		// A tenant with nothing open, or one that answers page one with no
+		// postings at all, has no second page worth asking for.
+		if total == 0 || step == 0 {
+			return
+		}
+
+		if !emit(first) {
+			return
+		}
+
+		if total <= step {
+			return
+		}
+
+		// Bounded by workdayMaxPages, counting the page already fetched, so a
+		// tenant reporting an absurd total cannot schedule unbounded work; the
+		// capacity is bounded for the same reason.
+		offsets := make([]int, 0, min((total-1)/step, workdayMaxPages-1))
+		for offset := step; offset < total && len(offsets) < workdayMaxPages-1; offset += step {
+			offsets = append(offsets, offset)
+		}
+
+		type pageResult struct {
+			doc *workdayInfo
+			err error
+		}
+
+		var (
+			results   = make(chan pageResult)
+			sem       = make(chan struct{}, workdayPageFetchers)
+			exhausted = make(chan struct{})
+			exhaust   sync.Once
+			wg        sync.WaitGroup
+		)
+
+		// stopScheduling is called when a page comes back with no postings at
+		// all, which means the tenant's reported total overshot what it will
+		// serve; the offsets past that point would only fetch more empty pages.
+		//
+		// A short but non-empty page is deliberately not treated this way. It is
+		// indistinguishable from a tenant hiccuping mid-crawl, and acting on it
+		// would silently truncate an employer, which is precisely the class of
+		// bug this code exists to fix. Offsets already stop at the reported
+		// total, so a genuine short tail costs nothing.
+		stopScheduling := func() { exhaust.Do(func() { close(exhausted) }) }
+
+		go func() {
+			// results must not be closed until every sender has finished, or a
+			// straggling send would panic.
+			defer func() {
+				wg.Wait()
+				close(results)
+			}()
+
+			for _, offset := range offsets {
+				// Checked before the selects below because a select with two
+				// ready cases picks at random, which would let a new request
+				// start after cancellation.
+				if ctx.Err() != nil {
+					return
+				}
+
+				// Waiting for a slot is where this loop spends nearly all of its
+				// time, so the stop signals have to be selected on here too, not
+				// only polled between iterations.
+				select {
+				case sem <- struct{}{}:
+				case <-exhausted:
+					return
+				case <-ctx.Done():
+					return
+				}
+
+				// A slot may have been ready at the same moment as a stop
+				// signal, and select picks at random between ready cases.
+				select {
+				case <-exhausted:
+					<-sem
+
+					return
+				default:
+				}
+
+				wg.Add(1)
+
+				go func(offset int) {
+					defer wg.Done()
+					// The slot is held until the result has been handed over, so
+					// prefetching runs at most workdayPageFetchers pages ahead of
+					// the consumer instead of buffering a whole tenant in memory.
+					defer func() { <-sem }()
+
+					doc, err := workdayFetchPage(ctx, httpClient, cxsURL, rawURL, limit, offset)
+
+					select {
+					case results <- pageResult{doc: doc, err: err}:
+					case <-ctx.Done():
+					}
+				}(offset)
+			}
+		}()
+
+		// stop unwinds the fan-out before returning: cancel, then drain until
+		// results is closed, which only happens once every fetcher has exited.
+		// Returning without draining would leave goroutines running past the end
+		// of the iterator.
+		stop := func() {
+			cancel()
+
+			for range results {
+			}
+		}
+
+		for result := range results {
+			if result.err != nil {
+				stop()
+				yield(nil, result.err)
+
 				return
 			}
 
-			offset += limit
+			if len(result.doc.JobPostings) == 0 {
+				stopScheduling()
+
+				continue
+			}
+
+			if !emit(result.doc) {
+				stop()
+
+				return
+			}
+		}
+
+		// A tenant cut short by the caller's cancellation returned partial
+		// results. Say so, rather than let a truncated employer look complete.
+		if err := parentCtx.Err(); err != nil {
+			yield(nil, err)
 		}
 	}
+}
+
+// workdayStatusError reports a non-200 response from a tenant's cxs endpoint.
+//
+// The status code is retained, rather than only being formatted into the
+// message, so the first-page fetch can tell "this tenant refuses the page size
+// we asked for" (400/422) apart from "this tenant is gone" (404) and retry only
+// the former. The message wording is unchanged from when this was an inline
+// fmt.Errorf, so logs and health output do not shift.
+type workdayStatusError struct {
+	rawURL string
+	status string
+	code   int
+}
+
+// Error implements the error interface.
+func (e *workdayStatusError) Error() string {
+	return fmt.Sprintf("unexpected status code from workday URL %q: %s", e.rawURL, e.status)
+}
+
+// workdayShouldRetrySmaller reports whether a first-page result looks like the
+// tenant rejecting [workdayPageSize] rather than the tenant being broken.
+//
+// Two response shapes are attributable to an unwelcome page size: an outright
+// 400 or 422, and a 200 that claims postings exist but carries none. Anything
+// else, a 404, a 5xx, a transport error, a decode failure, is reported as-is;
+// re-asking with a different page size would only double the load on a tenant
+// that is already failing.
+func workdayShouldRetrySmaller(limit int, doc *workdayInfo, err error) bool {
+	if limit <= workdayBaselinePageSize {
+		return false
+	}
+
+	var statusErr *workdayStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.code == http.StatusBadRequest || statusErr.code == http.StatusUnprocessableEntity
+	}
+
+	return err == nil && doc != nil && doc.Total > 0 && len(doc.JobPostings) == 0
+}
+
+// workdayFetchPage fetches and decodes a single page of a tenant's results.
+//
+// The response body is closed on every exit path. This used to be a
+// `defer resp.Body.Close()` sitting inside the pagination loop, so every page's
+// body stayed open until the whole source function returned. httpx hands back
+// bodies wrapped in a releaseOnClose that frees the per-service concurrency slot
+// only when the body is closed, and the default limit is 4: every Workday tenant
+// therefore fetched exactly four pages (80 postings), then blocked on the
+// semaphore until the client's two-minute timeout fired. Measured across ~216
+// tenants that silently truncated every Workday employer at 80 postings and
+// burned two minutes of a worker slot per tenant doing nothing. The health
+// command never caught it because its check caps at 100 postings.
+func workdayFetchPage(ctx context.Context, httpClient *http.Client, cxsURL, rawURL string, limit, offset int) (*workdayInfo, error) {
+	payload := fmt.Sprintf(`{"appliedFacets":{},"limit":%d,"offset":%d,"searchText":""}`, limit, offset)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cxsURL, strings.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for workday URL %q: %w", rawURL, err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request to workday URL %q: %w", rawURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// Bounded drain so the connection returns to the pool rather than being
+		// torn down mid-response; a tenant's error page can be a full HTML site.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+
+		return nil, &workdayStatusError{rawURL: rawURL, status: resp.Status, code: resp.StatusCode}
+	}
+
+	var doc workdayInfo
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		return nil, fmt.Errorf("failed to decode response from workday URL %q at offset %d: %w", rawURL, offset, err)
+	}
+
+	return &doc, nil
 }

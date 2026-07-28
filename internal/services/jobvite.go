@@ -5,14 +5,32 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"golang.org/x/net/html"
 )
 
+// jobvitePlatform is the ATS family this file registers, and the value that
+// reaches [internal.PostingSource.Platform].
+const jobvitePlatform = "jobvite"
+
 func init() {
-	registerBuiltin("jobvite", multiJobsFunc(Jobvite, JobviteCompanies))
+	registerBuiltin(jobvitePlatform, multiJobsFunc(Jobvite, JobviteCompanies))
 }
+
+// jobviteMaxPages bounds how many pages a single Jobvite tenant may be asked
+// for.
+//
+// Jobvite publishes no total, and the search template answers an out-of-range
+// page with whatever it feels like, so before this the loop ended only when a
+// page happened to contain no job links. A tenant that ignores "p" paginates
+// until the crawl deadline: the same shape, measured on the sibling adapters,
+// produced 5,001 requests and 500,001 duplicate postings against a stub in under
+// a second. [pageRepeatGuard] handles the repeated-page case; this is the
+// backstop. Jobvite serves a few dozen postings per page, so 500 pages is far
+// more than any tenant in [JobviteCompanies] publishes.
+const jobviteMaxPages = 500
 
 var JobviteCompanies = []string{
 	"actionet",
@@ -125,49 +143,120 @@ func jobviteJobLink(n *html.Node, company string) (*internal.JobPosting, bool) {
 
 	title := strings.TrimSpace(n.FirstChild.Data)
 
-	// The location sits in a sibling cell of the row containing this link. The
-	// path is fragile, so every hop is checked: Jobvite serves several page
-	// templates, and an unexpected one must not panic a crawl of a thousand
-	// companies.
-	location := "unknown"
-
-	if cell := jobviteLocationNode(n); cell != nil {
-		if joined := strings.Join(strings.Fields(strings.TrimSpace(cell.Data)), " "); joined != "" {
-			location = joined
-		}
-	}
-
-	return &internal.JobPosting{
+	posting := &internal.JobPosting{
 		Company:  company,
 		URL:      "https://jobs.jobvite.com" + href,
 		Title:    title,
-		Location: location,
-	}, true
+		Location: "unknown",
+
+		ExternalID: jobviteExternalID(href),
+		Source:     internal.PostingSource{Platform: jobvitePlatform, Key: company},
+	}
+
+	cells := jobviteRowCells(n)
+
+	if len(cells) > jobviteLocationCell && cells[jobviteLocationCell] != "" {
+		posting.Location = cells[jobviteLocationCell]
+	}
+
+	// The cells between the title and the location were previously stepped over
+	// three at a time and never read, even though they were already parsed and
+	// in memory. They carry no headers, and which of them holds what varies by
+	// tenant template, so each is identified by its contents rather than by its
+	// position: a cell that is recognisably an employment type on its own, or
+	// that parses as an unambiguous date, is taken as one.
+	//
+	// Nothing is read as a department. That would have to be "whatever is left
+	// over", and a leftover cell is as likely to hold a requisition number or a
+	// brand as an org unit — a wrong department is invisible to the person
+	// filtering on it, while an empty one is not.
+	for index, cell := range cells {
+		if index == 0 || index == jobviteLocationCell || cell == "" {
+			continue
+		}
+
+		if posting.EmploymentType == internal.EmploymentTypeUnknown {
+			if employment, ok := employmentTypeFromUnlabelled(cell); ok {
+				posting.EmploymentType = employment
+
+				continue
+			}
+		}
+
+		if posting.PostedAt.IsZero() {
+			if posted, ok := jobvitePostedAt(cell); ok {
+				posting.PostedAt = posted
+			}
+		}
+	}
+
+	return posting, true
 }
 
-// jobviteLocationNode walks from a job link to the text node holding its
-// location, returning nil if the page does not have the expected shape.
-func jobviteLocationNode(n *html.Node) *html.Node {
+// jobviteLocationCell is the index, within a search row, of the cell holding the
+// posting's location.
+const jobviteLocationCell = 3
+
+// jobviteExternalID returns Jobvite's own id for a posting, taken from the
+// "/job/<id>" segment of its link, or "" if the link is not shaped that way.
+func jobviteExternalID(href string) string {
+	_, id, found := strings.Cut(href, "/job/")
+	if !found {
+		return ""
+	}
+
+	// A tenant that appends tracking parameters must not turn them into part of
+	// the identifier.
+	id, _, _ = strings.Cut(id, "?")
+	id, _, _ = strings.Cut(id, "#")
+
+	return strings.Trim(id, "/")
+}
+
+// jobviteDateLayouts are the date spellings accepted from a search row.
+//
+// Slash-separated dates are deliberately absent: 03/04 is the third of April to
+// half the world and the fourth of March to the other half, and a Jobvite row
+// carries nothing that says which a tenant means. A date a month wrong would
+// reach [internal.Filter.PostedSince] with nothing downstream able to notice.
+var jobviteDateLayouts = []string{
+	"Jan 2, 2006",
+	"January 2, 2006",
+	"2 Jan 2006",
+	"2006-01-02",
+}
+
+// jobvitePostedAt reads a row cell as a posting date, reporting false when it is
+// not one.
+func jobvitePostedAt(cell string) (time.Time, bool) {
+	for _, layout := range jobviteDateLayouts {
+		if posted, err := time.Parse(layout, cell); err == nil {
+			return posted.UTC(), true
+		}
+	}
+
+	return time.Time{}, false
+}
+
+// jobviteRowCells returns the whitespace-normalised text of every cell in the
+// table row holding a job link, or nil if the page does not have the expected
+// shape.
+//
+// Every hop is checked because the path is fragile: Jobvite serves several page
+// templates, and an unexpected one must not panic a crawl of a thousand
+// companies.
+func jobviteRowCells(n *html.Node) []string {
 	if n.Parent == nil || n.Parent.Parent == nil {
 		return nil
 	}
 
-	cur := n.Parent.Parent.FirstChild
+	var cells []string
 
-	// Skip to the fourth child of the row, where the location cell lives.
-	for range 3 {
-		if cur == nil {
-			return nil
-		}
-
-		cur = cur.NextSibling
+	for cell := n.Parent.Parent.FirstChild; cell != nil; cell = cell.NextSibling {
+		cells = append(cells, strings.Join(strings.Fields(getText(cell)), " "))
 	}
 
-	if cur == nil {
-		return nil
-	}
-
-	return cur.FirstChild
+	return cells
 }
 
 // Jobvite returns the job postings for a company hosted on Jobvite.
@@ -177,9 +266,11 @@ func jobviteLocationNode(n *html.Node) *html.Node {
 // rather than failing; see docs/source-backlog.md.
 func Jobvite(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
+		var pages pageRepeatGuard
+
 		// Jobvite's search is zero-indexed. Starting at one silently skipped the
 		// first (and often only) page, making active tenants appear empty.
-		for page := 0; ; page++ {
+		for page := range jobviteMaxPages {
 			if ctx.Err() != nil {
 				yield(nil, ctx.Err())
 
@@ -198,53 +289,52 @@ func Jobvite(ctx context.Context, httpClient *http.Client, company string) inter
 				return
 			}
 
+			// The page's postings are collected before any of them is yielded so
+			// a page that merely repeats one already served can be recognised
+			// and dropped whole. Collecting also removes the reason the walk
+			// used to carry a "stopped" flag through every level of the
+			// recursion: yield is no longer called from inside it, so there is
+			// nothing to stop calling.
 			var (
-				found   int
-				stopped bool
+				postings []*internal.JobPosting
+				walk     func(*html.Node)
 			)
 
-			// walk visits the tree, stopping the moment the consumer stops
-			// wanting postings. The stop must propagate out of every level of the
-			// recursion: returning only from the current level would keep calling
-			// yield after it returned false, which panics.
-			var walk func(*html.Node)
-
 			walk = func(n *html.Node) {
-				if stopped {
-					return
-				}
-
 				if posting, ok := jobviteJobLink(n, company); ok {
-					found++
-
-					if !yield(posting, nil) {
-						stopped = true
-
-						return
-					}
+					postings = append(postings, posting)
 				}
 
 				for c := n.FirstChild; c != nil; c = c.NextSibling {
-					if stopped {
-						return
-					}
-
 					walk(c)
 				}
 			}
 
 			walk(doc)
 
-			if stopped {
-				return
-			}
-
 			// Counted per page, not cumulatively: a cumulative count never
 			// reaches zero once any page has matched, so an empty later page
 			// would page forever.
-			if found == 0 {
+			if len(postings) == 0 {
 				return
 			}
+
+			ids := make([]string, 0, len(postings))
+			for _, posting := range postings {
+				ids = append(ids, posting.URL)
+			}
+
+			if pages.repeated(ids) {
+				return
+			}
+
+			for _, posting := range postings {
+				if !yield(posting, nil) {
+					return
+				}
+			}
 		}
+
+		yield(nil, fmt.Errorf("refusing to keep paginating Jobvite for company %q: the search was still serving job links after %d pages", company, jobviteMaxPages))
 	}
 }

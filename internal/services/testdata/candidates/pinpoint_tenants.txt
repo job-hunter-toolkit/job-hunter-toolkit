@@ -1,0 +1,158 @@
+# ============================================================================
+# CANDIDATES, NOT SOURCES. Nothing in this file is crawled.
+#
+# These 119 Pinpoint tenant slugs were recovered by a research pass in a
+# container with no outbound access to job boards, so not one of them was probed
+# by this project. docs/adding-a-source.md is explicit that a slug nobody has
+# verified must not be registered, and at this project's fan-out a dead tenant is
+# not free: it burns a request every crawl, reports as a failing source, and
+# enough of them together trip the Source Health workflow's 35%-failure alarm,
+# which is the signal that is supposed to mean a real platform broke.
+#
+# 34 slugs are registered in internal/services/pinpoint.go as
+# PinpointCompanies: 33 from this file's two hand-curated batches, plus
+# "surrealdb", whose provenance is this repository's own docs/source-backlog.md
+# rather than this file. The rest are staged here until a CI job — the only
+# place in this project with real network access — can probe them. The section
+# merged by "discovery/merge.py" carries "?" where the employer name should be;
+# none of those is registered.
+#
+# Promotion rule, gated on content and not on status code: keep a slug whose
+# https://<slug>.pinpointhq.com/postings.json answers 200 with a JSON object
+# carrying a "data" array of length above zero, and whose postings carry a
+# "title" and a "url" at the top level of each element rather than nested under
+# an "attributes" object — that nesting would mean the feed had moved to a
+# JSON:API envelope, which the adapter does not read.
+#
+# The verification claims and posting counts below are the upstream curator's,
+# dated as annotated. They are recorded as provenance, not endorsed.
+# ============================================================================
+#
+# Pinpoint (pinpointhq.com) tenant slugs -- one per line (# = comment, inline OK).
+# Public keyless JSON: https://{slug}.pinpointhq.com/postings.json -> {"data":[...]}
+# (full descriptions inline, single call, no detail march). Each is live-verified
+# (HTTP 200 + non-empty data array) before adding. SMB/scale-up segment.
+# Seed list verified 2026-06-25.
+networkplus            # Network Plus (~25)
+sunking                # Sun King (~20)
+upway                  # Upway (~20)
+infor                  # Infor (~20)
+impulsespace           # Impulse Space (~19)
+cfc                    # CFC (~18)
+trilongroup            # Trilon Group (~18)
+groupo                 # Group O (~17)
+pinnbank               # Pinnacle Bank / Bank of Colorado (~16)
+indrive                # inDrive (~16)
+ymcaboston             # YMCA of Greater Boston (~16)
+compasshealthnetwork   # Compass Health Network (~16)
+penrosehealth          # Penrose Health (~16)
+reconomy               # Reconomy (~15)
+harnham                # Harnham (~15)
+davies                 # Davies (~15)
+princesscruises        # Princess Cruises (~15)
+nccgroup               # NCC Group (~12)
+goodenergy             # Good Energy (~11)
+article                # Article (~10)
+convexin               # Convex Insurance (~10)
+nypl                   # The New York Public Library (~8)
+weoneil                # W.E. O'Neil Construction (~8)
+multiplier-careers     # Multiplier (~7)
+nodalexchange          # Nodal Exchange (~6)
+aria                   # ARIA (~6)
+btny                   # Breakthrough New York (~5)
+coforma                # Coforma (~5)
+digitalscience         # Digital Science (~4)
+scandiweb              # scandiweb (~4)
+surgohealth            # Surgo Health (~4)
+magic                  # Magic, Inc (~4)
+oneplan                # OnePlan Solutions (~4)
+safetywing             # SafetyWing (~2)
+cfra                   # CFRA Research (~1)
+jed                    # The Jed Foundation (~1)
+
+# --- expansion batch verified 2026-06-25 (+36) ---
+vgroup                 # V.Group (~409)
+kempinski              # Kempinski Hotels (~263)
+hollandamericagroup    # Holland America Group (~122)
+reimaginedcareers      # Reimagined Parking (~99)
+franklin-electric      # Franklin Electric (~86)
+skims                  # SKIMS (~81)
+navigatepower          # Navigate Power & Verde Solutions (~76)
+cottonholdings         # Cotton Holdings (~58)
+lbresearch             # Centellic (~38)
+pxlimited              # px Group (~35)
+togethergroup          # Together Group (~24)
+gig                    # Gaming Innovation Group (~24)
+shieldtp               # Shield Technology Partners (~19)
+confluence             # Confluence Technologies (~18)
+arrowglobal            # Arrow Global Group (~14)
+british-business-bank  # British Business Bank (~13)
+bathspa                # Bath Spa University (~11)
+inmusicbrands          # inMusic (~9)
+cartesian              # Cartesian (~8)
+wolfe                  # Wolfe, LLC (~7)
+groupgti               # Group GTI (~7)
+premierleague          # The Premier League (~7)
+uktv                   # UKTV (~7)
+field                  # FIELD (~7)
+chetwood-bank          # Chetwood Bank (~7)
+qac                    # Queen Alexandra Charity (~6)
+rockitmotors           # Rockit Motors (~6)
+fundapps               # FundApps (~5)
+keck                   # W. M. Keck Observatory (~4)
+cubico                 # Cubico Sustainable Investments (~4)
+encompass              # Encompass Corporation (~4)
+grasshopper            # Grasshopper Bank (~3)
+carto                  # CARTO (~2)
+londonyouth            # London Youth (~2)
+chancetoshine          # Chance to Shine (~1)
+systematica            # Systematica Investments (~1)
+# --- discovered via apply-URL harvest, merged 2026-07-03 (discovery/merge.py) ---
+tabby  # ? (57 live jobs; ~88 in our index) [discovered apply-url]
+alcumus  # ? (57 live jobs; ~61 in our index) [discovered apply-url]
+oxfordmetrics  # ? (5 live jobs; ~37 in our index) [discovered apply-url]
+wearehuman8  # ? (15 live jobs; ~35 in our index) [discovered apply-url]
+agencyanalytics  # ? (4 live jobs; ~33 in our index) [discovered apply-url]
+roofsbyaspen  # ? (91 live jobs; ~17 in our index) [discovered apply-url]
+aawdc  # ? (21 live jobs; ~17 in our index) [discovered apply-url]
+bighatbiosciences  # ? (9 live jobs; ~16 in our index) [discovered apply-url]
+savannainstitute  # ? (1 live jobs; ~15 in our index) [discovered apply-url]
+twiningsovocareers  # ? (27 live jobs; ~15 in our index) [discovered apply-url]
+dbrand  # ? (7 live jobs; ~14 in our index) [discovered apply-url]
+rwdi  # ? (24 live jobs; ~13 in our index) [discovered apply-url]
+bright  # ? (9 live jobs; ~12 in our index) [discovered apply-url]
+eptura  # ? (8 live jobs; ~12 in our index) [discovered apply-url]
+northernbedrockcorps  # ? (1 live jobs; ~11 in our index) [discovered apply-url]
+sandpiperci  # ? (7 live jobs; ~10 in our index) [discovered apply-url]
+tradingtechnologies  # ? (20 live jobs; ~10 in our index) [discovered apply-url]
+avaaz  # ? (2 live jobs; ~9 in our index) [discovered apply-url]
+workwithus  # ? (2 live jobs; ~9 in our index) [discovered apply-url]
+sjsustudentunion  # ? (8 live jobs; ~9 in our index) [discovered apply-url]
+cnps  # ? (1 live jobs; ~9 in our index) [discovered apply-url]
+nasstar  # ? (15 live jobs; ~8 in our index) [discovered apply-url]
+thorne  # ? (40 live jobs; ~8 in our index) [discovered apply-url]
+anthesisgroup  # ? (98 live jobs; ~6 in our index) [discovered apply-url]
+esss  # ? (37 live jobs; ~6 in our index) [discovered apply-url]
+mountainwarehouse  # ? (196 live jobs; ~6 in our index) [discovered apply-url]
+nmc  # ? (10 live jobs; ~6 in our index) [discovered apply-url]
+smartthings  # ? (6 live jobs; ~6 in our index) [discovered apply-url]
+c10labs  # ? (17 live jobs; ~5 in our index) [discovered apply-url]
+crcna  # ? (5 live jobs; ~5 in our index) [discovered apply-url]
+judge-priestley  # ? (6 live jobs; ~4 in our index) [discovered apply-url]
+mcbains  # ? (7 live jobs; ~4 in our index) [discovered apply-url]
+appquantum  # ? (2 live jobs; ~4 in our index) [discovered apply-url]
+stacywitbeck  # ? (26 live jobs; ~4 in our index) [discovered apply-url]
+icario  # ? (1 live jobs; ~4 in our index) [discovered apply-url]
+kharon  # ? (20 live jobs; ~3 in our index) [discovered apply-url]
+armstrongwatson  # ? (45 live jobs; ~3 in our index) [discovered apply-url]
+intandem  # ? (11 live jobs; ~3 in our index) [discovered apply-url]
+alcanzaclinical  # ? (58 live jobs; ~2 in our index) [discovered apply-url]
+intermedia  # ? (66 live jobs; ~2 in our index) [discovered apply-url]
+deister  # ? (1 live jobs; ~2 in our index) [discovered apply-url]
+innovetivepetcare  # ? (192 live jobs; ~2 in our index) [discovered apply-url]
+menzies  # ? (39 live jobs; ~2 in our index) [discovered apply-url]
+invictus-verus  # ? (9 live jobs; ~2 in our index) [discovered apply-url]
+telesolvconsulting  # ? (44 live jobs; ~2 in our index) [discovered apply-url]
+zenergi  # ? (3 live jobs; ~2 in our index) [discovered apply-url]
+# --- discovered via apply-URL harvest, merged 2026-07-11 (discovery/merge.py) ---
+thearchco  # ? (2 live jobs; ~2 in our index) [discovered apply-url]

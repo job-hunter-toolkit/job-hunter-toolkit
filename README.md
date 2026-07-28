@@ -61,7 +61,13 @@ case-insensitive substring matching against the text the board publishes.
 | `--remote` | only postings that look remote |
 | `--has-pay` | only postings that publish a pay range |
 | `--min-pay` | only postings paying at least this much per year (hourly rates are annualized) |
+| `--department` | only postings whose department or team contains any of these terms |
+| `--employment-type` | `full_time`, `part_time`, `contract`, `internship`, `temporary`, `volunteer`; board spellings like `Full-Time` are accepted |
+| `--workplace-type` | `remote`, `hybrid`, or `onsite` |
+| `--posted-since` | only postings published since a date (`2026-01-31`) or an age (`7d`, `2w`, `72h`) |
 | `--json` / `--csv` | machine-readable output |
+| `--csv-columns` | `core` (the frozen 8 columns), `extended`, or an explicit list |
+| `--csv-header` | write a header row |
 | `--stats` | print a summary to stderr when the crawl finishes |
 | `--concurrency` | how many sources to fetch at once |
 | `--timeout` | overall time budget |
@@ -228,6 +234,19 @@ one-line change rather than a new scraper.
 | Gem | |
 | Jobvite | Mid-size and large enterprises |
 | PeopleForce | Popular in Europe |
+| SAP SuccessFactors | Very large enterprises; one request returns a whole employer's openings |
+| Oracle Cloud HCM | Large enterprises, hospitals, and universities |
+| Teamtailor | Small and mid-size companies, strong in the Nordics |
+| Personio | Small and mid-size companies, strong in Europe |
+| Recruitee | Small and mid-size companies |
+| Pinpoint | Small and mid-size companies |
+
+The six platforms below PeopleForce were added from documented endpoint shapes
+rather than from boards this project has crawled, so each registers a small,
+deliberately conservative set of tenants. Several thousand further candidate
+tenants are staged, unregistered, in `internal/services/testdata/candidates/`;
+they are promoted only once a live `health` run confirms them, because a tenant
+that 404s is indistinguishable in aggregate from an adapter that never worked.
 
 A source is identified two ways: the **key** its platform uses to fetch it (a
 board slug, a Workday tenant URL, a Phenom hostname) and the readable **company
@@ -277,8 +296,14 @@ original `Retry-After` value remains in debug logs so unusually long server
 blocks are diagnosable. A source that panics is reported as a failed source
 rather than taking down the crawl.
 
-`total` exits non-zero if the crawl did not finish in its time budget, so a
-partial count can never be recorded as a real data point in `jobs_record.txt`.
+`total` fails closed: by default it exits non-zero if the crawl did not finish
+inside its time budget. `--allow-partial` opts out of that, and prints a fourth
+`partial` field on the data row instead. The Track Jobs workflow uses it, so a
+deadline snapshot *is* recorded in `jobs_record.txt` — but never as an equivalent
+measurement. It carries `partial` in the row, the workflow rejects it unless the
+posting and source counts hold up against the previous recorded day, and the
+chart draws it as an isolated diamond instead of joining the completed-crawl
+trend line. See [docs/jobs-record.md](docs/jobs-record.md).
 
 Tests are hermetic: adapter behaviour is checked against fixture responses
 served through a stub HTTP transport, so the suite needs no network and runs in

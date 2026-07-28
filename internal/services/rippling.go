@@ -11,8 +11,12 @@ import (
 	"golang.org/x/net/html"
 )
 
+// ripplingPlatform is the ATS family this file registers, and the value that
+// reaches [internal.PostingSource.Platform].
+const ripplingPlatform = "rippling"
+
 func init() {
-	registerBuiltin("rippling", multiJobsFunc(Rippling, RipplingCompanies))
+	registerBuiltin(ripplingPlatform, multiJobsFunc(Rippling, RipplingCompanies))
 }
 
 var RipplingCompanies = []string{
@@ -154,24 +158,7 @@ type RipplingJobData struct {
 				Queries []struct {
 					State struct {
 						Data struct {
-							Items []struct {
-								ID         string `json:"id"`
-								Name       string `json:"name"`
-								URL        string `json:"url"`
-								Department struct {
-									Name string `json:"name"`
-								} `json:"department"`
-								Locations []struct {
-									Name          string `json:"name"`
-									Country       string `json:"country"`
-									CountryCode   string `json:"countryCode"`
-									State         string `json:"state"`
-									StateCode     string `json:"stateCode"`
-									City          string `json:"city"`
-									WorkplaceType string `json:"workplaceType"`
-								} `json:"locations"`
-								Language string `json:"language"`
-							} `json:"items"`
+							Items []ripplingJobPost `json:"items"`
 						} `json:"data"`
 					} `json:"state"`
 					QueryKey []interface{} `json:"queryKey"`
@@ -179,6 +166,64 @@ type RipplingJobData struct {
 			} `json:"dehydratedState"`
 		} `json:"pageProps"`
 	} `json:"props"`
+}
+
+// ripplingJobPost is one opening in a board's dehydrated query state.
+//
+// Department and the per-location workplaceType have been decoded since this
+// adapter was written. The department was never read at all, and workplaceType
+// was consulted at exactly one place, to append the literal word "Remote" to a
+// location string, and only in the branch where the location had no name of its
+// own; for most postings the board's structured workplace answer was decoded and
+// then thrown away.
+type ripplingJobPost struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+	Department struct {
+		Name string `json:"name"`
+	} `json:"department"`
+	Locations []ripplingLocation `json:"locations"`
+	Language  string             `json:"language"`
+}
+
+// ripplingLocation is one site a posting is offered at.
+type ripplingLocation struct {
+	Name          string `json:"name"`
+	Country       string `json:"country"`
+	CountryCode   string `json:"countryCode"`
+	State         string `json:"state"`
+	StateCode     string `json:"stateCode"`
+	City          string `json:"city"`
+	WorkplaceType string `json:"workplaceType"`
+}
+
+// ripplingWorkplaceType returns the workplace answer a posting's locations
+// agree on, or unknown when they do not.
+//
+// Rippling attaches workplaceType per site, so a posting offered both at a
+// remote site and at an office has two different answers and no single true one.
+// Picking the first would make the value depend on the order the board happened
+// to serialise its locations in, which is the kind of coin-flip data that is
+// worse than an empty field: a `--workplace-type remote` user can see an absent
+// value, but cannot see a wrong one.
+func ripplingWorkplaceType(locations []ripplingLocation) internal.WorkplaceType {
+	resolved := internal.WorkplaceTypeUnknown
+
+	for _, location := range locations {
+		workplace, ok := internal.NormalizeWorkplaceType(location.WorkplaceType)
+		if !ok {
+			continue
+		}
+
+		if resolved != internal.WorkplaceTypeUnknown && resolved != workplace {
+			return internal.WorkplaceTypeUnknown
+		}
+
+		resolved = workplace
+	}
+
+	return resolved
 }
 
 func Rippling(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
@@ -264,12 +309,30 @@ func Rippling(ctx context.Context, httpClient *http.Client, company string) inte
 								locations = append(locations, location)
 							}
 
-							if !yield(&internal.JobPosting{
+							posting := &internal.JobPosting{
 								Company:  company,
 								URL:      job.URL,
 								Title:    job.Name,
 								Location: strings.Join(locations, "; "),
-							}, nil) {
+
+								Department:    strings.TrimSpace(job.Department.Name),
+								WorkplaceType: ripplingWorkplaceType(job.Locations),
+								ExternalID:    job.ID,
+								Source:        internal.PostingSource{Platform: ripplingPlatform, Key: company},
+							}
+
+							// Recorded only in the affirmative. "Not remote" is
+							// not the same statement as "must be in an office",
+							// and a false Remote here would switch off the
+							// location-text fallback in
+							// [internal.JobPosting.IsRemote] for every hybrid
+							// posting on the platform.
+							if posting.WorkplaceType == internal.WorkplaceTypeRemote {
+								remote := true
+								posting.Remote = &remote
+							}
+
+							if !yield(posting, nil) {
 								return
 							}
 						}

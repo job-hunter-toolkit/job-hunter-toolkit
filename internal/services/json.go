@@ -41,7 +41,7 @@ type jsonRequest struct {
 //   - the response body is closed as soon as this returns, so a paginated loop
 //     cannot accumulate open bodies for the lifetime of a crawl;
 //   - every error names both the platform and the company, without which a
-//     failure among ~1600 sources is unattributable.
+//     failure among ~2,150 sources is unattributable.
 func fetchJSON[T any](ctx context.Context, httpClient *http.Client, platform, company string, request jsonRequest) (*T, error) {
 	method := request.Method
 	if method == "" {

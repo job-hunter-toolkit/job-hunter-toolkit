@@ -4,12 +4,20 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 )
 
+// ashbyPlatform is the platform name this file registers under. It is a
+// constant because every posting now carries it in [internal.JobPosting.Source],
+// and a posting whose source platform disagreed with the registry entry that
+// produced it would break the platform+key join docs/architecture-roadmap.md
+// settles on as the stable integration ID.
+const ashbyPlatform = "ashby"
+
 func init() {
-	registerBuiltin("ashby", multiJobsFunc(AshbyHQ, AshbyHQCompanies))
+	registerBuiltin(ashbyPlatform, multiJobsFunc(AshbyHQ, AshbyHQCompanies))
 }
 
 var AshbyHQCompanies = []string{
@@ -433,14 +441,57 @@ var AshbyHQCompanies = []string{
 	"zip security",
 }
 
+// ashbyHQJobs is one page of Ashby's public job board.
+//
+// Every field below already arrives in the response the adapter has always
+// fetched; encoding/json was silently dropping all but five of them. Decoding
+// them costs zero extra requests and zero extra bytes on the wire across 418
+// Ashby sources, which is why this is the one platform where enrichment carries
+// no crawl-cost argument at all.
 type ashbyHQJobs struct {
 	Jobs []struct {
+		// ID is Ashby's own posting identifier, and outlives the URL: a board
+		// that re-slugs its titles changes jobUrl while this stays put, which is
+		// exactly the case URL-keyed [internal.Dedupe] cannot follow.
+		ID string `json:"id"`
+
 		URL      string `json:"jobUrl"`
 		Title    string `json:"title"`
 		Location string `json:"location"`
 
+		// Department and Team are both published, at different granularities:
+		// "Engineering" and "Developer Experience". [internal.Filter.Departments]
+		// searches both, so which one a company fills in does not matter.
+		Department string `json:"department"`
+		Team       string `json:"team"`
+
+		// EmploymentType is Ashby's spelling: "FullTime", "PartTime",
+		// "Intern", "Contract", "Temporary". Normalized rather than stored raw.
+		EmploymentType string `json:"employmentType"`
+
+		// WorkplaceType is "Remote", "Hybrid" or "Onsite" on the boards that set
+		// it, and absent on the rest; see [ashbyWorkplaceType] for the fallback.
+		WorkplaceType string `json:"workplaceType"`
+
+		// PublishedAt is ISO-8601 with a numeric zone and milliseconds,
+		// "2021-04-30T16:21:55.393+00:00".
+		PublishedAt string `json:"publishedAt"`
+
 		// Ashby publishes a real structured remote flag, unlike most boards.
 		IsRemote bool `json:"isRemote"`
+
+		// DescriptionPlain is the entire posting body as text. It is decoded for
+		// one purpose: [internal.ParseCompensationFromDescription] can read a pay
+		// range out of prose, and on Ashby those bytes are already downloaded, so
+		// the extraction is free. It is deliberately not kept on the posting —
+		// there is no description field in [internal.JobPosting], and 473k
+		// postings of body text would be gigabytes of stdout.
+		//
+		// The plain form is decoded rather than descriptionHtml because it is the
+		// smaller of the two identical bodies, and the structured pay-range
+		// container the markup path looks for is a Greenhouse artifact that Ashby
+		// does not render.
+		DescriptionPlain string `json:"descriptionPlain"`
 
 		// Compensation is only present when the request asks for it and the
 		// company has opted into showing pay. Measured at 268 of 349 postings for
@@ -509,18 +560,91 @@ func AshbyHQ(ctx context.Context, httpClient *http.Client, company string) inter
 			}
 			remote := job.IsRemote
 
-			if !yield(&internal.JobPosting{
-				Company:      company,
-				URL:          job.URL,
-				Title:        job.Title,
-				Location:     job.Location,
-				Remote:       &remote,
-				Compensation: ashbyCompensation(job.Compensation.Summary, job.Compensation.Tiers),
-			}, nil) {
+			comp := ashbyCompensation(job.Compensation.Summary, job.Compensation.Tiers)
+
+			// The description is already on the wire, so reading a pay range out
+			// of its prose costs nothing. MoreTrustedThan is the whole guard: a
+			// prose figure can fill an empty field but can never displace one the
+			// employer published in a structured field, and it arrives carrying
+			// [internal.ProvenanceDescription] so the two are never mistaken for
+			// each other downstream.
+			if fromDescription := internal.ParseCompensationFromDescription(job.DescriptionPlain); fromDescription.MoreTrustedThan(comp) {
+				comp = fromDescription
+			}
+
+			posting := &internal.JobPosting{
+				Company:       company,
+				URL:           job.URL,
+				Title:         job.Title,
+				Location:      job.Location,
+				Remote:        &remote,
+				Compensation:  comp,
+				Department:    strings.TrimSpace(job.Department),
+				Team:          strings.TrimSpace(job.Team),
+				WorkplaceType: ashbyWorkplaceType(job.WorkplaceType, job.IsRemote),
+				PostedAt:      ashbyPublishedAt(job.PublishedAt),
+				ExternalID:    strings.TrimSpace(job.ID),
+				Source: internal.PostingSource{
+					Platform: ashbyPlatform,
+					Key:      company,
+				},
+			}
+
+			// An unrecognised spelling leaves the field empty rather than
+			// guessing: a wrong employment type cannot be told apart from a right
+			// one by a filter, while an absent one is visibly absent.
+			if employment, ok := internal.NormalizeEmploymentType(job.EmploymentType); ok {
+				posting.EmploymentType = employment
+			}
+
+			if !yield(posting, nil) {
 				return
 			}
 		}
 	}
+}
+
+// ashbyWorkplaceType resolves where the work happens from the two fields Ashby
+// publishes, preferring the explicit workplaceType and falling back to the
+// isRemote boolean.
+//
+// The fallback is deliberately one-directional. isRemote true is the board
+// stating the role is remote, so it is evidence. isRemote false only says the
+// role is not fully remote, which leaves hybrid and onsite indistinguishable;
+// mapping it to onsite would invent an office requirement the employer never
+// stated, and [internal.WorkplaceTypeUnknown] documents that unknown is not
+// onsite for exactly this reason.
+func ashbyWorkplaceType(raw string, isRemote bool) internal.WorkplaceType {
+	if workplace, ok := internal.NormalizeWorkplaceType(raw); ok {
+		return workplace
+	}
+
+	if isRemote {
+		return internal.WorkplaceTypeRemote
+	}
+
+	return internal.WorkplaceTypeUnknown
+}
+
+// ashbyPublishedAt parses Ashby's publishedAt into UTC, returning the zero time
+// when the board published none or the value cannot be read.
+//
+// Ashby sends ISO-8601 with milliseconds and a numeric zone,
+// "2021-04-30T16:21:55.393+00:00", which [time.RFC3339] parses. A value that
+// does not parse yields the zero time rather than an error: one posting with an
+// odd timestamp must not fail a board, and [internal.Filter.PostedSince]
+// excludes undated postings anyway, so the failure mode is a posting missing
+// from a date query rather than a wrong date in it.
+func ashbyPublishedAt(raw string) time.Time {
+	published, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil {
+		return time.Time{}
+	}
+
+	// Stored in UTC so comparing an Ashby posting with a Lever one is a
+	// comparison of instants rather than of the zones two boards happened to
+	// render in.
+	return published.UTC()
 }
 
 // ashbyCompensation extracts the base-salary range from Ashby's compensation

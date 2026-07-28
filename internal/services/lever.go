@@ -3,17 +3,33 @@ package services
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 )
 
+// leverPlatform is the platform name this file registers under, shared with the
+// [internal.PostingSource] every posting carries so the two cannot drift apart.
+const leverPlatform = "lever"
+
 func init() {
-	registerBuiltin("lever", multiJobsFunc(Lever, LeverCompanies))
+	registerBuiltin(leverPlatform, multiJobsFunc(Lever, LeverCompanies))
 }
+
+// leverMaxPages bounds how many pages a single Lever tenant may be asked for.
+//
+// Lever publishes no total, so [pageRepeatGuard] is the primary stop for a board
+// that ignores "skip"; this is the backstop for the case a fingerprint cannot
+// see, a board that keeps serving *different* full pages forever. At 100
+// postings per page it allows 50,000 postings from one company, an order of
+// magnitude above the largest Lever board observed, so reaching it means
+// something is wrong and the adapter says so rather than crawling on.
+const leverMaxPages = 500
 
 var LeverCompanies = []string{
 	"15five",
@@ -179,24 +195,59 @@ var LeverCompanies = []string{
 	"zoox",
 }
 
+// leverJobs is one page of a Lever tenant's public postings.
+//
+// Most of these fields used to sit here commented out, which is a record that
+// somebody saw them in a real response and chose not to decode them. They ride
+// in the same `?mode=json&limit=100&skip=N` page the adapter already downloads,
+// so decoding them adds no request and no byte to a crawl of 161 Lever sources.
+//
+// Two documented fields are still not decoded, on purpose. `lists` (the bulleted
+// sections of the body) and `country` have nowhere to go: [internal.JobPosting]
+// has no country field, and the lists array would multiply this struct's
+// per-page allocation for a body the posting does not keep.
 type leverJobs []struct {
-	//AdditionalPlain string `json:"additionalPlain"`
-	//Additional      string `json:"additional"`
+	// AdditionalPlain is the closing block of the posting body, which is where
+	// Lever boards conventionally put the pay-transparency paragraph, so it is
+	// scanned for a pay range alongside the opening body.
+	AdditionalPlain string `json:"additionalPlain"`
+
 	Categories struct {
-		//Commitment string `json:"commitment"`
-		//Department string `json:"department"`
-		//Level      string `json:"level"`
+		// Commitment is Lever's employment type, spelled "Fulltime",
+		// "Full-time", "Part-time", "Contract", "Intern" or "unspecified"
+		// depending on the tenant. Normalized rather than stored raw.
+		Commitment string `json:"commitment"`
+
+		// Department is the coarse org unit and Team the finer one inside it,
+		// which is the split [internal.JobPosting.Department] documents.
+		Department string `json:"department"`
+		Team       string `json:"team"`
+
+		// Level is the board's own ladder label, "Senior" or "L5". It lands in
+		// the free-string Seniority field rather than an enum, because levelling
+		// is a per-employer ladder.
+		Level string `json:"level"`
+
 		Location string `json:"location"`
-		//Team       string `json:"team"`
 	} `json:"categories"`
-	//CreatedAt        int64  `json:"createdAt"`
-	//DescriptionPlain string `json:"descriptionPlain"`
-	//Description      string `json:"description"`
-	//ID               string `json:"id"`
-	//Lists            []struct {
-	//	Text    string `json:"text"`
-	//	Content string `json:"content"`
-	//} `json:"lists"`
+
+	// CreatedAt is epoch milliseconds, not seconds and not a string.
+	CreatedAt int64 `json:"createdAt"`
+
+	// DescriptionPlain is the opening block of the posting body as text. As on
+	// Ashby it is decoded only to run pay extraction over prose that is already
+	// on the wire, and is not kept on the posting.
+	DescriptionPlain string `json:"descriptionPlain"`
+
+	// ID is Lever's posting identifier, a UUID that survives the title changes
+	// that move hostedUrl.
+	ID string `json:"id"`
+
+	// WorkplaceType is Lever's structured answer: "unspecified", "on-site",
+	// "remote" or "hybrid". "unspecified" is deliberately left unrecognised by
+	// [internal.NormalizeWorkplaceType].
+	WorkplaceType string `json:"workplaceType"`
+
 	Text      string `json:"text"`
 	HostedURL string `json:"hostedUrl"`
 
@@ -209,7 +260,6 @@ type leverJobs []struct {
 		Currency string  `json:"currency"`
 		Interval string  `json:"interval"`
 	} `json:"salaryRange"`
-	//ApplyURL   string `json:"applyUrl"`
 }
 
 // leverPage fetches a single page of Lever postings. It exists so the response
@@ -241,9 +291,12 @@ func Lever(ctx context.Context, httpClient *http.Client, company string) interna
 	return func(yield func(*internal.JobPosting, error) bool) {
 		const limit = 100
 
-		skip := 0
+		var (
+			pages pageRepeatGuard
+			skip  int
+		)
 
-		for {
+		for range leverMaxPages {
 			doc, err := leverPage(ctx, httpClient, company, limit, skip)
 			if err != nil {
 				yield(nil, err)
@@ -251,7 +304,19 @@ func Lever(ctx context.Context, httpClient *http.Client, company string) interna
 			}
 
 			if len(doc) == 0 {
-				break
+				return
+			}
+
+			ids := make([]string, 0, len(doc))
+			for _, item := range doc {
+				ids = append(ids, item.HostedURL)
+			}
+
+			// Checked before anything is yielded, so a board that ignores "skip"
+			// costs one wasted request rather than an endless stream of
+			// duplicates.
+			if pages.repeated(ids) {
+				return
 			}
 
 			for _, item := range doc {
@@ -266,23 +331,105 @@ func Lever(ctx context.Context, httpClient *http.Client, company string) interna
 					locationStr = cmp.Or(strings.TrimSpace(item.Categories.Location), "unknown/remote")
 				)
 
-				if !yield(&internal.JobPosting{
+				comp := leverCompensation(item.SalaryRange)
+
+				// salaryRange is a real structured field but sparsely filled, and
+				// the body it would have been written in is already downloaded.
+				// MoreTrustedThan keeps the two apart: prose fills an empty field
+				// and never overwrites the employer's own numbers, and carries
+				// [internal.ProvenanceDescription] when it does.
+				if fromDescription := internal.ParseCompensationFromDescription(leverDescription(item.DescriptionPlain, item.AdditionalPlain)); fromDescription.MoreTrustedThan(comp) {
+					comp = fromDescription
+				}
+
+				posting := &internal.JobPosting{
 					Company:      company,
 					URL:          url,
 					Title:        titleStr,
 					Location:     locationStr,
-					Compensation: leverCompensation(item.SalaryRange),
-				}, nil) {
+					Compensation: comp,
+					Department:   strings.TrimSpace(item.Categories.Department),
+					Team:         strings.TrimSpace(item.Categories.Team),
+					Seniority:    strings.TrimSpace(item.Categories.Level),
+					PostedAt:     leverCreatedAt(item.CreatedAt),
+					ExternalID:   strings.TrimSpace(item.ID),
+					Source: internal.PostingSource{
+						Platform: leverPlatform,
+						Key:      company,
+					},
+				}
+
+				if employment, ok := internal.NormalizeEmploymentType(item.Categories.Commitment); ok {
+					posting.EmploymentType = employment
+				}
+
+				// When Lever states a workplace type it also settles the remote
+				// question, and the board's own answer beats
+				// [internal.JobPosting.IsRemote] guessing from location text.
+				// This does change `--remote` for Lever: a posting the board
+				// marks on-site or hybrid no longer matches on the strength of
+				// the word "Remote" appearing in its location. That is the point
+				// — hybrid is not remote, and "unspecified" still leaves the flag
+				// nil so the heuristic keeps working where the board says nothing.
+				if workplace, ok := internal.NormalizeWorkplaceType(item.WorkplaceType); ok {
+					remote := workplace == internal.WorkplaceTypeRemote
+
+					posting.WorkplaceType = workplace
+					posting.Remote = &remote
+				}
+
+				if !yield(posting, nil) {
 					return
 				}
 			}
 
 			if len(doc) < limit {
-				break
+				return
 			}
 
 			skip += limit
 		}
+
+		yield(nil, fmt.Errorf("refusing to keep paginating Lever for company %q: the board was still serving full pages after %d pages of %d", company, leverMaxPages, limit))
+	}
+}
+
+// leverCreatedAt converts Lever's createdAt into UTC, returning the zero time
+// when the board published none.
+//
+// Lever publishes epoch *milliseconds*. Reading them as seconds would date a
+// posting created on 2026-01-01 to the year 57971 and quietly satisfy every
+// [internal.Filter.PostedSince] query ever asked, which is worse than having no
+// date at all: a wrong date is indistinguishable from a right one downstream.
+// A non-positive value means the field was absent, and stays the zero time.
+func leverCreatedAt(epochMillis int64) time.Time {
+	if epochMillis <= 0 {
+		return time.Time{}
+	}
+
+	return time.UnixMilli(epochMillis).UTC()
+}
+
+// leverDescription joins the two body blocks Lever publishes as plain text, for
+// pay extraction only.
+//
+// Both are scanned because Lever splits a posting in half: descriptionPlain is
+// the opening pitch and additionalPlain the closing block, and the
+// pay-transparency paragraph is conventionally in the latter. The blank line
+// between them keeps a sentence from one block running into the other, which
+// matters because the extractor reads a fixed window of characters before a
+// money figure to decide whether it is pay.
+func leverDescription(description, additional string) string {
+	description = strings.TrimSpace(description)
+	additional = strings.TrimSpace(additional)
+
+	switch {
+	case description == "":
+		return additional
+	case additional == "":
+		return description
+	default:
+		return description + "\n\n" + additional
 	}
 }
 

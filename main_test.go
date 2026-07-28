@@ -14,9 +14,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/services"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 func TestPostingPrinterText(t *testing.T) {
@@ -24,7 +27,7 @@ func TestPostingPrinterText(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	print, flush, err := newPostingPrinter(&buf, false, false)
+	print, flush, err := newPostingPrinter(&buf, postingOutput{})
 	if err != nil {
 		t.Fatalf("newPostingPrinter() error = %v", err)
 	}
@@ -58,7 +61,7 @@ func TestPostingPrinterJSON(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	print, flush, err := newPostingPrinter(&buf, true, false)
+	print, flush, err := newPostingPrinter(&buf, postingOutput{asJSON: true})
 	if err != nil {
 		t.Fatalf("newPostingPrinter() error = %v", err)
 	}
@@ -104,7 +107,7 @@ func TestPostingPrinterCSV(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	print, flush, err := newPostingPrinter(&buf, false, true)
+	print, flush, err := newPostingPrinter(&buf, postingOutput{asCSV: true})
 	if err != nil {
 		t.Fatalf("newPostingPrinter() error = %v", err)
 	}
@@ -552,7 +555,7 @@ func TestPostingPrinterCSVIncludesPayColumns(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	print, flush, err := newPostingPrinter(&buf, false, true)
+	print, flush, err := newPostingPrinter(&buf, postingOutput{asCSV: true})
 	if err != nil {
 		t.Fatalf("newPostingPrinter() error = %v", err)
 	}
@@ -720,5 +723,410 @@ func TestPostingFilterDropsCompanyConstraint(t *testing.T) {
 
 	if original.Match(posting) {
 		t.Error("test premise is wrong: the original filter should reject this posting")
+	}
+}
+
+// enrichedPosting is a posting carrying every schema field, used to prove the
+// default output formats ignore all of them.
+func enrichedPosting() *internal.JobPosting {
+	posted := time.Date(2026, 6, 1, 9, 30, 0, 0, time.UTC)
+
+	return &internal.JobPosting{
+		Company:        "harvey",
+		Title:          "Staff Engineer",
+		Location:       "San Francisco",
+		URL:            "https://example.test/1",
+		Compensation:   &internal.Compensation{Min: 236000, Max: 290000, Currency: "USD", Period: internal.PeriodYear},
+		Department:     "Engineering",
+		Team:           "Platform",
+		EmploymentType: internal.EmploymentTypeFullTime,
+		WorkplaceType:  internal.WorkplaceTypeHybrid,
+		Seniority:      "Staff",
+		PostedAt:       posted,
+		UpdatedAt:      posted.Add(48 * time.Hour),
+		RequisitionID:  "JR0012345",
+		ExternalID:     "4019283",
+		Source:         internal.PostingSource{Platform: "greenhouse", Key: "harveyai"},
+	}
+}
+
+func TestPostingPrinterCSVDefaultIgnoresEnrichment(t *testing.T) {
+	t.Parallel()
+
+	// The default CSV is a committed contract: eight columns, no header. Someone
+	// piping it into cut(1) or a spreadsheet import must see the same bytes after
+	// the schema grew as before, so this is asserted as bytes rather than as a
+	// column count.
+	var buf bytes.Buffer
+
+	print, flush, err := newPostingPrinter(&buf, postingOutput{asCSV: true})
+	must.NoError(t, err)
+	must.NoError(t, print(enrichedPosting()))
+	must.NoError(t, flush())
+
+	const want = "harvey,Staff Engineer,San Francisco,https://example.test/1,236000,290000,USD,year\n"
+
+	must.Eq(t, want, buf.String(), must.Sprint("the headerless 8-column CSV contract changed"))
+}
+
+func TestPostingPrinterCSVExtendedColumns(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	columns, err := resolveCSVColumns(csvColumnsExtended)
+	must.NoError(t, err)
+
+	output := postingOutput{asCSV: true, csvColumns: columns, csvHeader: true}
+
+	print, flush, err := newPostingPrinter(&buf, output)
+	must.NoError(t, err)
+	must.NoError(t, print(enrichedPosting()))
+	must.NoError(t, flush())
+
+	records, err := csv.NewReader(&buf).ReadAll()
+	must.NoError(t, err)
+	must.Len(t, 2, records, must.Sprint("want a header row and one posting"))
+
+	header, row := records[0], records[1]
+
+	// The core eight keep their names, their order, and their position, so an
+	// extended file can be read by anything that reads the default one, once the
+	// header is skipped.
+	must.Eq(t, csvCoreColumnNames, header[:len(csvCoreColumnNames)])
+	must.Eq(t, csvExtendedColumnNames, header)
+
+	byName := map[string]string{}
+	for i, name := range header {
+		byName[name] = row[i]
+	}
+
+	for name, want := range map[string]string{
+		"company":         "harvey",
+		"department":      "Engineering",
+		"team":            "Platform",
+		"employment_type": "full_time",
+		"workplace_type":  "hybrid",
+		"seniority":       "Staff",
+		"posted_at":       "2026-06-01T09:30:00Z",
+		"updated_at":      "2026-06-03T09:30:00Z",
+		"requisition_id":  "JR0012345",
+		"external_id":     "4019283",
+		"source_platform": "greenhouse",
+		"source_key":      "harveyai",
+	} {
+		test.Eq(t, want, byName[name], test.Sprintf("column %q", name))
+	}
+}
+
+func TestPostingPrinterCSVEmptyEnrichmentCellsStayEmpty(t *testing.T) {
+	t.Parallel()
+
+	// A board that publishes nothing must produce empty cells, never a
+	// placeholder: an empty cell reads as absent everywhere, while "unknown" or
+	// a zero timestamp is data that was never collected.
+	columns, err := resolveCSVColumns(csvColumnsExtended)
+	must.NoError(t, err)
+
+	var buf bytes.Buffer
+
+	print, flush, err := newPostingPrinter(&buf, postingOutput{asCSV: true, csvColumns: columns})
+	must.NoError(t, err)
+	must.NoError(t, print(&internal.JobPosting{Company: "acme", Title: "Cook", URL: "https://example.test/2"}))
+	must.NoError(t, flush())
+
+	records, err := csv.NewReader(&buf).ReadAll()
+	must.NoError(t, err)
+	must.Len(t, 1, records)
+
+	for i, cell := range records[0][len(csvCoreColumnNames):] {
+		test.Eq(t, "", cell, test.Sprintf("enrichment column %q", csvExtendedColumnNames[len(csvCoreColumnNames)+i]))
+	}
+}
+
+func TestResolveCSVColumns(t *testing.T) {
+	t.Parallel()
+
+	core, err := resolveCSVColumns(csvColumnsCore)
+	must.NoError(t, err)
+	must.Len(t, 8, core, must.Sprint("the core column set must stay at exactly 8 columns"))
+
+	empty, err := resolveCSVColumns("")
+	must.NoError(t, err)
+	must.Len(t, 8, empty, must.Sprint("an unset --csv-columns means the core set"))
+
+	explicit, err := resolveCSVColumns("url, title ,posted_at")
+	must.NoError(t, err)
+	must.Len(t, 3, explicit)
+
+	// An explicit list is emitted in the order given, not in schema order.
+	names := make([]string, len(explicit))
+	for i, column := range explicit {
+		names[i] = column.name
+	}
+
+	must.Eq(t, []string{"url", "title", "posted_at"}, names)
+
+	// A misspelled column must fail loudly, listing what is available. Silently
+	// dropping it would produce a file whose shape depends on a typo.
+	_, err = resolveCSVColumns("company,depatment")
+	must.Error(t, err)
+	must.StrContains(t, err.Error(), "depatment")
+	must.StrContains(t, err.Error(), "department")
+
+	_, err = resolveCSVColumns(",")
+	must.Error(t, err)
+}
+
+func TestResolvePostingOutputHeaderDefaults(t *testing.T) {
+	t.Parallel()
+
+	// The default set stays headerless forever; asking for any other set turns
+	// the header on, because an unfamiliar column set is unusable unnamed.
+	cmd := newPostingsCommand()
+	must.NoError(t, cmd.ParseFlags([]string{"--csv"}))
+
+	output, err := resolvePostingOutput(cmd, false, true, csvColumnsCore, false)
+	must.NoError(t, err)
+	must.False(t, output.csvHeader)
+	must.Len(t, 8, output.csvColumns)
+
+	cmd = newPostingsCommand()
+	must.NoError(t, cmd.ParseFlags([]string{"--csv", "--csv-columns", "extended"}))
+
+	output, err = resolvePostingOutput(cmd, false, true, csvColumnsExtended, false)
+	must.NoError(t, err)
+	must.True(t, output.csvHeader, must.Sprint("an opt-in column set should name its columns"))
+
+	// An explicit --csv-header=false still wins: appending to an existing file
+	// has to remain possible.
+	cmd = newPostingsCommand()
+	must.NoError(t, cmd.ParseFlags([]string{"--csv", "--csv-columns", "extended", "--csv-header=false"}))
+
+	output, err = resolvePostingOutput(cmd, false, true, csvColumnsExtended, false)
+	must.NoError(t, err)
+	must.False(t, output.csvHeader)
+}
+
+func TestResolvePostingOutputRejectsCSVFlagsWithoutCSV(t *testing.T) {
+	t.Parallel()
+
+	// Accepting a flag and ignoring it is how someone ends up wondering where
+	// their columns went.
+	cmd := newPostingsCommand()
+	must.NoError(t, cmd.ParseFlags([]string{"--json", "--csv-columns", "extended"}))
+
+	_, err := resolvePostingOutput(cmd, true, false, csvColumnsExtended, false)
+	must.Error(t, err)
+	must.StrContains(t, err.Error(), "--csv")
+}
+
+func TestPostingPrinterTextAddsOnlyUsefulDetail(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		posting *internal.JobPosting
+		want    string
+	}{
+		{
+			// The pre-enrichment format, byte for byte. Until adapters populate
+			// the new fields, nothing about this output changes.
+			name:    "no enrichment",
+			posting: &internal.JobPosting{Company: "acme", Title: "Cook", Location: "Paris", URL: "https://example.test/1"},
+			want:    "company: acme title: Cook location: Paris url: https://example.test/1\n",
+		},
+		{
+			// Full-time is the assumption a reader already has, and the location
+			// already says hybrid, so both segments stay out of the way.
+			name: "full time restates nothing",
+			posting: &internal.JobPosting{
+				Company: "acme", Title: "Cook", Location: "Hybrid - Paris", URL: "https://example.test/1",
+				EmploymentType: internal.EmploymentTypeFullTime,
+				WorkplaceType:  internal.WorkplaceTypeHybrid,
+			},
+			want: "company: acme title: Cook location: Hybrid - Paris url: https://example.test/1\n",
+		},
+		{
+			name: "workplace type the location does not mention",
+			posting: &internal.JobPosting{
+				Company: "acme", Title: "Cook", Location: "Paris", URL: "https://example.test/1",
+				WorkplaceType: internal.WorkplaceTypeRemote,
+			},
+			want: "company: acme title: Cook location: Paris workplace: remote url: https://example.test/1\n",
+		},
+		{
+			name: "onsite is the assumption, so it is not printed",
+			posting: &internal.JobPosting{
+				Company: "acme", Title: "Cook", Location: "Paris", URL: "https://example.test/1",
+				WorkplaceType: internal.WorkplaceTypeOnsite,
+			},
+			want: "company: acme title: Cook location: Paris url: https://example.test/1\n",
+		},
+		{
+			name: "an internship is worth knowing before clicking",
+			posting: &internal.JobPosting{
+				Company: "acme", Title: "Cook", Location: "Paris", URL: "https://example.test/1",
+				EmploymentType: internal.EmploymentTypeInternship,
+				PostedAt:       time.Date(2026, 6, 1, 9, 30, 0, 0, time.UTC),
+			},
+			want: "company: acme title: Cook location: Paris type: internship posted: 2026-06-01 url: https://example.test/1\n",
+		},
+		{
+			name:    "pay keeps its place among the new segments",
+			posting: enrichedPosting(),
+			want: "company: harvey title: Staff Engineer location: San Francisco workplace: hybrid " +
+				"pay: USD 236000-290000/year posted: 2026-06-01 url: https://example.test/1\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+
+			print, flush, err := newPostingPrinter(&buf, postingOutput{})
+			must.NoError(t, err)
+			must.NoError(t, print(tt.posting))
+			must.NoError(t, flush())
+
+			must.Eq(t, tt.want, buf.String())
+
+			// One posting stays one line: this output is what people grep.
+			must.Eq(t, 1, strings.Count(buf.String(), "\n"))
+		})
+	}
+}
+
+func TestParsePostedSince(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		value string
+		want  time.Time
+	}{
+		{name: "unset", value: "", want: time.Time{}},
+		{name: "date", value: "2026-01-31", want: time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)},
+		{
+			name:  "rfc 3339",
+			value: "2026-01-31T08:15:00Z",
+			want:  time.Date(2026, 1, 31, 8, 15, 0, 0, time.UTC),
+		},
+		{
+			// An offset timestamp is converted, not rejected: the comparison is
+			// between instants.
+			name:  "rfc 3339 with an offset",
+			value: "2026-01-31T08:15:00+02:00",
+			want:  time.Date(2026, 1, 31, 6, 15, 0, 0, time.UTC),
+		},
+		{name: "days", value: "7d", want: now.Add(-7 * 24 * time.Hour)},
+		{name: "weeks", value: "2w", want: now.Add(-14 * 24 * time.Hour)},
+		{name: "go duration", value: "72h", want: now.Add(-72 * time.Hour)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parsePostedSince(tt.value, now)
+			must.NoError(t, err)
+			must.True(t, got.Equal(tt.want), must.Sprintf("parsePostedSince(%q) = %s, want %s", tt.value, got, tt.want))
+		})
+	}
+
+	for _, invalid := range []string{"last tuesday", "7 days", "0d", "-3d", "2026-13-45"} {
+		_, err := parsePostedSince(invalid, now)
+		test.Error(t, err, test.Sprintf("parsePostedSince(%q) should be rejected", invalid))
+	}
+}
+
+func TestParseVocabularyFlags(t *testing.T) {
+	t.Parallel()
+
+	// The flags accept board spellings as well as canonical ones, because a user
+	// who saw "FullTime" in JSON output should be able to type it back.
+	types, err := parseEmploymentTypes([]string{"full-time", "Intern", "contract"})
+	must.NoError(t, err)
+	must.Eq(t, []internal.EmploymentType{
+		internal.EmploymentTypeFullTime,
+		internal.EmploymentTypeInternship,
+		internal.EmploymentTypeContract,
+	}, types)
+
+	places, err := parseWorkplaceTypes([]string{"on-site", "REMOTE"})
+	must.NoError(t, err)
+	must.Eq(t, []internal.WorkplaceType{internal.WorkplaceTypeOnsite, internal.WorkplaceTypeRemote}, places)
+
+	// An unknown value is rejected at parse time. Passing it through would filter
+	// a 1,900-source crawl down to nothing, which reads as "nobody is hiring"
+	// rather than "that is not a category".
+	_, err = parseEmploymentTypes([]string{"salaried"})
+	must.Error(t, err)
+	must.StrContains(t, err.Error(), "full_time")
+
+	_, err = parseWorkplaceTypes([]string{"flexible"})
+	must.Error(t, err)
+	must.StrContains(t, err.Error(), "onsite")
+
+	// A blank entry is no constraint, matching how blank --title terms behave.
+	types, err = parseEmploymentTypes([]string{"", "  "})
+	must.NoError(t, err)
+	must.Nil(t, types)
+}
+
+func TestPostingsCommandRejectsBadFilterValues(t *testing.T) {
+	t.Parallel()
+
+	// End-to-end wiring: these must fail before any crawl starts, which is also
+	// what keeps this test hermetic.
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "employment type",
+			args: []string{"postings", "--employment-type", "salaried"},
+			want: "invalid --employment-type",
+		},
+		{
+			name: "workplace type",
+			args: []string{"postings", "--workplace-type", "flexible"},
+			want: "invalid --workplace-type",
+		},
+		{
+			name: "posted since",
+			args: []string{"postings", "--posted-since", "last tuesday"},
+			want: "invalid --posted-since",
+		},
+		{
+			name: "csv column",
+			args: []string{"postings", "--csv", "--csv-columns", "salary"},
+			want: "unknown --csv-columns entry",
+		},
+		{
+			name: "csv columns without csv",
+			args: []string{"postings", "--csv-columns", "extended"},
+			want: "--csv output only",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := newRootCommand()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(tt.args)
+
+			err := cmd.ExecuteContext(t.Context())
+			must.Error(t, err)
+			must.StrContains(t, err.Error(), tt.want)
+		})
 	}
 }

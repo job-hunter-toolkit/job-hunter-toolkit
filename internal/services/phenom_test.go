@@ -6,6 +6,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 // phenomFixturePage wraps job entries in the HTML shell a Phenom search-results
@@ -71,6 +76,85 @@ func TestPhenomParsesPostings(t *testing.T) {
 	}
 }
 
+// TestPhenomReadsTheRestOfTheEmbeddedPayload covers the fields that ride in the
+// same embedded search blob the adapter already downloads and parses. Reading
+// them costs no request, no byte and no new host.
+func TestPhenomReadsTheRestOfTheEmbeddedPayload(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"acme.example.com": phenomFixturePage(strings.Join([]string{
+			`{"title":"Security Engineer","cityState":"Dallas, TX","jobId":"R12345",
+			  "applyUrl":"https://acme.example.com/apply/1",
+			  "postedDate":"2026-06-01","type":"Full Time","category":"Information Technology"}`,
+			`{"title":"Summer Analyst","cityState":"Dallas, TX","jobId":"R12346",
+			  "applyUrl":"https://acme.example.com/apply/2",
+			  "postedDate":"2026-05-15T08:00:00Z","type":"Internship","category":"Finance"}`,
+			`{"title":"Contracts Manager","cityState":"Dallas, TX","jobId":"R12347",
+			  "applyUrl":"https://acme.example.com/apply/3",
+			  "postedDate":"June 1st","type":"Regular","category":"Legal"}`,
+		}, ",")),
+	})
+
+	postings, errs := drain(Phenom(t.Context(), client, "acme.example.com"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 3, postings)
+
+	test.Eq(t, "Information Technology", postings[0].Department)
+	test.Eq(t, internal.EmploymentTypeFullTime, postings[0].EmploymentType)
+	test.Eq(t, time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC), postings[0].PostedAt)
+	test.Eq(t, "R12345", postings[0].ExternalID)
+	test.Eq(t, internal.PostingSource{Platform: phenomPlatform, Key: "acme.example.com"}, postings[0].Source)
+
+	test.Eq(t, internal.EmploymentTypeInternship, postings[1].EmploymentType)
+	test.Eq(t, time.Date(2026, time.May, 15, 8, 0, 0, 0, time.UTC), postings[1].PostedAt)
+
+	// An unreadable date and a tenure word are both left empty rather than
+	// guessed at. "Regular" says nothing about hours, and a date this project
+	// invented would reach Filter.PostedSince with nobody able to notice.
+	test.True(t, postings[2].PostedAt.IsZero())
+	test.Eq(t, internal.EmploymentTypeUnknown, postings[2].EmploymentType)
+	test.Eq(t, "Legal", postings[2].Department)
+}
+
+// TestPhenomSurvivesUnexpectedFieldShapes is the guard on the risk this
+// enrichment takes.
+//
+// No live Phenom body has ever been decoded here, so postedDate, type and
+// category are documented rather than observed. A wrong field *name* costs an
+// empty column; a wrong field *type* fails the page decode, which is the whole
+// tenant. Modelling them as `any` is what makes the second outcome impossible —
+// the same failure that took out nine large Jibe employers when "meta_data"
+// turned out to be a bare `false`.
+func TestPhenomSurvivesUnexpectedFieldShapes(t *testing.T) {
+	t.Parallel()
+
+	client, _ := fixtureClient(map[string]string{
+		"acme.example.com": phenomFixturePage(
+			`{"title":"Security Engineer","cityState":"Dallas, TX","jobId":"R1",
+			  "applyUrl":"https://acme.example.com/apply/1",
+			  "postedDate":1780000000,"type":{"label":"Full Time"},
+			  "category":["Information Technology","Security"]}`,
+		),
+	})
+
+	postings, errs := drain(Phenom(t.Context(), client, "acme.example.com"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	test.Eq(t, "Security Engineer", postings[0].Title)
+
+	// A list where a string was expected: the first element is what the
+	// single-valued form of the same field means.
+	test.Eq(t, "Information Technology", postings[0].Department)
+
+	// Shapes with nothing readable in them leave the field empty.
+	test.Eq(t, internal.EmploymentTypeUnknown, postings[0].EmploymentType)
+	test.True(t, postings[0].PostedAt.IsZero())
+}
+
 func TestPhenomPaginatesUntilAShortPage(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +183,84 @@ func TestPhenomPaginatesUntilAShortPage(t *testing.T) {
 	if len(transport.requests) != 2 {
 		t.Errorf("made %d requests, want 2 (a full page keeps paging)", len(transport.requests))
 	}
+}
+
+// TestPhenomStopsWhenTheSiteIgnoresFrom is a regression test.
+//
+// This adapter re-requests the *same* server-rendered search-results page with a
+// different "from", which makes it the likeliest platform here to meet a tenant
+// whose SSR ignores the offset and serves identical jobs forever. Termination
+// used to be decided solely by page size, so such a tenant was crawled until the
+// crawl deadline: measured at 5,001 requests and 500,001 duplicate postings
+// against a stub like this one in 0.9 seconds.
+func TestPhenomStopsWhenTheSiteIgnoresFrom(t *testing.T) {
+	t.Parallel()
+
+	fullPage := make([]string, phenomPageSize)
+	for i := range fullPage {
+		fullPage[i] = fmt.Sprintf(`{"title":"Job %d","jobId":"%d","applyUrl":"https://acme.example.com/apply/%d"}`, i, i, i)
+	}
+
+	client, transport := repeatingPageClient(phenomFixturePage(strings.Join(fullPage, ",")))
+
+	postings, errs := drain(Phenom(t.Context(), client, "acme.example.com"))
+
+	must.SliceEmpty(t, errs)
+
+	// The first page is served; the second is recognised as a repeat of it and
+	// ends the loop before any of its duplicates are yielded.
+	test.Eq(t, 2, transport.requests)
+	test.Len(t, phenomPageSize, postings)
+}
+
+// TestPhenomStopsWhenTheSiteIgnoresFromWithoutApplyURLs covers the same tenant
+// behaviour on a board that handles applications on the Phenom site itself.
+// Those postings carry no applyUrl at all, so a page fingerprint taken from
+// apply URLs alone would be an empty list on every page and could not tell two
+// pages apart.
+func TestPhenomStopsWhenTheSiteIgnoresFromWithoutApplyURLs(t *testing.T) {
+	t.Parallel()
+
+	fullPage := make([]string, phenomPageSize)
+	for i := range fullPage {
+		fullPage[i] = fmt.Sprintf(`{"title":"Job %d","jobId":"%d","applyUrl":""}`, i, i)
+	}
+
+	client, transport := repeatingPageClient(phenomFixturePage(strings.Join(fullPage, ",")))
+
+	postings, errs := drain(Phenom(t.Context(), client, "acme.example.com"))
+
+	must.SliceEmpty(t, errs)
+	test.Eq(t, 2, transport.requests)
+	test.Len(t, phenomPageSize, postings)
+}
+
+// TestPhenomStopsWhenTheConsumerDoes guards the iterator contract the health
+// command depends on: it caps each source at 100 postings by returning false
+// from yield, and an adapter that keeps fetching afterwards both burns the
+// budget the cap exists to save and risks calling yield again, which panics.
+func TestPhenomStopsWhenTheConsumerDoes(t *testing.T) {
+	t.Parallel()
+
+	fullPage := make([]string, phenomPageSize)
+	for i := range fullPage {
+		fullPage[i] = fmt.Sprintf(`{"title":"Job %d","jobId":"%d","applyUrl":"https://acme.example.com/apply/%d"}`, i, i, i)
+	}
+
+	client, transport := repeatingPageClient(phenomFixturePage(strings.Join(fullPage, ",")))
+
+	var seen int
+
+	for range Phenom(t.Context(), client, "acme.example.com") {
+		seen++
+
+		if seen == 5 {
+			break
+		}
+	}
+
+	test.Eq(t, 5, seen)
+	test.Eq(t, 1, transport.requests)
 }
 
 func TestPhenomReportsHTTPError(t *testing.T) {

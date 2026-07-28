@@ -348,6 +348,36 @@ func TestAllRespectsConcurrencyLimit(t *testing.T) {
 	}
 }
 
+func TestDefaultConcurrencyIsNotDerivedFromCPUCount(t *testing.T) {
+	t.Parallel()
+
+	// DefaultConcurrency used to be min(32, max(8, runtime.NumCPU()*4)), which
+	// evaluates to 16 on a 4-vCPU GitHub runner and can never exceed 32 on any
+	// machine. For ~1,772 network-bound sources in a 60-minute budget that is
+	// half the intended ceiling, and the nightly crawl missed its deadline every
+	// day for weeks because of it.
+	//
+	// The bound below is deliberately expressed as "more than the old formula
+	// could ever produce" rather than as an exact number, so tuning the value
+	// does not mean editing the test, but re-deriving it from NumCPU does.
+	if internal.DefaultConcurrency <= 32 {
+		t.Errorf("DefaultConcurrency = %d; the old NumCPU-derived formula capped at 32, and this work is network-bound",
+			internal.DefaultConcurrency)
+	}
+
+	if got := min(32, max(8, runtime.NumCPU()*4)); internal.DefaultConcurrency == got {
+		t.Errorf("DefaultConcurrency = %d, which is exactly the old NumCPU formula", got)
+	}
+
+	// Politeness is enforced per service by httpx, not here, but the pool still
+	// has to fit in a file-descriptor budget: one socket per in-flight source
+	// plus httpx's 200-connection idle cache, against a default 1024 soft limit.
+	if internal.DefaultConcurrency > 512 {
+		t.Errorf("DefaultConcurrency = %d, which stops fitting in a default ulimit alongside the idle pool",
+			internal.DefaultConcurrency)
+	}
+}
+
 func TestAllHandlesNoSources(t *testing.T) {
 	t.Parallel()
 

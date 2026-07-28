@@ -1,7 +1,9 @@
 package internal
 
 import (
+	"slices"
 	"strings"
+	"time"
 )
 
 // Filter selects job postings of interest.
@@ -43,6 +45,53 @@ type Filter struct {
 	// disclose nothing are excluded: most postings, on most boards. That is a
 	// deliberate consequence: a pay floor cannot be applied to an unknown.
 	MinAnnual float64
+
+	// Departments matches postings whose department or team contains any of
+	// these terms, with the same case-insensitive substring semantics as Titles.
+	//
+	// Both fields are searched because platforms disagree about which one holds
+	// the word a person would type: Lever files "Engineering" under
+	// categories.department and "Platform" under categories.team, Ashby publishes
+	// both, and BambooHR has only a department. Requiring the user to know which
+	// platform a company is on would make `--department engineering` return
+	// nothing for half the crawl.
+	Departments []string
+
+	// EmploymentTypes matches postings whose employment type is any of these.
+	//
+	// Unlike the free-text fields this is equality against the normalized
+	// vocabulary, not substring matching, because substrings are actively wrong
+	// here: "contract" is a prefix of "contractor" and "temp" of "temporary", so
+	// a substring filter would silently conflate categories the schema exists to
+	// keep apart. Adapters normalize at their own boundary with
+	// [NormalizeEmploymentType]; filtering only compares.
+	//
+	// Postings whose board published no employment type are excluded, following
+	// the precedent MinAnnual sets: a category filter cannot be applied to an
+	// unknown.
+	EmploymentTypes []EmploymentType
+
+	// WorkplaceTypes matches postings whose workplace type is any of these, by
+	// equality, for the same reason as EmploymentTypes.
+	//
+	// When a posting carries no structured workplace type, remote and hybrid fall
+	// back to the [JobPosting.IsRemote] and [JobPosting.IsHybrid] heuristics over
+	// the location and title text. Only a minority of adapters populate the
+	// structured field, and a `--workplace-type remote` that returned almost
+	// nothing across a 2,100-source crawl would look broken rather than precise.
+	// Onsite has no fallback on purpose: the absence of the word "remote" is not
+	// evidence that an employer requires an office.
+	WorkplaceTypes []WorkplaceType
+
+	// PostedSince matches only postings the board published at or after this
+	// instant.
+	//
+	// Postings with no publication date are excluded, again following MinAnnual:
+	// most boards publish no date at all, and treating those as recent would
+	// quietly fill a "last week" query with postings of unknown age. UpdatedAt is
+	// deliberately not consulted — an employer editing a job description does not
+	// make a nine-month-old req new.
+	PostedSince time.Time
 }
 
 // remoteTerms are the phrases job boards use to indicate a role is not
@@ -138,20 +187,100 @@ func (f Filter) Match(j *JobPosting) bool {
 		return false
 	}
 
+	// Department and team are one constraint over two fields, so the terms are
+	// OR-ed across both rather than AND-ed between them.
+	if hasUsableTerm(f.Departments) &&
+		!containsAny(j.Department, f.Departments) &&
+		!containsAny(j.Team, f.Departments) {
+		return false
+	}
+
+	if hasUsableEnum(f.EmploymentTypes) {
+		// A posting whose board published no employment type cannot satisfy an
+		// employment-type filter, the same way an undisclosed salary cannot
+		// satisfy a pay floor.
+		if j.EmploymentType == EmploymentTypeUnknown ||
+			!slices.Contains(f.EmploymentTypes, j.EmploymentType) {
+			return false
+		}
+	}
+
+	if hasUsableEnum(f.WorkplaceTypes) && !j.matchesAnyWorkplaceType(f.WorkplaceTypes) {
+		return false
+	}
+
+	if !f.PostedSince.IsZero() {
+		if j.PostedAt.IsZero() || j.PostedAt.Before(f.PostedSince) {
+			return false
+		}
+	}
+
 	return true
+}
+
+// matchesAnyWorkplaceType reports whether the posting satisfies any of the
+// wanted workplace types.
+//
+// The board's own answer wins outright when it published one, exactly as
+// [JobPosting.IsRemote] prefers the structured remote flag over the location
+// text. Only when the field is absent do remote and hybrid fall back to the text
+// heuristics, which is what keeps the flag useful while adapters are still being
+// migrated platform by platform.
+func (j *JobPosting) matchesAnyWorkplaceType(wanted []WorkplaceType) bool {
+	if j.WorkplaceType != WorkplaceTypeUnknown {
+		return slices.Contains(wanted, j.WorkplaceType)
+	}
+
+	for _, want := range wanted {
+		switch want {
+		case WorkplaceTypeRemote:
+			if j.IsRemote() {
+				return true
+			}
+		case WorkplaceTypeHybrid:
+			if j.IsHybrid() {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // IsZero reports whether the filter would match every posting, which lets
 // callers skip filtering entirely. Term lists holding nothing but blanks count
 // as absent, matching how [Filter.Match] treats them.
+//
+// Every field of [Filter] must be represented here. [Filter.Apply] returns its
+// input untouched when this reports true, so a field this function does not know
+// about makes its flag silently match the entire crawl — a wrong answer with no
+// error and no log line. TestFilterFieldsAreWiredIn walks the struct by
+// reflection and fails when a field is missing from either this function or
+// [Filter.Match], so adding one without wiring it up cannot reach main.
 func (f Filter) IsZero() bool {
 	return !f.Remote &&
 		!f.HasCompensation &&
 		f.MinAnnual <= 0 &&
+		f.PostedSince.IsZero() &&
 		!hasUsableTerm(f.Titles) &&
 		!hasUsableTerm(f.ExcludeTitles) &&
 		!hasUsableTerm(f.Locations) &&
-		!hasUsableTerm(f.Companies)
+		!hasUsableTerm(f.Companies) &&
+		!hasUsableTerm(f.Departments) &&
+		!hasUsableEnum(f.EmploymentTypes) &&
+		!hasUsableEnum(f.WorkplaceTypes)
+}
+
+// hasUsableEnum reports whether a list of normalized vocabulary values
+// constrains anything.
+//
+// An entry equal to the zero value is treated as absent rather than as "match
+// postings the board said nothing about", for the same reason [matchesAny]
+// treats a blank term as no constraint: an empty value arriving from a command
+// line is a mistake, and answering a mistake with an empty result set reads as
+// "nothing is hiring".
+func hasUsableEnum[T ~string](values []T) bool {
+	return slices.ContainsFunc(values, func(v T) bool { return v != "" })
 }
 
 // Apply returns the postings from jobs that match the filter. Errors are passed

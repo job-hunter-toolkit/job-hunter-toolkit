@@ -163,6 +163,87 @@ The workflow summary should show, per shard and platform:
 - slowest sources;
 - incomplete or suspiciously empty sources.
 
+### Implementation status
+
+Phase 2 now has an implementation: `internal/shard`, the `shard plan`,
+`shard run` and `shard merge` commands, and
+`.github/workflows/track_jobs_sharded.yml`. It is **not yet the scheduled
+crawl.** `track_jobs.yml` remains the proven single-runner path and the only
+thing on a cron; the sharded workflow is dispatch-only with a `record` input
+that defaults to false, and its own header carries the cutover procedure.
+
+Nothing below has been validated against a live job board. The branch was
+developed in a container with no outbound access, so every number here comes
+from planning, from artifacts a real binary wrote locally, or from the
+07/26/26 baseline run.
+
+**What was built the way this section imagined it.** Three phases, plan ->
+crawl matrix -> merge, with `fail-fast: false`, a conservative `max-parallel`
+of 4, artifacts uploaded even when a shard fails, and a merge that fails closed
+on a missing, duplicated, mismatched, short-written or unfinished shard. The
+merge counts a global union of posting identities and never a sum, and it
+prints the gap between the two so the size of the error a sum would have made
+stays visible rather than merely tested.
+
+**Where it diverged, and why.**
+
+- *Affinity is derived, not curated.* This section proposed a hand-written
+  policy per platform: split Workday, keep Phenom whole, pack the rest. The
+  implementation instead asks `httpx.ServicePolicyForHost` — the same table
+  that already enforces the rate limits — which backend a source talks to, and
+  bin-packs those groups. There is no second table to drift from the first.
+  The rule is applied per platform, all-or-nothing: unless *every* source on a
+  platform carries an identifiable hostname, the whole platform is one group,
+  because one Greenhouse slug containing a dot would otherwise promote itself
+  onto a second runner pointed at `boards-api.greenhouse.io`. Over-grouping
+  costs parallelism; under-grouping breaks an invariant, so the ambiguous case
+  loses.
+- *Phenom is split after all.* Not by a judgement call but because its tenants
+  really are on separate hostnames, which the limiter already knew. Measured:
+  2,211 sources collapse to 277 affinity groups, and the only splittable
+  platforms are `workday`, `phenom`, `oraclecloud` and `successfactors`.
+- *The critical path is not a shard count problem.* At `--shards 8` the plan
+  puts 647 Greenhouse sources on one backend in shard 0 and 418 Ashby sources
+  on one backend in shard 1. At `--shards 16` those two shards are unchanged
+  and only the tail fragments further. Wall time is bounded by the largest
+  single-backend platform, so more runners buy nothing past roughly 8. This is
+  the number to attack next, and the lever is per-source cost inside Greenhouse,
+  not parallelism across it.
+- *The rolling estimate and its thrash cap are one mechanism.* Cost is the
+  median of per-source samples across every `--prior` manifest, clamped to
+  [1 ms, 30 min]; `truncated` and `stopped` durations count, `planned` and
+  `running` do not. With no usable timings the plan is uniform rather than
+  packed against noise. A median over several days is already resistant to one
+  anomalous day, so no separate cap was added.
+
+**What is still missing.**
+
+- *No live validation of any of it.* No sharded crawl has ever run. The
+  comparison this phase asks for — wall time, request volume, failures and 429s
+  against the 07/26/26 baseline of 473,404 postings from 1,772 companies,
+  incomplete after 350 minutes — cannot be made yet, and the workflow's dry-run
+  default exists to make it cheaply.
+- *The merge does not enforce the failed-source invariant.* A source that
+  failed is a *terminal* source, so a shard in which every source failed
+  reports `complete`, and `shard merge` will turn a set of such shards into
+  `<date> 0 0 complete` and exit 0. That is verified behaviour, not a
+  hypothesis. "A failed source cannot make previously seen jobs look removed"
+  is therefore currently defended by a `MAX_FAILED_SOURCE_PCT` guard in YAML
+  plus the coverage floors, not by the merge. It belongs in Go, where `total`
+  can be given the same rule.
+- *Per-service request, retry and 429 aggregates are still not in the
+  manifest.* They exist only as `slog` events, so the workflow summary scrapes
+  them out of each shard's JSON log. Because the per-attempt `retrying HTTP
+  request` event is DEBUG and a full crawl at DEBUG is unreadable, what the
+  summary can actually report is 429 shedding windows and requests that
+  exhausted their retries — not a retry count. Folding these into
+  `services.SourceRun` and the manifest is the next real piece of Phase 1 work.
+- *Run identity is still partial.* The manifest carries a commit and a shard
+  stamp but no run ID, parent workflow ID, or binary version.
+- *Per-platform postings after deduplication live only on the merge's stderr.*
+  The summary parses them back out. They should be in `MergeResult` and in the
+  merged manifest.
+
 ## Historical storage
 
 Start with SQLite through a pure-Go driver. It preserves the single-binary,
@@ -302,11 +383,19 @@ should remain sufficient for cron, GitHub Actions, and personal use.
 
 ### Phase 2: sharded Actions crawl
 
-- Add deterministic plan, shard, and merge commands.
-- Upload immutable postings and manifest artifacts.
-- Merge with exact source coverage and global deduplication.
-- Adopt conservative service-aware shard boundaries.
-- Compare wall time, request volume, failures, and 429s with the baseline.
+- ~~Add deterministic plan, shard, and merge commands.~~ `shard plan`,
+  `shard run`, `shard merge`, backed by `internal/shard`.
+- ~~Upload immutable postings and manifest artifacts.~~ Every shard uploads
+  `shard-N.json`, `shard-N.ndjson` and `shard-N.log`, on failure too.
+- ~~Merge with exact source coverage and global deduplication.~~ Fail-closed on
+  both, plus plan, source-set, commit and schema identity.
+- ~~Adopt conservative service-aware shard boundaries.~~ Derived from the
+  limiter's own service table rather than a second, curated one.
+- **Compare wall time, request volume, failures, and 429s with the baseline.**
+  Not done: no sharded crawl has run. This is what the dispatch-only,
+  `record: false` default is for.
+- **Cut over.** `track_jobs.yml` is still the only scheduled writer. See the
+  header of `.github/workflows/track_jobs_sharded.yml`.
 
 ### Phase 3: embedded history
 
@@ -331,7 +420,18 @@ should remain sufficient for cron, GitHub Actions, and personal use.
 
 ## What to do next
 
-The next self-contained unit should be Phase 1 only. It creates the evidence
-needed to design shards, storage, TUI, MCP, and daemon behavior without guessing,
-and it improves today's single-process CLI even if none of the later phases are
-built.
+Phase 1 landed, and Phase 2 has an implementation that has never faced a job
+board. The next self-contained unit is therefore **evidence, not features**:
+
+1. Dispatch the sharded workflow with `record: false` on consecutive days and
+   compare its merged total against the same day's `track_jobs.yml` row. Two
+   routes to the same crawl that disagree mean one of them is wrong, and the
+   merge summary's before/after deduplication line is where to look first.
+2. Kill one shard job by hand and confirm no row is produced. A fail-closed
+   merge that has never been observed refusing is an assumption.
+3. Move the failed-source ceiling out of YAML and into the merge, so `total`
+   and `shard merge` defend the same invariant with the same code.
+4. Then cut over, and only then consider Phase 3.
+
+Adding platforms, storage, TUI or MCP before step 1 would be building on a
+number nobody has checked.

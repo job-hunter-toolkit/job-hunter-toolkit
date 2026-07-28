@@ -9,8 +9,12 @@ import (
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 )
 
+// workablePlatform is the ATS family this file registers, and the value that
+// reaches [internal.PostingSource.Platform].
+const workablePlatform = "workable"
+
 func init() {
-	registerBuiltin("workable", multiJobsFunc(Workable, WorkableCompanies))
+	registerBuiltin(workablePlatform, multiJobsFunc(Workable, WorkableCompanies))
 }
 
 var WorkableCompanies = []string{
@@ -84,19 +88,30 @@ var WorkableCompanies = []string{
 }
 
 type workableResp struct {
-	Jobs []struct {
-		Shortcode     string `json:"shortcode"`
-		Title         string `json:"title"`
-		Telecommuting bool   `json:"telecommuting"`
-		URL           string `json:"url"`
-		Locations     []struct {
-			Country     string `json:"country"`
-			CountryCode string `json:"countryCode"`
-			City        string `json:"city"`
-			Region      string `json:"region"`
-			Hidden      bool   `json:"hidden"`
-		} `json:"locations"`
-	} `json:"jobs"`
+	Jobs []workableJob `json:"jobs"`
+}
+
+// workableJob is one opening in the widget feed.
+type workableJob struct {
+	Shortcode string `json:"shortcode"`
+	Title     string `json:"title"`
+
+	// Telecommuting is Workable's own structured remote flag. It has been
+	// decoded since this adapter was written and spent only on appending the
+	// word "Remote" to a location string, which meant `--remote` had to rediscover
+	// it by looking for that word in free text.
+	Telecommuting bool                    `json:"telecommuting"`
+	URL           string                  `json:"url"`
+	Locations     []workableLocationEntry `json:"locations"`
+}
+
+// workableLocationEntry is one site a posting is offered at.
+type workableLocationEntry struct {
+	Country     string `json:"country"`
+	CountryCode string `json:"countryCode"`
+	City        string `json:"city"`
+	Region      string `json:"region"`
+	Hidden      bool   `json:"hidden"`
 }
 
 // Workable returns all of the job postings for a given company, or an
@@ -140,6 +155,22 @@ func Workable(ctx context.Context, httpClient *http.Client, company string) inte
 				Company:  company,
 				Location: location,
 				URL:      url,
+
+				ExternalID: job.Shortcode,
+				Source:     internal.PostingSource{Platform: workablePlatform, Key: company},
+			}
+
+			// Carried only when the employer set the flag. Workable publishes no
+			// hybrid/onsite distinction here, so telecommuting=false says "not
+			// fully remote" and nothing more; turning that into onsite would
+			// invent an office requirement the employer never stated, and
+			// setting Remote to false would switch off the location-text
+			// fallback in [internal.JobPosting.IsRemote] for the whole platform.
+			if job.Telecommuting {
+				remote := true
+
+				jobPosting.Remote = &remote
+				jobPosting.WorkplaceType = internal.WorkplaceTypeRemote
 			}
 
 			if !yield(jobPosting, nil) {
@@ -149,13 +180,7 @@ func Workable(ctx context.Context, httpClient *http.Client, company string) inte
 	}
 }
 
-func workableLocation(locations []struct {
-	Country     string `json:"country"`
-	CountryCode string `json:"countryCode"`
-	City        string `json:"city"`
-	Region      string `json:"region"`
-	Hidden      bool   `json:"hidden"`
-}, remote bool) string {
+func workableLocation(locations []workableLocationEntry, remote bool) string {
 	names := make([]string, 0, len(locations)+1)
 
 	for _, location := range locations {

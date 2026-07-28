@@ -5,6 +5,10 @@ on:
     branches: [ master ]
   pull_request:
   workflow_dispatch:
+  schedule:
+  # Weekly, only for the unpinned vulnerability scan below. New advisories are
+  # published against unchanged code, so they need a clock, not a commit.
+  - cron: "0 7 * * 1"
 
 # Cancel superseded runs on the same ref, so a busy branch does not queue up
 # redundant work.
@@ -15,19 +19,39 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Pinned so CI's verdict changes only when this file changes. `@latest` meant
+  # an upstream release could red an unrelated pull request, and it made a live
+  # supply-chain fetch on every run. The scheduled job below still runs @latest
+  # so new advisories are surfaced -- just not as a merge gate.
+  GOVULNCHECK_VERSION: v1.1.4
+  # Staticcheck compiles the code it analyses, so it must itself be built with a
+  # Go at least as new as the toolchain go.mod pins (go1.26.5). It is not: the
+  # previously pinned 2025.1.1 is built with go1.24.7 and fails outright with
+  # "module requires at least go1.25, but Staticcheck was built with go1.24.7",
+  # so this job reported a compile failure rather than a verdict on every run.
+  # v0.7.0 is built with go1.25 and fails the same way against the go1.26
+  # standard library. v0.8.0-rc.1 requires go1.26 and analyses this module
+  # cleanly, so it is the only currently published release that can run here.
+  # When a stable release built with go1.26 ships, move to it.
+  STATICCHECK_VERSION: v0.8.0-rc.1
+
 jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
-        check-latest: true
+        # check-latest was dropped: go.mod carries a `toolchain` directive, so
+        # the version is already pinned there. check-latest only resolved to
+        # whatever patch release existed at run time and recorded it nowhere.
 
     - name: Verify formatting
       run: |
@@ -57,34 +81,245 @@ jobs:
     - name: Test
       run: go test -race -shuffle=on ./...
 
+  portability:
+    name: Portable build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Compile-only, on purpose. docs/architecture-roadmap.md states "the default
+    # binary stays portable and has no CGO requirement", and this asserts exactly
+    # that without making an unrelated pull request depend on a full test run
+    # passing on three operating systems.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - goos: linux
+          goarch: amd64
+        - goos: linux
+          goarch: arm64
+        - goos: darwin
+          goarch: arm64
+        - goos: windows
+          goarch: amd64
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Build without cgo
+      env:
+        CGO_ENABLED: "0"
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      run: go build ./...
+
+  chart:
+    name: Render the historical chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # This job exists because of a specific near-miss: jobs_record.gnuplot was
+    # changed twice (the datafile/outputfile indirection, then the `$#` column
+    # guards and the partial-row series) without ever being executed, and it runs
+    # in the nightly at a point where a non-zero exit discards the day's row.
+    # Nothing else in CI touches the script, so it reached the nightly untested.
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Install gnuplot
+      # -nox is the headless build. The plain `gnuplot` metapackage pulls the
+      # Qt/X11 chain for terminals this script never uses.
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gnuplot-nox
+        gnuplot --version
+
+    - name: Render the committed record
+      run: |
+        set -euo pipefail
+
+        # Warnings matter here. "Skipping data file with no valid points" is how
+        # a broken column expression shows up, and gnuplot still exits 0 for it,
+        # so stderr is treated as failure rather than noise.
+        gnuplot -e "outputfile='ci-record.png'" jobs_record.gnuplot 2> gnuplot.err
+        if [ -s gnuplot.err ]; then
+          echo "::error::gnuplot wrote to stderr while rendering jobs_record.txt"
+          cat gnuplot.err
+          exit 1
+        fi
+
+        SIZE=$(stat -c%s ci-record.png)
+        if [ "$SIZE" -lt 10000 ]; then
+          echo "::error::ci-record.png is only $SIZE bytes; the render produced no chart"
+          exit 1
+        fi
+        echo "rendered $SIZE bytes from $(wc -l < jobs_record.txt) rows"
+
+    - name: Render a record containing every row shape
+      run: |
+        set -euo pipefail
+
+        # Three-column legacy rows, a `?` outage row, and both four-column
+        # statuses -- including a complete row fenced by partial rows on both
+        # sides, which is the shape that draws nothing at all unless the trend
+        # line carries its point overlay.
+        cat > ci-fixture.txt <<'EOF'
+        07/20/20 61234 512
+        07/22/20 ? 537
+        01/25/22 131895 537
+        11/07/22 22332 537
+        07/25/26 13467 558
+        07/26/26 473385 1772 partial
+        07/27/26 486210 1890 complete
+        07/28/26 471002 1801 partial
+        EOF
+
+        gnuplot -e "datafile='ci-fixture.txt'; outputfile='ci-fixture.png'" \
+          jobs_record.gnuplot 2> gnuplot-fixture.err
+        if [ -s gnuplot-fixture.err ]; then
+          echo "::error::gnuplot wrote to stderr while rendering the mixed-shape fixture"
+          cat gnuplot-fixture.err
+          exit 1
+        fi
+
+    - name: Assert partial rows never join the completed trend
+      run: |
+        set -euo pipefail
+
+        # A render that merely exits 0 proves nothing about meaning. Dump the
+        # evaluated column expressions and assert the split: docs/architecture-
+        # roadmap.md requires that a partial crawl is never graphed as complete,
+        # and the only thing enforcing that is the `$# >= 4` guard.
+        #
+        # The definitions are LIFTED OUT OF THE REAL SCRIPT rather than restated
+        # here. An earlier draft of this check restated them, which meant it
+        # happily passed against a jobs_record.gnuplot whose guard had been
+        # deleted -- it was asserting against its own copy.
+        grep -E '^(postings|partial_postings|sources|partial_sources) =' \
+          jobs_record.gnuplot > column-expressions.gp
+        DEFINED=$(wc -l < column-expressions.gp)
+        if [ "$DEFINED" -ne 4 ]; then
+          echo "::error::expected 4 column expressions in jobs_record.gnuplot, found $DEFINED"
+          cat column-expressions.gp
+          exit 1
+        fi
+        cat column-expressions.gp
+
+        gnuplot <<'EOF' 2> assert.err
+        load "column-expressions.gp"
+        set xdata time
+        set timefmt "%m/%d/%y"
+        set table "trend.tsv"
+        plot "ci-fixture.txt" using 1:@postings with lines
+        unset table
+        set table "partial.tsv"
+        plot "ci-fixture.txt" using 1:@partial_postings with lines
+        unset table
+        set table "trend-sources.tsv"
+        plot "ci-fixture.txt" using 1:@sources with lines
+        unset table
+        set table "partial-sources.tsv"
+        plot "ci-fixture.txt" using 1:@partial_sources with lines
+        unset table
+        EOF
+        cat assert.err
+
+        fail=0
+        assert() {
+          local file="$1" date="$2" want="$3" label="$4"
+          local got
+          got=$(awk -v d="\"$date\"" '$1 == d {print $2}' "$file" | tail -n 1)
+          if [ "$got" != "$want" ]; then
+            echo "::error::$label: $file has $date = '$got', want '$want'"
+            fail=1
+          else
+            echo "ok  $label ($date = $want)"
+          fi
+        }
+
+        # A partial row must be absent from the trend and present in the overlay.
+        assert trend.tsv           07/26/26 NaN    "partial row is excluded from the trend line"
+        assert partial.tsv         07/26/26 473385 "partial row is drawn as a diamond"
+        assert trend-sources.tsv   07/26/26 NaN    "partial row is excluded from the source line"
+        assert partial-sources.tsv 07/26/26 1772   "partial row's sources are drawn as a diamond"
+        # A complete row is the mirror image.
+        assert trend.tsv           07/27/26 486210 "complete row joins the trend line"
+        assert partial.tsv         07/27/26 NaN    "complete row is not drawn as a diamond"
+        assert trend-sources.tsv   07/27/26 1890   "complete row joins the source line"
+        # A `?` outage row must break the postings line rather than be
+        # interpolated, while still contributing its source count -- the chart's
+        # own footnote asserts the source count survived both outages.
+        assert trend.tsv         07/22/20 NaN "outage row breaks the trend line"
+        assert trend-sources.tsv 07/22/20 537 "outage row still reports its source count"
+        # A legacy three-column row is complete by definition; this is the case
+        # that would blow up if gnuplot's `&&` stopped short-circuiting, because
+        # strcol(4) would then be evaluated on a three-field record.
+        assert trend.tsv 01/25/22 131895 "legacy three-column row joins the trend line"
+
+        exit "$fail"
+
   staticcheck:
     name: Staticcheck
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
-        check-latest: true
+        # `go run pkg@version` compiles the tool from source on every run, and
+        # setup-go's default cache key is go.sum alone -- which does not mention
+        # these tools, so bumping one never invalidated the cache. Hashing this
+        # workflow file in makes the key move exactly when a pinned version does.
+        cache-dependency-path: |
+          go.sum
+          .github/workflows/ci.yml
 
     - name: Run staticcheck
-      run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+      run: go run honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }} ./...
 
   govulncheck:
     name: Vulnerability scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name != 'schedule'
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
-        check-latest: true
+        cache-dependency-path: |
+          go.sum
+          .github/workflows/ci.yml
 
     - name: Run govulncheck
+      run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} ./...
+
+  govulncheck_latest:
+    name: Vulnerability scan (latest advisories)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Scheduled only. This is the half of the split that keeps new advisories
+    # visible without letting an upstream release gate an unrelated pull request.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Run govulncheck at latest
       run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

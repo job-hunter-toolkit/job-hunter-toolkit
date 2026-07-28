@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -39,11 +40,12 @@ func main() {
 
 // globalFlags are shared by the commands that perform a crawl.
 type globalFlags struct {
-	timeout     time.Duration
-	concurrency int
-	logLevel    string
-	logFormat   string
-	proxies     []string
+	timeout      time.Duration
+	concurrency  int
+	perHostLimit int
+	logLevel     string
+	logFormat    string
+	proxies      []string
 }
 
 // register attaches the crawl flags to a command.
@@ -51,6 +53,13 @@ func (g *globalFlags) register(cmd *cobra.Command) {
 	cmd.Flags().DurationVar(&g.timeout, "timeout", time.Hour, "overall time budget for the crawl")
 	cmd.Flags().IntVar(&g.concurrency, "concurrency", internal.DefaultConcurrency,
 		"number of job sources to fetch at once")
+	// --concurrency is throughput; this is politeness. They are separate because
+	// they trade against different things: workers cost file descriptors and
+	// memory here, while this costs the job board's patience. Tuning the crawl
+	// used to mean recompiling, which made "is Ashby's limit right?" an
+	// unanswerable question in CI.
+	cmd.Flags().IntVar(&g.perHostLimit, "per-host-limit", httpx.DefaultPerHostLimit,
+		"maximum requests in flight to any single job-board service; known shared backends (Workable, PeopleForce) have lower measured ceilings this cannot raise")
 	cmd.Flags().StringVar(&g.logLevel, "log-level", "warn", "log verbosity: debug, info, warn, or error")
 	cmd.Flags().StringVar(&g.logFormat, "log-format", "text", "log encoding: text or json")
 	cmd.Flags().StringArrayVar(&g.proxies, "proxy", nil,
@@ -80,7 +89,23 @@ func (g *globalFlags) logger(w io.Writer) *slog.Logger {
 // any source work starts. The default transport already honors the standard
 // HTTP_PROXY, HTTPS_PROXY, and NO_PROXY environment variables.
 func (g *globalFlags) client(logger *slog.Logger) (*http.Client, error) {
-	opts := []httpx.Option{httpx.WithLogger(logger)}
+	// httpx treats a limit below 1 as "no limit at all". That is a reasonable
+	// library default and a terrible thing to let a command line ask for: an
+	// unlimited crawl of ~1,772 companies is indistinguishable from an attack on
+	// whichever backend hosts the most of them. Zero means "flag not set", which
+	// is how a zero-valued globalFlags reaches here in tests.
+	perHostLimit := g.perHostLimit
+	switch {
+	case perHostLimit == 0:
+		perHostLimit = httpx.DefaultPerHostLimit
+	case perHostLimit < 0:
+		return nil, fmt.Errorf("invalid --per-host-limit %d: must be at least 1, because the per-service limit is what keeps a crawl of this size polite", g.perHostLimit)
+	}
+
+	opts := []httpx.Option{
+		httpx.WithLogger(logger),
+		httpx.WithPerHostLimit(perHostLimit),
+	}
 
 	proxyURLs := make([]*url.URL, 0, len(g.proxies))
 	for _, rawProxy := range g.proxies {
@@ -123,6 +148,10 @@ func newRootCommand() *cobra.Command {
 		newCompaniesCommand(),
 		newTotalCommand(),
 		newHealthCommand(),
+
+		// newShardCommand attaches its own plan/run/merge subcommands.
+		newShardCommand(),
+		newCompanyCommand(),
 	)
 
 	return root
@@ -131,12 +160,22 @@ func newRootCommand() *cobra.Command {
 // newPostingsCommand builds the `postings` command.
 func newPostingsCommand() *cobra.Command {
 	var (
-		flags     globalFlags
-		asJSON    bool
-		asCSV     bool
-		noDedupe  bool
-		filter    internal.Filter
-		showStats bool
+		flags          globalFlags
+		asJSON         bool
+		asCSV          bool
+		csvColumnSpec  string
+		csvHeader      bool
+		noDedupe       bool
+		filter         internal.Filter
+		showStats      bool
+		employmentType []string
+		workplaceType  []string
+		postedSince    string
+
+		// enrichJobs is assigned by registerEnrichmentFlags below, after the
+		// command exists to hang its flags on, and is only called once the
+		// command runs.
+		enrichJobs func(internal.Jobs) (internal.Jobs, error)
 	)
 
 	cmd := &cobra.Command{
@@ -145,16 +184,45 @@ func newPostingsCommand() *cobra.Command {
 		Long: "Find job postings from various companies.\n\n" +
 			"Filters combine as you would expect: values within a flag are OR-ed,\n" +
 			"and different flags are AND-ed. Matching is case-insensitive substring\n" +
-			"matching against the text the job board publishes.",
+			"matching against the text the job board publishes.\n\n" +
+			"--employment-type and --workplace-type are the exception: they compare\n" +
+			"against a normalized vocabulary by equality, because \"contract\" is a\n" +
+			"prefix of \"contractor\". Like --min-pay, they exclude postings whose\n" +
+			"board published nothing, since a category filter cannot be applied to an\n" +
+			"unknown.\n\n" +
+			"--csv emits the same 8 columns it always has, with no header, so\n" +
+			"existing pipelines keep working. The richer fields are opt-in through\n" +
+			"--csv-columns, which turns the header on because an unfamiliar column\n" +
+			"set is unusable unnamed.",
 		Example: "  # Remote application security roles\n" +
 			"  job-hunter-toolkit postings --remote --title security --title appsec\n\n" +
 			"  # Everything at a few companies, as JSON\n" +
-			"  job-hunter-toolkit postings --company stripe --company cloudflare --json",
+			"  job-hunter-toolkit postings --company stripe --company cloudflare --json\n\n" +
+			"  # Internships posted in the last fortnight, as a named-column CSV\n" +
+			"  job-hunter-toolkit postings --employment-type internship --posted-since 2w \\\n" +
+			"    --csv --csv-columns extended",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := flags.logger(cmd.ErrOrStderr())
 
-			emit, flush, err := newPostingPrinter(cmd.OutOrStdout(), asJSON, asCSV)
+			output, err := resolvePostingOutput(cmd, asJSON, asCSV, csvColumnSpec, csvHeader)
+			if err != nil {
+				return err
+			}
+
+			if filter.EmploymentTypes, err = parseEmploymentTypes(employmentType); err != nil {
+				return err
+			}
+
+			if filter.WorkplaceTypes, err = parseWorkplaceTypes(workplaceType); err != nil {
+				return err
+			}
+
+			if filter.PostedSince, err = parsePostedSince(postedSince, time.Now()); err != nil {
+				return err
+			}
+
+			emit, flush, err := newPostingPrinter(cmd.OutOrStdout(), output)
 			if err != nil {
 				return err
 			}
@@ -184,6 +252,15 @@ func newPostingsCommand() *cobra.Command {
 			}
 
 			jobs = postingFilterFor(filter).Apply(jobs)
+
+			// Employer filters run after the posting filters because they are
+			// the expensive ones to be wrong about: they consult a reviewed
+			// table rather than the posting's own text. The decorator is the
+			// identity function when no employer flag was given, so an ordinary
+			// crawl is unchanged.
+			if jobs, err = enrichJobs(jobs); err != nil {
+				return err
+			}
 
 			var found, failed int
 
@@ -225,8 +302,14 @@ func newPostingsCommand() *cobra.Command {
 
 	flags.register(cmd)
 
+	enrichJobs = registerEnrichmentFlags(cmd)
+
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output newline-delimited JSON")
 	cmd.Flags().BoolVar(&asCSV, "csv", false, "output CSV (company,title,location,url,pay_min,pay_max,currency,period) with no header")
+	cmd.Flags().StringVar(&csvColumnSpec, "csv-columns", csvColumnsCore,
+		"CSV columns: core (the frozen 8 above), extended (core plus department, employment type, dates and source identity), or an explicit comma-separated list; anything other than core also turns --csv-header on")
+	cmd.Flags().BoolVar(&csvHeader, "csv-header", false,
+		"write a header row; off by default because a pipeline reading today's headerless CSV would take it for a posting")
 	cmd.Flags().BoolVar(&noDedupe, "no-dedupe", false,
 		"keep duplicate postings; by default postings sharing a URL are emitted once")
 	cmd.Flags().BoolVar(&showStats, "stats", false, "print a summary to stderr when the crawl finishes")
@@ -244,6 +327,14 @@ func newPostingsCommand() *cobra.Command {
 		"only postings that publish a pay range")
 	cmd.Flags().Float64Var(&filter.MinAnnual, "min-pay", 0,
 		"only postings publishing pay of at least this much per year (hourly rates are annualized); implies --has-pay")
+	cmd.Flags().StringSliceVar(&filter.Departments, "department", nil,
+		"only postings whose department or team contains any of these terms")
+	cmd.Flags().StringSliceVar(&employmentType, "employment-type", nil,
+		"only postings of these employment types ("+joinValues(internal.EmploymentTypeValues())+"); board spellings such as full-time or FullTime are accepted, and postings with no published type are excluded")
+	cmd.Flags().StringSliceVar(&workplaceType, "workplace-type", nil,
+		"only postings of these workplace types ("+joinValues(internal.WorkplaceTypeValues())+"); remote and hybrid fall back to reading the location text when the board published no structured field, onsite does not")
+	cmd.Flags().StringVar(&postedSince, "posted-since", "",
+		"only postings published at or after this point: a date (2026-01-31), an RFC 3339 timestamp, or an age such as 7d, 2w or 72h; postings with no publication date are excluded")
 
 	cmd.MarkFlagsMutuallyExclusive("json", "csv")
 
@@ -265,11 +356,185 @@ func postingFilterFor(f internal.Filter) internal.Filter {
 	return f
 }
 
+// postingOutput is the resolved output format for a postings run.
+type postingOutput struct {
+	asJSON bool
+	asCSV  bool
+
+	// csvColumns is the ordered column set, already resolved from --csv-columns.
+	csvColumns []postingColumn
+
+	// csvHeader reports whether to write a header row first.
+	csvHeader bool
+}
+
+// postingColumn is one CSV column: the name it is known by and how to read it
+// off a posting.
+type postingColumn struct {
+	name  string
+	value func(*internal.JobPosting) string
+}
+
+// The named CSV column sets.
+const (
+	csvColumnsCore     = "core"
+	csvColumnsExtended = "extended"
+)
+
+// csvCoreColumnNames is the default CSV column set, and it is frozen.
+//
+// main.go has documented this output as headerless since it existed, and a test
+// asserts the exact width, so these eight columns in this order are a committed
+// contract with every pipeline already reading them. Columns may be appended to
+// the end of a *named* set; nothing may be inserted, renamed, or removed here.
+var csvCoreColumnNames = []string{
+	"company", "title", "location", "url", "pay_min", "pay_max", "currency", "period",
+}
+
+// csvExtendedColumnNames is the opt-in wide set: the core eight, unchanged and
+// in place, followed by the enrichment fields the adapters can fill in for free.
+var csvExtendedColumnNames = slices.Concat(csvCoreColumnNames, []string{
+	"department", "team", "employment_type", "workplace_type", "seniority",
+	"posted_at", "updated_at", "requisition_id", "external_id",
+	"source_platform", "source_key",
+})
+
+// postingColumns is every column an explicit --csv-columns list may name.
+//
+// Timestamps are written as RFC 3339 in UTC, matching the JSON output, so the
+// two formats never disagree about what a date means. Every column is empty
+// rather than a placeholder when the board published nothing: an empty cell is
+// read as absent by every spreadsheet and every parser, whereas "unknown" or "0"
+// is data that was never collected.
+var postingColumns = map[string]func(*internal.JobPosting) string{
+	"company":  func(j *internal.JobPosting) string { return j.Company },
+	"title":    func(j *internal.JobPosting) string { return j.Title },
+	"location": func(j *internal.JobPosting) string { return j.Location },
+	"url":      func(j *internal.JobPosting) string { return j.URL },
+	"pay_min": func(j *internal.JobPosting) string {
+		if j.Compensation.IsZero() || j.Compensation.Min <= 0 {
+			return ""
+		}
+
+		return strconv.FormatFloat(j.Compensation.Min, 'f', -1, 64)
+	},
+	"pay_max": func(j *internal.JobPosting) string {
+		if j.Compensation.IsZero() || j.Compensation.Max <= 0 {
+			return ""
+		}
+
+		return strconv.FormatFloat(j.Compensation.Max, 'f', -1, 64)
+	},
+	"currency": func(j *internal.JobPosting) string {
+		if j.Compensation.IsZero() {
+			return ""
+		}
+
+		return j.Compensation.Currency
+	},
+	"period": func(j *internal.JobPosting) string {
+		if j.Compensation.IsZero() {
+			return ""
+		}
+
+		return string(j.Compensation.Period)
+	},
+	"department":      func(j *internal.JobPosting) string { return j.Department },
+	"team":            func(j *internal.JobPosting) string { return j.Team },
+	"employment_type": func(j *internal.JobPosting) string { return string(j.EmploymentType) },
+	"workplace_type":  func(j *internal.JobPosting) string { return string(j.WorkplaceType) },
+	"seniority":       func(j *internal.JobPosting) string { return j.Seniority },
+	"posted_at":       func(j *internal.JobPosting) string { return formatTimestamp(j.PostedAt) },
+	"updated_at":      func(j *internal.JobPosting) string { return formatTimestamp(j.UpdatedAt) },
+	"requisition_id":  func(j *internal.JobPosting) string { return j.RequisitionID },
+	"external_id":     func(j *internal.JobPosting) string { return j.ExternalID },
+	"source_platform": func(j *internal.JobPosting) string { return j.Source.Platform },
+	"source_key":      func(j *internal.JobPosting) string { return j.Source.Key },
+}
+
+// formatTimestamp renders a posting timestamp for tabular output, leaving the
+// cell empty when the board published no date.
+func formatTimestamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.UTC().Format(time.RFC3339)
+}
+
+// resolvePostingOutput turns the output flags into a resolved format, rejecting
+// combinations that would otherwise be silently ignored.
+func resolvePostingOutput(cmd *cobra.Command, asJSON, asCSV bool, columnSpec string, header bool) (postingOutput, error) {
+	output := postingOutput{asJSON: asJSON, asCSV: asCSV}
+
+	// Failing loudly beats accepting a flag and doing nothing with it: someone
+	// who asked for extra columns and got the default eight would not notice
+	// until the columns were missing from something downstream.
+	if !asCSV && (cmd.Flags().Changed("csv-columns") || cmd.Flags().Changed("csv-header")) {
+		return output, fmt.Errorf("--csv-columns and --csv-header apply to --csv output only")
+	}
+
+	columns, err := resolveCSVColumns(columnSpec)
+	if err != nil {
+		return output, err
+	}
+
+	output.csvColumns = columns
+	output.csvHeader = header
+
+	// An unfamiliar column set is unusable unnamed, so asking for one turns the
+	// header on. The default set stays headerless forever, and an explicit
+	// --csv-header=false still wins: someone appending to an existing file needs
+	// to be able to say so.
+	if !cmd.Flags().Changed("csv-header") && columnSpec != csvColumnsCore && columnSpec != "" {
+		output.csvHeader = true
+	}
+
+	return output, nil
+}
+
+// resolveCSVColumns turns a --csv-columns value into an ordered column set.
+func resolveCSVColumns(spec string) ([]postingColumn, error) {
+	var names []string
+
+	switch strings.TrimSpace(spec) {
+	case "", csvColumnsCore:
+		names = csvCoreColumnNames
+	case csvColumnsExtended:
+		names = csvExtendedColumnNames
+	default:
+		names = strings.Split(spec, ",")
+	}
+
+	columns := make([]postingColumn, 0, len(names))
+
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+
+		value, ok := postingColumns[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown --csv-columns entry %q: choose %s, %s, or a comma-separated list of %s",
+				name, csvColumnsCore, csvColumnsExtended, strings.Join(slices.Sorted(maps.Keys(postingColumns)), ", "))
+		}
+
+		columns = append(columns, postingColumn{name: name, value: value})
+	}
+
+	if len(columns) == 0 {
+		return nil, fmt.Errorf("--csv-columns %q selects no columns", spec)
+	}
+
+	return columns, nil
+}
+
 // newPostingPrinter returns a function that writes a posting in the requested
 // format, plus a flush function to call when the stream is complete.
-func newPostingPrinter(w io.Writer, asJSON, asCSV bool) (emit func(*internal.JobPosting) error, flush func() error, err error) {
+func newPostingPrinter(w io.Writer, output postingOutput) (emit func(*internal.JobPosting) error, flush func() error, err error) {
 	switch {
-	case asJSON:
+	case output.asJSON:
 		enc := json.NewEncoder(w)
 
 		return func(j *internal.JobPosting) error {
@@ -280,29 +545,36 @@ func newPostingPrinter(w io.Writer, asJSON, asCSV bool) (emit func(*internal.Job
 			return nil
 		}, func() error { return nil }, nil
 
-	case asCSV:
+	case output.asCSV:
 		cw := csv.NewWriter(w)
 
+		columns := output.csvColumns
+		if len(columns) == 0 {
+			// A zero-valued postingOutput still has to produce the historic
+			// eight columns, because that is what every existing caller means
+			// by "CSV".
+			if columns, err = resolveCSVColumns(csvColumnsCore); err != nil {
+				return nil, nil, err
+			}
+		}
+
+		if output.csvHeader {
+			names := make([]string, len(columns))
+			for i, column := range columns {
+				names[i] = column.name
+			}
+
+			if err := cw.Write(names); err != nil {
+				return nil, nil, fmt.Errorf("writing CSV header: %w", err)
+			}
+		}
+
+		record := make([]string, len(columns))
+
 		return func(j *internal.JobPosting) error {
-				// Pay columns are appended rather than inserted, so anything
-				// reading the original four fields keeps working. They are empty
-				// when the employer disclosed nothing, which is the common case.
-				var payMin, payMax, currency, period string
-
-				if !j.Compensation.IsZero() {
-					if j.Compensation.Min > 0 {
-						payMin = strconv.FormatFloat(j.Compensation.Min, 'f', -1, 64)
-					}
-
-					if j.Compensation.Max > 0 {
-						payMax = strconv.FormatFloat(j.Compensation.Max, 'f', -1, 64)
-					}
-
-					currency = j.Compensation.Currency
-					period = string(j.Compensation.Period)
+				for i, column := range columns {
+					record[i] = column.value(j)
 				}
-
-				record := []string{j.Company, j.Title, j.Location, j.URL, payMin, payMax, currency, period}
 
 				if err := cw.Write(record); err != nil {
 					return fmt.Errorf("writing CSV: %w", err)
@@ -317,17 +589,179 @@ func newPostingPrinter(w io.Writer, asJSON, asCSV bool) (emit func(*internal.Job
 
 	default:
 		return func(j *internal.JobPosting) error {
-			pay := ""
-			if !j.Compensation.IsZero() {
-				pay = " pay: " + describeCompensation(j.Compensation)
-			}
-
 			_, err := fmt.Fprintf(w, "company: %s title: %s location: %s%s url: %s\n",
-				j.Company, j.Title, j.Location, pay, j.URL)
+				j.Company, j.Title, j.Location, describePostingDetail(j), j.URL)
 
 			return err
 		}, func() error { return nil }, nil
 	}
+}
+
+// describePostingDetail renders the enrichment worth reading in the default
+// human format, as leading-space " key: value" segments to sit inside the
+// existing line.
+//
+// The rule is that a segment must tell the reader something the rest of the line
+// does not. One posting has to stay one line: the default output is what people
+// grep and eyeball at a few hundred results, and a crawl of 473,000 postings
+// turned into five lines each is unreadable. So:
+//
+//   - Workplace type prints only for remote and hybrid, and only when the
+//     location text does not already say it. "location: Remote workplace: remote"
+//     is noise on the majority of remote postings.
+//   - Employment type prints only when it is not full-time. Full-time is the
+//     assumption a reader already has, so printing it adds a column of text that
+//     changes nothing.
+//   - The posted date prints as a date, not a timestamp. Boards publish
+//     day-granularity truth even when they emit a clock time.
+//
+// Department, team, seniority, requisition and external ids and the source
+// identity are deliberately absent. They are for machine consumers, which have
+// --json and --csv-columns; on a terminal they would double the line length to
+// restate what the title and company usually already imply.
+func describePostingDetail(j *internal.JobPosting) string {
+	var detail strings.Builder
+
+	if workplace := j.WorkplaceType; workplace == internal.WorkplaceTypeRemote || workplace == internal.WorkplaceTypeHybrid {
+		if !strings.Contains(strings.ToLower(j.Location), string(workplace)) {
+			fmt.Fprintf(&detail, " workplace: %s", workplace)
+		}
+	}
+
+	if j.EmploymentType != internal.EmploymentTypeUnknown && j.EmploymentType != internal.EmploymentTypeFullTime {
+		fmt.Fprintf(&detail, " type: %s", j.EmploymentType)
+	}
+
+	if !j.Compensation.IsZero() {
+		fmt.Fprintf(&detail, " pay: %s", describeCompensation(j.Compensation))
+	}
+
+	if !j.PostedAt.IsZero() {
+		fmt.Fprintf(&detail, " posted: %s", j.PostedAt.UTC().Format(time.DateOnly))
+	}
+
+	return detail.String()
+}
+
+// joinValues renders a normalized vocabulary for flag help, so the values a user
+// is offered cannot drift from the values the filter accepts.
+func joinValues[T ~string](values []T) string {
+	names := make([]string, len(values))
+	for i, value := range values {
+		names[i] = string(value)
+	}
+
+	return strings.Join(names, ", ")
+}
+
+// parseEmploymentTypes validates --employment-type against the canonical
+// vocabulary.
+//
+// Unknown values are rejected at parse time rather than passed through to match
+// nothing. A filter that silently matches zero postings out of a 2,100-source
+// crawl reads as "nobody is hiring", which is the failure this project treats as
+// the worst one available.
+func parseEmploymentTypes(values []string) ([]internal.EmploymentType, error) {
+	var types []internal.EmploymentType
+
+	for _, raw := range values {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+
+		typ, ok := internal.NormalizeEmploymentType(raw)
+		if !ok {
+			return nil, fmt.Errorf("invalid --employment-type %q: valid values are %s",
+				raw, joinValues(internal.EmploymentTypeValues()))
+		}
+
+		types = append(types, typ)
+	}
+
+	return types, nil
+}
+
+// parseWorkplaceTypes validates --workplace-type against the canonical
+// vocabulary.
+func parseWorkplaceTypes(values []string) ([]internal.WorkplaceType, error) {
+	var types []internal.WorkplaceType
+
+	for _, raw := range values {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+
+		typ, ok := internal.NormalizeWorkplaceType(raw)
+		if !ok {
+			return nil, fmt.Errorf("invalid --workplace-type %q: valid values are %s",
+				raw, joinValues(internal.WorkplaceTypeValues()))
+		}
+
+		types = append(types, typ)
+	}
+
+	return types, nil
+}
+
+// parsePostedSince interprets --posted-since as either an instant or an age.
+//
+// Both forms exist because both are what people mean: a report run against a
+// fixed window wants a date, and a person checking what appeared this week wants
+// "7d". Ages are resolved against now once, at flag-parse time, so a crawl that
+// takes an hour does not shift its own cutoff underneath itself.
+func parsePostedSince(value string, now time.Time) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+
+	if instant, err := time.Parse(time.RFC3339, value); err == nil {
+		return instant.UTC(), nil
+	}
+
+	if day, err := time.Parse(time.DateOnly, value); err == nil {
+		return day, nil
+	}
+
+	if age, err := parseAge(value); err == nil {
+		if age <= 0 {
+			return time.Time{}, fmt.Errorf("invalid --posted-since %q: an age must be positive, and it is subtracted from now", value)
+		}
+
+		return now.Add(-age).UTC(), nil
+	}
+
+	return time.Time{}, fmt.Errorf(
+		"invalid --posted-since %q: want a date (2026-01-31), an RFC 3339 timestamp, or an age such as 7d, 2w or 72h", value)
+}
+
+// parseAge parses a duration, extending [time.ParseDuration] with the day and
+// week units it does not support. Nobody asks a job board for postings from the
+// last "168h".
+func parseAge(value string) (time.Duration, error) {
+	units := []struct {
+		suffix string
+		unit   time.Duration
+	}{
+		{"d", 24 * time.Hour},
+		{"w", 7 * 24 * time.Hour},
+	}
+
+	for _, u := range units {
+		digits, ok := strings.CutSuffix(value, u.suffix)
+		if !ok {
+			continue
+		}
+
+		count, err := strconv.ParseFloat(digits, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parsing age %q: %w", value, err)
+		}
+
+		return time.Duration(count * float64(u.unit)), nil
+	}
+
+	return time.ParseDuration(value)
 }
 
 // newCompaniesCommand builds the `companies` command.

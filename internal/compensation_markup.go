@@ -149,22 +149,37 @@ func nodeText(node *xhtml.Node) string {
 // parseMoneyRangeIn extracts a range, or failing that a single figure, from text
 // already known to describe pay. It enforces plausibility but not cue proximity.
 func parseMoneyRangeIn(text string) *Compensation {
+	// Matching and slicing both happen on this one string. The money patterns
+	// carry (?i) so the lowercased form yields the same matches, and running them
+	// against it is what keeps the offsets handed to buildCompensation in the
+	// same coordinate space as the string it slices; strings.ToLower can change
+	// byte length, which previously drifted the period window and could panic
+	// outright. See [ParseCompensationFromText].
 	lowered := strings.ToLower(text)
 
-	if match := moneyRangePattern.FindStringSubmatchIndex(text); match != nil {
-		low := parseMoney(text[match[2]:match[3]], group(text, match, 4))
-		high := parseMoney(text[match[6]:match[7]], group(text, match, 8))
+	if match := moneyRangePattern.FindStringSubmatchIndex(lowered); match != nil {
+		// A container that declares itself the pay range still does not get to
+		// name two currencies at once; refusing beats picking one.
+		if currency, agreed := currencyForMatch(lowered, match); agreed {
+			low := parseMoney(group(lowered, match, lowAmountGroup), group(lowered, match, lowMagnitudeGroup))
+			high := parseMoney(group(lowered, match, highAmountGroup), group(lowered, match, highMagnitudeGroup))
 
-		if comp := buildCompensation(low, high, lowered, match[1]); comp != nil {
-			return comp
+			if comp := buildCompensation(low, high, currency, lowered, match[1]); comp != nil {
+				return comp
+			}
 		}
 	}
 
-	if match := moneySinglePattern.FindStringSubmatchIndex(text); match != nil {
-		value := parseMoney(text[match[2]:match[3]], group(text, match, 4))
+	if match := moneySinglePattern.FindStringSubmatchIndex(lowered); match != nil {
+		if currency, agreed := currencyForMatch(lowered, match); agreed {
+			value := parseMoney(group(lowered, match, lowAmountGroup), group(lowered, match, lowMagnitudeGroup))
 
-		if comp := buildCompensation(value, 0, lowered, match[1]); comp != nil {
-			return comp
+			// "Up to $200,000 USD" inside the widget is a ceiling there too.
+			low, high := openEndedPair(lowered, match[0], match[1], value)
+
+			if comp := buildCompensation(low, high, currency, lowered, match[1]); comp != nil {
+				return comp
+			}
 		}
 	}
 
