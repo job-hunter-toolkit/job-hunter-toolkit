@@ -166,6 +166,7 @@ func BrassRing(ctx context.Context, httpClient *http.Client, key string) interna
 
 		var (
 			pages      pageRepeatGuard
+			dates      brassRingDateEvidence
 			totalPages = brassRingMaxPages
 			jobs       int
 			yielded    int
@@ -208,7 +209,8 @@ func BrassRing(ctx context.Context, httpClient *http.Client, key string) interna
 				break
 			}
 
-			dates := brassRingDateLayout(listed)
+			dates.observe(listed)
+			order := dates.order()
 
 			for _, job := range listed {
 				if ctx.Err() != nil {
@@ -232,7 +234,7 @@ func BrassRing(ctx context.Context, httpClient *http.Client, key string) interna
 					Location: brassRingLocation(gateway, job),
 
 					Department:    brassRingText(job.question(brassRingDepartmentQuestion)),
-					UpdatedAt:     brassRingTime(job.question(brassRingUpdatedQuestion), dates),
+					UpdatedAt:     brassRingTime(job.question(brassRingUpdatedQuestion), order),
 					RequisitionID: brassRingText(job.question(brassRingAutoReqQuestion)),
 					ExternalID:    brassRingText(job.question(brassRingRequisitionQuestion)),
 					Source: internal.PostingSource{
@@ -631,7 +633,8 @@ const (
 	brassRingDateDayFirst
 )
 
-// brassRingDateLayout decides how to read this page's slash-separated dates.
+// brassRingDateEvidence accumulates, over one gateway's pages, which way round
+// that gateway writes a slash-separated date.
 //
 // BrassRing writes "lastupdated" three different ways, all measured on
 // 2026-07-28: "27-Jul-2026" on most gateways, "07/27/2026" on Home Depot, GUESS,
@@ -640,15 +643,27 @@ const (
 // characters meaning different dates, and nothing in the response says which.
 //
 // Rather than guess from the host or the employer's country, the order is
-// inferred from the page itself: 50 postings updated over the last few weeks
-// almost always contain at least one date whose day exceeds 12, which settles it
-// for every posting on that page. When they do not, or when the page contradicts
-// itself, the dates on it are left unset — an absent UpdatedAt is visibly
-// absent, while a date read the wrong way round is silently wrong for eleven
-// months of the year.
-func brassRingDateLayout(jobs []brassRingJob) brassRingDateOrder {
-	var monthFirst, dayFirst bool
+// inferred from the gateway's own data: a date whose first number exceeds 12 can
+// only be day-first, one whose second number exceeds 12 can only be month-first.
+//
+// The evidence is deliberately kept for the whole source rather than judged one
+// page at a time, and that is not a detail. Measured on Home Depot's 22,751
+// postings: per page, only 53% got a date, because BrassRing sorts by date so a
+// page's fifty postings routinely share one value — page 100 was fifty copies of
+// "11/07/2025" and page 450 fifty copies of "11/09/2016", neither of which
+// settles anything on its own. Page 1 settles this gateway as month-first, and
+// carrying that forward dates the rest.
+//
+// A gateway that never produces evidence, or that contradicts itself, leaves its
+// slash dates unset: an absent UpdatedAt is visibly absent, while a date read the
+// wrong way round is silently wrong for eleven months of the year.
+type brassRingDateEvidence struct {
+	monthFirst bool
+	dayFirst   bool
+}
 
+// observe folds one page of jobs into the evidence.
+func (e *brassRingDateEvidence) observe(jobs []brassRingJob) {
 	for _, job := range jobs {
 		first, second, ok := brassRingSlashParts(job.question(brassRingUpdatedQuestion))
 		if !ok {
@@ -656,18 +671,21 @@ func brassRingDateLayout(jobs []brassRingJob) brassRingDateOrder {
 		}
 
 		if first > 12 {
-			dayFirst = true
+			e.dayFirst = true
 		}
 
 		if second > 12 {
-			monthFirst = true
+			e.monthFirst = true
 		}
 	}
+}
 
+// order reports what the evidence so far says.
+func (e brassRingDateEvidence) order() brassRingDateOrder {
 	switch {
-	case monthFirst && !dayFirst:
+	case e.monthFirst && !e.dayFirst:
 		return brassRingDateMonthFirst
-	case dayFirst && !monthFirst:
+	case e.dayFirst && !e.monthFirst:
 		return brassRingDateDayFirst
 	default:
 		return brassRingDateAmbiguous

@@ -383,6 +383,41 @@ func TestBrassRingReadsBothSlashDateOrders(t *testing.T) {
 	}
 }
 
+// TestBrassRingCarriesTheDateOrderAcrossPages is the case that made this
+// gateway-wide rather than per-page.
+//
+// BrassRing sorts by date, so a page's fifty postings routinely share one value:
+// Home Depot's page 100 is fifty copies of "11/07/2025" and its page 450 fifty
+// copies of "11/09/2016", neither of which settles month-first from day-first on
+// its own. Judged per page, only 53% of that gateway's 22,751 postings got a
+// date. Page 1 settles it, and the rest inherit that.
+func TestBrassRingCarriesTheDateOrderAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	job := func(id, date string) string {
+		return brassRingJobJSON("https://sjobs.brassring.com/x?jobid="+id, map[string]string{
+			"jobtitle": "Cashier " + id, "reqid": id, "lastupdated": date,
+		})
+	}
+
+	transport := &brassRingPageTransport{pages: map[string]string{
+		// 27 cannot be a month, so this page is month-first.
+		"1": `{"JobsCount":2,"Jobs":{"Job":[` + job("1", "07/27/2026") + `]}}`,
+		// Nothing on this page settles anything by itself.
+		"2": `{"JobsCount":2,"Jobs":{"Job":[` + job("2", "11/07/2025") + `]}}`,
+	}}
+
+	client := &http.Client{Transport: transport}
+
+	postings, errs := drain(BrassRing(t.Context(), client, "homedepot,25526,5032"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 2, postings)
+
+	test.Eq(t, time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC), postings[0].UpdatedAt)
+	test.Eq(t, time.Date(2025, time.November, 7, 0, 0, 0, 0, time.UTC), postings[1].UpdatedAt)
+}
+
 // brassRingFixture reads a page captured from a live BrassRing gateway.
 //
 // The capture under testdata is what the gateway answered with the first three
