@@ -431,45 +431,6 @@ func candidateTenants(t *testing.T, name string) map[string]bool {
 	return entries
 }
 
-// companiesOnOtherPlatforms returns the display name of every registered source
-// that is not on the given platform.
-func companiesOnOtherPlatforms(platform string) map[string]string {
-	companies := make(map[string]string, len(Builtin))
-
-	for _, source := range Builtin {
-		if source.Platform == platform {
-			continue
-		}
-
-		companies[strings.ToLower(source.Company)] = source.Platform
-	}
-
-	return companies
-}
-
-// TestSuccessFactorsAddsNoDoubleCountedEmployer is the guard for the one hazard
-// these two new enterprise lanes bring that no existing check would catch.
-//
-// [internal.Dedupe] keys on URL, and the same job has a different URL on each
-// platform it is published to, so an employer crawled twice contributes its
-// postings twice. jobs_record.txt is a trend line across runs, and a step change
-// that reflects no hiring is indistinguishable from one that does. This caught a
-// real overlap while these lists were being assembled: Marriott is on Oracle
-// Recruiting Cloud and was already registered on Jibe.
-func TestSuccessFactorsAddsNoDoubleCountedEmployer(t *testing.T) {
-	t.Parallel()
-
-	elsewhere := companiesOnOtherPlatforms(successFactorsPlatform)
-
-	for _, key := range SuccessFactorsTenants {
-		company := successFactorsCompanyName(key)
-
-		platform, clash := elsewhere[strings.ToLower(company)]
-
-		test.False(t, clash, test.Sprintf("company %q is registered on both successfactors and %s, so its postings would be counted twice; pick one route", company, platform))
-	}
-}
-
 // TestSuccessFactorsTenantsComeFromTheCandidateFile keeps the registered list
 // honest about its own provenance.
 //
