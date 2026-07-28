@@ -48,16 +48,16 @@ careers.amica.ca   # 103 live; registered
 careers.appliedmedical.com   # 215 live; registered
 careers.arcfield.com   # Arcfield — intel/C5ISR; 164 live; registered
 careers.atlanticcityelectric.com   # 93 live; alias of exeloncorp
-careers.avalara.com   # 133 live; registered
-careers.avispl.com   # 212 live; registered
+careers.avalara.com   # 133 live; registered; apply_url only, canonical route 42/43 (2026-07-28 sweep)
+careers.avispl.com   # 212 live; registered; apply_url only, canonical route 80/88 (2026-07-28 sweep)
 careers.axa.com   # 1537 live; registered
-careers.beazley.com   # Beazley; 39 live; registered
+careers.beazley.com   # Beazley; 39 live; registered; apply_url only, canonical route 39/42 (2026-07-28 sweep)
 careers.bge.com   # 93 live; alias of exeloncorp
 careers.bjsrestaurants.com   # 2040 live; registered
 careers.bowman.com   # Bowman Consulting; 333 live; registered
 careers.brasfieldgorrie.com   # Brasfield & Gorrie; 494 live; registered
 careers.brightviewseniorliving.com   # Brightview Senior Living; 325 live; registered
-careers.busybeeschildcare.co.uk   # 824 live; registered
+careers.busybeeschildcare.co.uk   # 824 live; registered; canonical route needs the /busybees landing path
 careers.callnorthwest.com   # 1231 live; alias of careers.orkin.com
 careers.canyonranch.com   # 146 live; registered
 careers.carlehealth.org   # Carle Health, IL; 742 live; registered
@@ -164,7 +164,7 @@ careers.rti.org   # 21 live; registered
 careers.sammonsfinancialgroup.com   # 40 live; registered
 careers.sarnova.com   # 1 live; registered
 careers.sca.health   # 685 live; registered
-careers.se.com   # 3070 live; registered
+careers.se.com   # 3070 live; registered; apply_url only, canonical route 115/133 (2026-07-28 sweep)
 careers.selectquote.com   # 23 live; registered
 careers.shrinerschildrens.org   # Shriners Children's; 15 live; registered
 careers.sightsavers.org   # 3 live; registered
@@ -250,11 +250,11 @@ jobs.trilogyhs.com   # 1563 live; registered
 jobs.tufts.edu   # 118 live; registered
 jobs.ufhealth.org   # 1354 live; registered
 jobs.uhsinc.com   # 5979 live; alias of uhs
-jobs.vnshealth.org   # 206 live; registered
+jobs.vnshealth.org   # 206 live; registered; canonical route needs the /careers-home landing path
 jobs.ynhhs.org   # 1538 live; registered
 join.casella.com   # Casella Waste Systems; 301 live; alias of casella
 join.readingandmath.org   # 45 live; registered
-karriere.korian.de   # 1478 live; registered
+karriere.korian.de   # 1478 live; registered; apply_url only, canonical route 58/104 (2026-07-28 sweep)
 lennox.jibeapply.com   # Lennox International; 366 live; registered
 lincolnapts2.jibeapply.com   # Willow Bridge Property Company; 408 live; alias of careers.willowbridgepc.com
 ltcrevolution.jibeapply.com   # 710 live; registered

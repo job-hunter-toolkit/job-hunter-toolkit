@@ -169,8 +169,6 @@ var reviewedDoubleCounts = map[string]struct {
 	// this project is still publishing. That is a data-quality question about one
 	// adapter's freshness, not a double count, and it wants its own measurement
 	// rather than a deletion decided here.
-	"fedex": {sameEmployerPartialOverlap, "jibe 4,933, workday FXE-EU_External 337 by its own total, " +
-		"1 shared posting; jibe advertises reqs workday answers 403 for, so jibe's index is likely stale"},
 
 	// One employer, two boards carrying different work. Both kept.
 	"homedepot": {sameEmployerDisjointBoards, "brassring 22,899 hourly and store roles, workday 972 corporate; " +
@@ -273,6 +271,15 @@ var reviewedDoubleCounts = map[string]struct {
 // cheaper-platform tie-break would have saved is 1.3 s per 1,000 postings, which
 // over 267 postings is about a third of a second.
 var deletedDoubleCountRoutes = map[string]string{
+	"jibe/fedex": "measured 2026-07-28 and deleted as a dead board, not as a duplicate. It advertised " +
+		"138,214 postings against 693 live requisitions across all 23 of FedEx's own Workday sites, and " +
+		"it names itself: ats_code is \"fedex-prod-historical-jobs-feed\" on 2,400 of 2,400 sampled " +
+		"postings. Every bucket that can be checked is delisted -- 320 of 320 sampled Workday " +
+		"requisitions answer 403 from FedEx's own CXS API (method validated: 12 of 12 taken off the live " +
+		"board answer 200, and a made-up one answers 404, so 403 is not a path artefact), all five " +
+		"BrassRing gateways report JobsCount 0, and 15 of 15 sampled Taleo apply URLs answer 404. The " +
+		"remaining 17.1% point at Paradox and cannot be checked without a browser. FedEx stays covered " +
+		"through its two registered Workday sites. See testdata/jibe_fedex_freshness.tsv",
 	"phenom/careers.southwestair.com": "measured 2026-07-28: phenom 18 postings, workday swa.wd1 43, zero raw " +
 		"URL overlap but 15 of the 18 phenom URLs are exactly a workday URL plus \"/apply\". Kept workday, " +
 		"which returns the larger board. Invisible to reviewedDoubleCounts because that map keys on company " +

@@ -99,7 +99,6 @@ var JibeCompanies = []string{
 	"emory",
 	"exeloncorp",
 	"farmersinsurance",
-	"fedex",
 	"footlocker",
 	"generalmills",
 	"githubinc",
@@ -532,14 +531,134 @@ func jibeCompensation(posting jibePosting) *internal.Compensation {
 	}
 }
 
-// jibeApplyURL returns a posting's link, resolved against the board it came from
-// when the board published a relative one.
+// jibeLandingPaths names the path a tenant's board serves job detail pages
+// under, for the tenants where it is not the platform default.
+//
+// Every Jibe board renders a posting at "/<landing>/jobs/<slug>", and on nearly
+// every tenant a bare "/jobs/<slug>" either is that route or redirects onto it.
+// Three registered boards do not redirect reliably, so the bare route lands on
+// the tenant's own home page with HTTP 200 and no posting on it — a soft 404,
+// which is the shape that would have shipped a wrong URL silently. Measured on
+// 2026-07-28, bare route then the path below:
+//
+//	cubesmart                        0/43 -> 40/40
+//	careers.busybeeschildcare.co.uk  0/43 -> 40/40
+//	jobs.vnshealth.org               2/43 -> 40/40
+//
+// The landing path is not published anywhere in the search payload. It is not
+// "meta_data.client_code" either: Busy Bees' client_code is
+// "busybeeschildcare" and its landing path is "/busybees". So this is a table,
+// kept deliberately small and each row measured.
+var jibeLandingPaths = map[string]string{
+	"cubesmart":                       "/careers-home",
+	"jobs.vnshealth.org":              "/careers-home",
+	"careers.busybeeschildcare.co.uk": "/busybees",
+}
+
+// jibeApplyURLOnly names the tenants that keep "apply_url" as their posting URL
+// because the canonical board route was measured NOT to resolve every posting.
+//
+// This is the output of the 2026-07-28 sweep of all 247 registered tenants
+// described on [jibeCanonicalURL]: a tenant is here when any sampled posting
+// failed to render on its own board. The rule is deliberately strict rather than
+// proportional — the fallback is what this adapter published before, so keeping
+// a tenant on it costs nothing, while promoting one on a 90%-good sample would
+// hand out dead links for the other 10%.
+//
+// The reasons are two different defects, both worth naming:
+//
+//   - fedex is not a public board at all. https://fedex.jibeapply.com/jobs/<slug>
+//     answers 302 to /fedex/jobs/<slug> and then to a SAML POST at
+//     purpleid.okta.com — FedEx's employee SSO. The /api/jobs endpoint this
+//     adapter reads is open; the pages it describes are not. See
+//     [jibeApplyURL] for what that board's apply URLs are worth.
+//
+//   - the other five publish one board across several regional iCIMS portals and
+//     render only part of it on the board host. careers.se.com's route resolved
+//     67 of 67 sampled postings whose apply_url was on careers-se.icims.com and
+//     2 of 13 on the zhcareers-, grcareers-, spcareers- and Taleo portals — and
+//     the iCIMS apply URL answered 200 for every one of those 13. Preferring the
+//     canonical route there would trade a working link for a 404.
+//
+//     karriere.korian.de is the same outcome with no portal pattern to it: 58 of
+//     104, spread across all three of its portals and all of them German, with
+//     the apply URL live on every failure. Its board's index is ahead of its
+//     pages, and nothing on the wire says which postings.
+var jibeApplyURLOnly = map[string]string{
+	"careers.avalara.com": "regional iCIMS portals; 42 of 43 sampled postings rendered",
+	"careers.avispl.com":  "regional iCIMS portals; 80 of 88 sampled postings rendered",
+	"careers.beazley.com": "regional iCIMS portals; 39 of 42 sampled postings rendered",
+	"careers.se.com":      "regional iCIMS portals; 115 of 133 sampled postings rendered",
+	"karriere.korian.de":  "three iCIMS portals on one German board; 58 of 104 sampled postings rendered",
+}
+
+// jibeCanonicalURL returns the posting's own page on the board it was crawled
+// from, or "" when this tenant has no verified canonical route.
+//
+// # Why this exists
+//
+// "apply_url" is the only link the search payload carries, and it is not a Jibe
+// URL. Measured across 414,311 Jibe postings on 2026-07-28 it resolved to 818
+// distinct hosts, and 164,143 of them — 39.6% — were not even iCIMS: 79,193
+// Workday, 28,178 BrassRing, 19,809 Paradox, 10,821 Cadient, 6,756 Taleo, plus
+// Oracle Cloud, ADP and Workable. So two of every five Jibe postings were
+// published under a `jibe` source label carrying another vendor's application
+// link. That is the same defect that made Lowe's and KBR double-count invisibly
+// on Phenom, on a board four times the size.
+//
+// # The route, and the sweep behind it
+//
+// "https://<board host>/<landing>/jobs/<slug>" is the posting's own page.
+// [jibeHost] already computes the host and "slug" is already decoded, so this
+// costs no extra request.
+//
+// docs/dedupe-audit.md verified that route on four tenants and stopped there,
+// because trusting it across the platform needed a sweep. The sweep was run on
+// 2026-07-28: every one of the 247 registered tenants, at least three sampled
+// postings each and up to 133 on the tenants that showed any failure, 2,094
+// probes in total, of which 2,015 passed. A probe passes only when the page
+// answers 200 AND carries that posting's own title — a soft 404 that renders the
+// careers home page with HTTP 200 is exactly what this is checking for, and
+// three tenants do that.
+//
+// Result: 241 of 247 tenants resolved every sampled posting, covering 293,757 of
+// the 436,900 postings the registry's Jibe boards report (67.2%). The six that
+// did not are in [jibeApplyURLOnly] with their measured counts, and 138,214 of
+// the 143,143 postings they hold are FedEx alone.
+//
+// The per-tenant results are recorded in testdata/jibe_canonical_route_sweep.tsv
+// and pinned by TestJibeCanonicalRouteMatchesTheSweep, so a tenant added to
+// [JibeCompanies] without being swept fails the build rather than quietly
+// inheriting a route nobody checked.
+//
+// Slug is safe to put in a path: it was populated on 3,735 of 3,735 postings
+// sampled across 45 tenants, and every value matched [0-9A-Za-z._-]. It is
+// escaped anyway, because a tenant whose ATS is not iCIMS is free to differ —
+// petsmart's feed is Cadient and fedex's calls itself a historical jobs feed.
+func jibeCanonicalURL(key, slug string) string {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return ""
+	}
+
+	if _, applyOnly := jibeApplyURLOnly[key]; applyOnly {
+		return ""
+	}
+
+	return "https://" + jibeHost(key) + jibeLandingPaths[key] + "/jobs/" + url.PathEscape(slug)
+}
+
+// jibeApplyURL returns a posting's "apply_url", resolved against the board it
+// came from when the board published a relative one.
+//
+// This is the fallback [jibeJobPosting] uses when [jibeCanonicalURL] has nothing
+// for the tenant. It is kept because this project's contract is that every
+// posting carries a URL a person can open, and dropping the six tenants that
+// have no verified canonical route would drop 143,143 postings.
 //
 // "apply_url" is usually absolute, and usually points at a different system:
 // iCIMS for most tenants, but also Workday, BrassRing, Taleo, Oracle Cloud and
-// ADP. That is the platform's shape and this adapter has no alternative, since
-// the search payload carries no link of its own — "slug" is the requisition
-// number, not a path.
+// ADP.
 //
 // A minority are root-relative. Measured on 2026-07-28 across a 685,000-posting
 // crawl, 4,249 postings — every one of them FedEx — carried "apply_url" as
@@ -563,12 +682,23 @@ func jibeApplyURL(key, applyURL string) string {
 
 // jibePosting converts one decoded search result into a posting, reporting false
 // when the board left out something a job seeker needs.
+//
+// The URL is the posting's own page on the board it was crawled from when this
+// tenant has a verified canonical route ([jibeCanonicalURL]), and the board's
+// "apply_url" otherwise ([jibeApplyURL]). Preferring the canonical route is what
+// stops this project republishing another vendor's application links under a
+// `jibe` source label; keeping the fallback is what stops the six tenants
+// without one from losing their postings entirely.
 func jibeJobPosting(company, key string, item jibePosting) (*internal.JobPosting, bool) {
 	var (
-		link     = jibeApplyURL(key, item.ApplyURL)
+		link     = jibeCanonicalURL(key, item.Slug.text())
 		title    = strings.TrimSpace(item.Title)
 		location = strings.TrimSpace(item.FullLocation)
 	)
+
+	if link == "" {
+		link = jibeApplyURL(key, item.ApplyURL)
+	}
 
 	if link == "" || title == "" || location == "" {
 		return nil, false

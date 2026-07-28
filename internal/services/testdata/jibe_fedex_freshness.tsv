@@ -1,0 +1,81 @@
+# FedEx freshness measurement, jibe/fedex board, 2026-07-28.
+#
+# docs/dedupe-audit.md left this open: jibe's view of FedEx carries far more
+# postings than FedEx's own Workday boards do, and the reading recorded in
+# double_count_test.go was that jibe's index is stale rather than richer. This
+# is that measurement, and it is worse than the audit guessed.
+#
+# Sample: 2,400 postings drawn from 24 pages spread across the board's 1,383
+# (totalCount 138,214 on 2026-07-28).
+#
+# ats_code on all 2,400: "fedex-prod-historical-jobs-feed". The board names
+# itself a historical feed.
+#
+# Where the apply URLs point:
+#
+#   fedex.wd1.myworkdayjobs.com       1589   66.2%
+#   fedex.paradox.ai                   410   17.1%
+#   sjobs.brassring.com                258   10.8%
+#   genco.taleo.net                     88    3.7%
+#   (relative)                          55    2.3%
+#
+# Workday, 66.2% of the board. Checked against FedEx's own CXS API, which is
+# the employer's live board: 200 = still listed, 403 = exists but withdrawn,
+# 404 = no such requisition. Validated first -- a listed requisition answers 200
+# even with a deliberately wrong location segment in the path, and 12 of 12
+# requisitions taken straight off the live board answered 200 -- so 403 is not a
+# path artefact.
+#
+#   320 of 320 sampled requisitions answered 403. NONE is live.
+#
+# Site totals from FedEx's own Workday, same day (sum 693 live requisitions
+# across all 23 sites jibe advertises, against roughly 91,000 Workday-backed
+# jibe postings):
+#
+#   FCC_Cross_OpCo                         0
+#   FCC_External                           2
+#   FDW_Cross_OpCo                         0
+#   FDW_EU_External_Career_Site            1
+#   FDW_External_Career_Site               0
+#   FFC_External                           2
+#   FTN_APAC_External                      7
+#   FTN_CAN_External                      24
+#   FTN_Cross_OpCo                         0
+#   FTN_EMEIA_External                     7
+#   FTN_External_Career_Site               0
+#   FXC_Cross_OpCo                         0
+#   FXE-Canada_External_Career_Site       37
+#   FXE-EU_External                      346
+#   FXE-LAC_External_Career_Site         105
+#   FXE-MEISA-External                    60
+#   FXE-US_External_Career_Site            0
+#   FXE_APAC_External                    102
+#   FXF_External_Career_Site               0
+#   FXO_Cross_OpCo                         0
+#   FXO_External                           0
+#   FXS-FXC_External_Career_Site           0
+#   FXS_Cross_OpCo                         0
+#
+# BrassRing, 10.8% of the board: all five partnerid/siteid gateways jibe points
+# at report JobsCount 0 through the same endpoint internal/services/brassring.go
+# uses. Taleo, 3.7%: 15 of 15 sampled apply URLs answered 404. Paradox, 17.1%:
+# UNVERIFIED -- the endpoint answers 202 with an empty body for a real job_id and
+# for a made-up one alike, so it carries no signal without a browser. Relative,
+# 2.3%: resolves onto fedex.jibeapply.com, which is behind employee SSO.
+#
+# So 80.7% of this board is verifiably delisted work and 17.1% cannot be checked.
+#
+# site	cxs_status	requisitions
+FTN_CAN_External	403	2
+FTN_Cross_OpCo	403	3
+FTN_External_Career_Site	403	3
+FXE-Canada_External_Career_Site	403	9
+FXE-EU_External	403	57
+FXE-LAC_External_Career_Site	403	41
+FXE-MEISA-External	403	2
+FXE-US_External_Career_Site	403	102
+FXE_APAC_External	403	17
+FXF_External_Career_Site	403	26
+FXO_Cross_OpCo	403	40
+FXO_External	403	13
+FXS-FXC_External_Career_Site	403	5
