@@ -39,19 +39,40 @@ import (
 // wrong way to find out.
 const MaxBody = 64 << 20
 
+// Product is how the generator introduces itself, before the contact is
+// appended.
+//
+// It is deliberately NOT built from [httpx.DefaultUserAgent]. That constant
+// embeds this project's GitHub URL, and a live probe on 2026-07-28 measured SEC
+// EDGAR answering 403 "Your Request Originates from an Undeclared Automated
+// Tool" to every User-Agent containing the substring "github", whatever else the
+// header said:
+//
+//	job-hunter-toolkit/0.0.0                                    -> 200
+//	job-hunter-toolkit/0.0.0 (+https://example.com/x)            -> 200
+//	somebot (+https://gitlab.com/x)                              -> 200
+//	somebot (+https://github.com/x)                              -> 403
+//	job-hunter-toolkit/0.0.0 (+https://github.com/...) (contact: ops@example.com) -> 403
+//
+// The last line is what the generator used to send, so before this change every
+// EDGAR request a run made was refused and no table could ever be written. The
+// crawler's own user agent is untouched: job boards are not SEC, and the whole
+// reason the generator sends its own header is so one upstream's policy cannot
+// change how this project introduces itself to another's.
+const Product = "job-hunter-toolkit-enrichment/1.0"
+
 // UserAgent builds the contact-bearing User-Agent both SEC and Wikimedia
-// require, and refuses to build one without a contact.
+// require, and refuses to build one without a usable contact.
 //
-// httpx.DefaultUserAgent now carries a contact URL — the issue tracker — which
-// satisfies Wikimedia's policy, but SEC publishes its requirement in the form
-// "Sample Company Name AdminContact@<domain>.com", an address rather than a
-// tracker. Rather than change the crawler's user agent for every job board, the
-// generator sends its own, so a policy change at SEC can never alter how this
-// project introduces itself to a job board.
+// SEC publishes its requirement in the form "Sample Company Name
+// AdminContact@<domain>.com", an address rather than a tracker, and Wikimedia's
+// policy asks for an email or a full URL. An address satisfies both, so that is
+// what this asks for.
 //
-// The error is deliberate and fail-closed. An anonymous generator run is exactly
-// the request SEC blocks, and discovering that from a ten-minute IP block in CI
-// is a worse way to learn it than a startup error.
+// The errors are deliberate and fail-closed. An anonymous run is exactly the
+// request SEC blocks, and a run whose contact reintroduces "github" into the
+// header is the measured 403 above — discovering either from a wall of 403s in
+// CI is a worse way to learn it than a startup error.
 func UserAgent(contact string) (string, error) {
 	contact = strings.TrimSpace(contact)
 
@@ -63,7 +84,14 @@ func UserAgent(contact string) (string, error) {
 		return "", fmt.Errorf("invalid contact %q: a header value cannot contain a newline", contact)
 	}
 
-	return httpx.DefaultUserAgent + " (enrichment generator; contact: " + contact + ")", nil
+	// Measured, not assumed: see [Product]. This project's own repository URL is
+	// the most natural thing for a maintainer to reach for as a contact, and it
+	// is the one string that makes every EDGAR request fail.
+	if strings.Contains(strings.ToLower(contact), "github") {
+		return "", fmt.Errorf("invalid contact %q: SEC EDGAR answers 403 %q to any User-Agent containing \"github\", so a GitHub URL or handle cannot be the contact; use an email address, which is the form SEC's access policy documents", contact, "Undeclared Automated Tool")
+	}
+
+	return Product + " (contact: " + contact + ")", nil
 }
 
 // Client returns an HTTP client for one upstream service: the shared retry and

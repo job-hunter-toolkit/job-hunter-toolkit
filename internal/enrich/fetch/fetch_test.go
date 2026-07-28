@@ -2,6 +2,7 @@ package fetch_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +34,33 @@ func TestUserAgentRefusesToBeAnonymous(t *testing.T) {
 	must.NoError(t, err)
 	must.StrContains(t, agent, "ops@example.com")
 	must.StrContains(t, agent, "job-hunter-toolkit")
+}
+
+// TestUserAgentCarriesNoGitHubURL pins the fix for a bug that only a live run
+// could find.
+//
+// Measured against data.sec.gov on 2026-07-28: EDGAR answers 403 "Your Request
+// Originates from an Undeclared Automated Tool" to any User-Agent containing
+// "github", and 200 to the same header with "gitlab.com" or "example.com" in
+// place of it. The generator used to build its agent by appending the contact to
+// httpx.DefaultUserAgent, which embeds this project's GitHub URL, so every EDGAR
+// request it made was refused no matter what contact was supplied.
+func TestUserAgentCarriesNoGitHubURL(t *testing.T) {
+	t.Parallel()
+
+	agent, err := fetch.UserAgent("ops@example.com")
+	must.NoError(t, err)
+	must.StrNotContains(t, strings.ToLower(agent), "github")
+
+	// And the contact itself cannot smuggle it back in, which is the mistake a
+	// maintainer filling in a workflow variable would most naturally make.
+	for _, contact := range []string{
+		"https://github.com/job-hunter-toolkit/job-hunter-toolkit/issues",
+		"ops@GitHub.com",
+	} {
+		_, err := fetch.UserAgent(contact)
+		must.ErrorContains(t, err, "Undeclared Automated Tool")
+	}
 }
 
 // TestClientSendsTheContactBearingUserAgent checks the agent reaches the wire
