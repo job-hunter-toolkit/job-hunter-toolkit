@@ -445,3 +445,27 @@ func TestEveryReviewedDoubleCountCarriesItsEvidence(t *testing.T) {
 			must.Sprintf("%q has a verdict but records no evidence for it", name))
 	}
 }
+
+// TestNoOverlapIsLeftRecordedAsAnUnresolvedDuplicate asserts that no row is
+// sitting at [sameEmployer].
+//
+// That verdict means both boards serve the same openings, which is the one case
+// where a route should be deleted rather than recorded. Leaving the row instead
+// would park a known double count in the trend line indefinitely with a note
+// explaining it, which is worse than either fixing it or not noticing it: the
+// number stays wrong and the wrongness looks reviewed.
+//
+// So [sameEmployer] is a transient state a maintainer passes through while
+// resolving an overlap, not a resting place. The resolution lands in
+// [deletedDoubleCountRoutes], and this is what stops it being skipped.
+func TestNoOverlapIsLeftRecordedAsAnUnresolvedDuplicate(t *testing.T) {
+	t.Parallel()
+
+	for name, reviewed := range reviewedDoubleCounts {
+		test.NotEq(t, sameEmployer, reviewed.verdict, test.Sprintf(
+			"%q is recorded as sameEmployer, which means both boards serve the same openings. "+
+				"Delete the weaker route and record it in deletedDoubleCountRoutes with the "+
+				"measurement, rather than leaving a known double count in the registry: %s",
+			name, reviewed.note))
+	}
+}
