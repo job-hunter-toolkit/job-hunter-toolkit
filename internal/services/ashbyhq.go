@@ -87,7 +87,6 @@ var AshbyHQCompanies = []string{
 	"character",
 	"checkly",
 	"chestnut",
-	"circle",
 	"clarisights",
 	"claylabs",
 	"clearco",
@@ -419,6 +418,11 @@ var AshbyHQCompanies = []string{
 	"vellum",
 	"vetcove",
 	"virtahealth",
+	// Voodoo moved here from Lever: the lever slug 404s (confirmed twice on
+	// 2026-07-28) while this board answered 200 with 110 postings. Identity
+	// checked against the titles and locations -- "Game Developer - Puzzle
+	// Games", Paris -- so it is the mobile-games publisher, not a namesake.
+	"voodoo",
 	"vultr",
 	"warp",
 	"watershed",

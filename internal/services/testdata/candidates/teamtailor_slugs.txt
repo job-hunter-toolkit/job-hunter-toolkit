@@ -418,7 +418,11 @@ aktiviaassistans  # ? (20 live jobs; ~17 in our index) [discovered apply-url]
 audencia  # ? (13 live jobs; ~17 in our index) [discovered apply-url]
 bashor  # ? (11 live jobs; ~17 in our index) [discovered apply-url]
 condeco-1741867353  # ? (2 live jobs; ~17 in our index) [discovered apply-url]
-easykind  # ? (2 live jobs; ~17 in our index) [discovered apply-url]
+easykind  # DEAD since promotion. Was promoted from this line and answered 200
+          # with 2 jobs on 2026-07-28; the full crawl that day failed on it, and
+          # https://easykind.teamtailor.com/jobs.json answers 404 on two probes
+          # spaced apart while a control tenant (tibber) answers 200. Removed
+          # from TeamtailorCompanies. Do not re-promote from this file.
 ekidomvf-1740745963  # ? (4 live jobs; ~17 in our index) [discovered apply-url]
 houseofcontrol  # ? (1 live jobs; ~17 in our index) [discovered apply-url]
 slantis.na  # ? (14 live jobs; ~17 in our index) [discovered apply-url]

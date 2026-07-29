@@ -152,9 +152,6 @@ var reviewedDoubleCounts = map[string]struct {
 	"deepmind": {sameEmployerDisjointBoards, "direct 89 postings from deepmind.google, greenhouse 10, " +
 		"zero shared URLs and zero shared title+location pairs. The Alphabet adapter landed in #34 and the " +
 		"greenhouse board is a small separate listing"},
-	"netflix": {oneSided, "eightfold 476, lever returned none. #35 recorded the same thing when it added " +
-		"the eightfold tenant: the lever slug is stale rather than duplicated, and is left registered because " +
-		"an empty board is not evidence of a dead one"},
 
 	// Measured 2026-07-28 by the URL sweep in docs/dedupe-audit.md, which is why
 	// this is no longer `unmeasured`. The two routes are structurally the same
@@ -271,6 +268,11 @@ var reviewedDoubleCounts = map[string]struct {
 // cheaper-platform tie-break would have saved is 1.3 s per 1,000 postings, which
 // over 267 postings is about a third of a second.
 var deletedDoubleCountRoutes = map[string]string{
+	"lever/netflix": "removed as a dead board rather than as a duplicate, and recorded here because it " +
+		"was both. #35 observed Netflix's Lever board empty while its Eightfold board carried 476 " +
+		"postings, and the 2026-07-29 prune confirmed the Lever slug gone on repeat probes. Re-adding it " +
+		"would restore a dead source AND recreate the eightfold/lever collision, so it is pinned here " +
+		"where TestDeletedDoubleCountRoutesStayDeleted will catch it",
 	"jibe/fedex": "measured 2026-07-28 and deleted as a dead board, not as a duplicate. It advertised " +
 		"138,214 postings against 693 live requisitions across all 23 of FedEx's own Workday sites, and " +
 		"it names itself: ats_code is \"fedex-prod-historical-jobs-feed\" on 2,400 of 2,400 sampled " +

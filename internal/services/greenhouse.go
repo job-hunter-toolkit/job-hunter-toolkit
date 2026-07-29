@@ -189,7 +189,6 @@ var GreenhouseCompanies = []string{
 	"datadog",
 	"datagrail",
 	"dawnaerospace",
-	"dbtlabsinc",
 	"deepmind",
 	"deepwatchinc",
 	"definitivehc",
@@ -374,6 +373,11 @@ var GreenhouseCompanies = []string{
 	"marshallwace",
 	"mavenclinic",
 	"maymobility",
+	// Medium moved here from Lever: the lever slug 404s ("Document not found",
+	// confirmed twice on 2026-07-28) while this board answers 200. Identity
+	// checked in the posting body, "Medium is one of the world's most
+	// influential writing platforms", not another company holding a short name.
+	"medium",
 	"melio",
 	"mercury",
 	"metronome",

@@ -336,7 +336,6 @@ var TeamtailorCompanies = []string{
 	"dykarbarensandhamn",
 	"eachone",
 	"easpring",
-	"easykind",
 	"eathappygmbh-1734343618",
 	"eathappygroup",
 	"eathappyslovakia",
