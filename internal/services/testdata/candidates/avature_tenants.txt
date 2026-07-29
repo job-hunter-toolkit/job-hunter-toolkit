@@ -1,152 +1,205 @@
 # ============================================================================
 # Avature career sites, one `slug,host,section` triple per line.
 #
-# NOTHING HERE IS REGISTERED, AND THERE IS NO avature.go. The platform was
-# probed far enough to say it is feasible and to leave the next person a
-# measurement instead of a guess; the adapter itself was not written, because
-# the session that got this far spent its remaining budget on iCIMS.
+# 73 OF THE 87 BELOW ARE NOW REGISTERED, in internal/services/avature.go. Read
+# that file's [AvatureCareerSites] doc for the adapter's side of this; what
+# follows is the measurement, and the record of what was left out and why.
 #
-# PROVENANCE. The 87 triples come from the curated list at
+# PROVENANCE. The 87 slugs come from the curated list at
 # https://raw.githubusercontent.com/dtunkelang/job-search/main/slugs/avature_tenants.txt
-# (downloaded 2026-07-28), whose header says each was verified live on
-# 2026-06-18. The "~N" employer annotations are that curator's, kept verbatim.
-# Everything after "PROBED 2026-07-28" is this project's own measurement.
+# (downloaded 2026-07-28). The host and section on every line below are this
+# project's own, re-measured on 2026-07-29, and 59 of them are NOT what that
+# list or the 2026-07-28 revision of this file said.
 #
-# WHAT WAS MEASURED, 2026-07-28, one GET per tenant:
+# ---------------------------------------------------------------------------
+# WHAT WAS MEASURED, 2026-07-29
+# ---------------------------------------------------------------------------
 #
-#   GET https://{host}{section}/SearchJobs/?jobOffset=0
+# Every one of the 87 was walked to its last page:
 #
-#   87 of 87 answered HTTP 200 with at least one JobDetail link.
-#   0 were bot-walled (the HTTP 202 empty-body challenge the upstream header
-#     warns about) and 0 carried "Mandatory Login" or a FolderDetail redirect.
+#   87 sites, 3,352 HTTP requests, 27,747 distinct posting URLs
+#   = 8.3 postings per request
 #
-# That is a better result than docs/research/ats-platform-survey.md predicted
-# and than the upstream list's own DROPPED section implies, and it is the one
-# thing worth acting on: the runtime bot-wall and login-wall handling the survey
-# says an Avature adapter "must" have was not needed by any of the 87 from here.
-# It may still be needed from a different network.
+# and the 73 registered are:
 #
-# WHAT WAS NOT MEASURED, and must be before anything is registered:
+#   73 sites, 2,141 HTTP requests, 18,028 distinct posting URLs
+#   = 8.4 postings per request
 #
-#   * postings per request. The counts below are DISTINCT JobDetail hrefs on
-#     page 1, not postings: Avature renders more than one anchor per posting on
-#     some skins, so 6 links can be 6 postings or 3. The distribution is wide
-#     (6 on 17 tenants, 30 on 13, 20 on 11, 120 on 2), which is either a real
-#     per-tenant page size or an artefact of that double counting. Until it is
-#     resolved this platform's cost per posting is unknown, and the survey's
-#     estimate of 6-10 results per page would make it the most expensive lane in
-#     the registry.
-#   * pagination termination. jobOffset is an offset, not a page number, and
-#     nothing here has checked what a past-the-end offset returns. That is the
-#     single thing an Avature adapter must get right: this codebase has already
-#     had an offset loop run 5,001 times against a board that ignored its
-#     parameter.
-#   * the canonical posting URL. It must be the tenant's own JobDetail page.
-#     Several of these employers are large enough to also be in this registry on
-#     another platform, and an apply URL pointing elsewhere is what caused every
-#     double count found in this repo.
-#   * the "stated total" recorded below is the first "of N" number on the page
-#     and is NOT trustworthy: six tenants state exactly 999, which is a display
-#     cap rather than a board size.
+# The 2026-07-28 revision left four questions open. All four are answered.
 #
-# ALSO WORTH KNOWING. The section is per tenant and not derivable -- the 87
-# below use /careers, /en_US/careers, /campuscareers, /jobs, /en_GB/careers and
-# more -- and one entry (tesco) is on the employer's own host,
-# careers.tesco.com, rather than on *.avature.net. So an Avature key is a
-# (host, section) pair, which is the composite-tenancy shape
-# docs/research/ats-platform-survey.md warns about.
+# 1. POSTINGS PER REQUEST. The "N JobDetail links" counts recorded here on
+#    2026-07-28 were inflated by up to 5x: every result row also carries
+#    "mailto:?body=<the same URL>" share links and, on some skins, a
+#    percent-encoded copy of the URL inside a social-share query string. Counted
+#    by the row's own title link, page size is a per-tenant setting and was 2, 5,
+#    6, 10, 12, 15, 18, 19, 20 or 25. The platform-wide figure is 8.3 per
+#    request, which is in the range docs/research/ats-platform-survey.md
+#    predicted (6-10) and makes this the second most expensive lane in the
+#    registry after Paylocity.
 #
-# Pacing when it lands: *.avature.net is one vendor backend and wants a shared
-# limiter key, like *.icims.com. careers.tesco.com is a vanity front onto the
-# same backend and belongs in the same key, which is what
-# httpx.RegisterSharedBackend exists for.
+# 2. PAGINATION TERMINATION. jobOffset is a true record offset: offset 3 on
+#    ally.avature.net returns records 3-8. Past the end it does NOT error. It
+#    answers HTTP 200 with a "No jobs found" page that still carries a Next link
+#    pointing at jobOffset=6 -- measured at offsets 66, 72 and 600. Following it
+#    would oscillate forever, so the adapter requires the next offset to
+#    strictly increase and ends on a page with no postings.
 #
-# Format: slug,host,section  # upstream annotation | this project's probe
+#    Worse, and not previously known: THE PLATFORM STOPS PAGING AT 2,000
+#    RECORDS. nva.avature.net answered offset 2000 with ten postings and offset
+#    2010 with a 333 KB "Oops... Something went wrong" page, HTTP 200.
+#    manpowergroupco.avature.net did the same at 2004, in Spanish. So a career
+#    site with more than 2,000 openings cannot be read to the end at all, and a
+#    naive walk reports the ~2,010 it reached as the employer's total with no
+#    sign anything is missing. Four sites are already past it and none of the
+#    four is registered.
+#
+# 3. THE CANONICAL POSTING URL. Every registered posting URL is
+#    https://{host}{section}/JobDetail/{title-slug}/{id} on the site's own host,
+#    query string dropped. The adapter rejects any link on another host, which
+#    is how the redirects in point 4 were found.
+#
+# 4. THE "STATED TOTAL" recorded here on 2026-07-28 is now irrelevant and was
+#    indeed untrustworthy: six sites stated exactly 999 and one of those,
+#    dpdhlgroup, publishes at least 2,010. The walk counts postings instead.
+#
+# ---------------------------------------------------------------------------
+# 59 OF 87 SITES ANSWER SOMEWHERE ELSE
+# ---------------------------------------------------------------------------
+#
+# The single biggest correction. Requesting {tenant}.avature.net{section} still
+# returns HTTP 200, but 59 of the 87 get there by a redirect, and the postings on
+# the destination page are written with the destination's host:
+#
+#   26 redirect onto the employer's own hostname -- ea.avature.net -> jobs.ea.com,
+#      justicejobs.avature.net -> jobs.justice.gov.uk, colorado.avature.net ->
+#      jobs.colorado.edu, lululemoninc.avature.net -> careers.lululemon.com,
+#      stjude.avature.net -> talent.stjude.org, and 21 more;
+#   33 redirect onto a locale-prefixed section on the same host --
+#      koch.avature.net/careers -> koch.avature.net/en_US/careers,
+#      mercadona -> /es_ES/careers, lindner -> /de_DE/careers, bnc -> /fr_CA/careers.
+#
+# Each line below carries the destination, and the note says what the old value
+# was. This also settles the pacing question: only 61 of the 87 hosts are under
+# avature.net at all, so a `.avature.net` suffix arm in httpx.servicePolicyFor
+# would miss 26 of them. avature.go registers the host list explicitly with
+# httpx.RegisterSharedBackend instead.
+#
+# ---------------------------------------------------------------------------
+# THE BOT WALL AND LOGIN WALL DID NOT APPEAR, FROM HERE
+# ---------------------------------------------------------------------------
+#
+# docs/research/ats-platform-survey.md says an Avature adapter must drop
+# bot-walled (HTTP 202, empty body) and login-walled (FolderDetail / "Mandatory
+# Login") tenants. Neither was seen from this network on either date, and the
+# adapter handles both anyway because "not seen from one network" is not
+# "does not happen".
+#
+# What DID appear is a rate limit. Walked at three concurrent requests across
+# the whole platform, four sites failed mid-walk -- koch with HTTP 406 after 335
+# requests, and justicejobs, lululemoninc and radpartners with transport
+# failures. All four completed cleanly at one request every 0.9s. That is one
+# vendor backend refusing a burst, which is why every host here shares a limiter
+# key.
+#
+# ---------------------------------------------------------------------------
+# ONE THING STILL NOT MEASURED
+# ---------------------------------------------------------------------------
+#
+# Whether the registered set overlaps employers this project already crawls, for
+# names that are not identical strings. Two exact display-name collisions were
+# found (skanska and stjude, both against jibe) and both are left unregistered
+# pending a verdict in double_count_test.go. Several more are plausible on the
+# employer rather than the slug -- deloitteus/deloittece/deloittebe/deloittecm
+# against the three SuccessFactors Deloitte tenants and the SmartRecruiters
+# DeloitteNetherlands, and dhlconsulting against oracle_orc -- and none of those
+# has been compared board to board.
+#
+# Format: slug,host,section  # measured 2026-07-29. status
 # ============================================================================
-xerox,xerox.avature.net,/en_US/careers                     # ~371  Xerox | PROBED 2026-07-28: 200, 25 JobDetail links on page 1, stated total 357
-synopsys,synopsys.avature.net,/careers                     # ~711  Synopsys | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 410
-unifi,unifi.avature.net,/careers                           # ~730  Unifi | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total 717
-nva,nva.avature.net,/careers                               # ~999  NVA (pet hospitals) | PROBED 2026-07-28: 200, 10 JobDetail links on page 1, stated total 999
-deloittebe,deloittebe.avature.net,/en_US/careers           # ~226  Deloitte Belgium | PROBED 2026-07-28: 200, 54 JobDetail links on page 1, stated total 241
-deloittecm,deloittecm.avature.net,/en_US/careers           # ~505  Deloitte Central Mediterranean | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 441
-forvis,forvis.avature.net,/campuscareers                   # ~36   Forvis Mazars (campus) | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 69
-onecall,onecall.avature.net,/careers                       # ~14   One Call | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 19
-tesco,careers.tesco.com,/en_GB/careers                     # ~999  Tesco UK (CNAME front; geo/date via JobPosting ld+json) | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 999
-bloomberg,bloomberg.avature.net,/careers                   # bloomberg (434 live jobs; ~926 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 12 JobDetail links on page 1, stated total 415
-dpdhlgroup,dpdhlgroup.avature.net,/jobs                    # dhl (999 live jobs; ~875 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 40 JobDetail links on page 1, stated total 999
-ea,ea.avature.net,/careers                                 # ea (378 live jobs; ~510 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 120 JobDetail links on page 1, stated total 390
-justicejobs,justicejobs.avature.net,/careers               # justicejobs (475 live jobs; ~498 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 415
-ciusss,ciusss.avature.net,/careers                         # ciusss (6 live jobs; ~491 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 24 JobDetail links on page 1, stated total None
-astellas,astellas.avature.net,/careers                     # astellas (52 live jobs; ~190 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 39
-amswh,amswh.avature.net,/careers                           # amswh (5 live jobs; ~173 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total None
-cdcn,cdcn.avature.net,/careers                             # cdcn (192 live jobs; ~171 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 100 JobDetail links on page 1, stated total 193
-mercadona,mercadona.avature.net,/careers                   # mercadona (6 live jobs; ~150 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 36 JobDetail links on page 1, stated total None
-astellasjapan,astellasjapan.avature.net,/careers           # astellasjapan (57 live jobs; ~137 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 40 JobDetail links on page 1, stated total 57
-gpshospitality,gpshospitality.avature.net,/careers         # gpshospitality (999 live jobs; ~130 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 51 JobDetail links on page 1, stated total 999
-jakala,jakala.avature.net,/careers                         # jakala (54 live jobs; ~120 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 24 JobDetail links on page 1, stated total 61
-cyclecarriage,cyclecarriage.avature.net,/careers           # cyclecarriage (37 live jobs; ~116 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 90 JobDetail links on page 1, stated total 37
-baufest,baufest.avature.net,/jobs                          # baufest (20 live jobs; ~104 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total None
-sandboxea,sandboxea.avature.net,/careers                   # sandboxea (441 live jobs; ~99 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 120 JobDetail links on page 1, stated total 448
-ally,ally.avature.net,/careers                             # ally (67 live jobs; ~93 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 68
-broadinstitute,broadinstitute.avature.net,/careers         # broadinstitute (32 live jobs; ~82 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 40
-radpartners,radpartners.avature.net,/careers               # radpartners (674 live jobs; ~77 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 654
-mantech,mantech.avature.net,/careers                       # mantech (778 live jobs; ~70 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 719
-dfiretailgroup,dfiretailgroup.avature.net,/careers         # dfiretailgroup (121 live jobs; ~61 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 50 JobDetail links on page 1, stated total 133
-vanoord,vanoord.avature.net,/careers                       # vanoord (59 live jobs; ~59 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 51
-insperity,insperity.avature.net,/careers                   # insperity (131 live jobs; ~58 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 123
-resourcebank,resourcebank.avature.net,/careers             # resourcebank (24 live jobs; ~53 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total 25
-uclahealth,uclahealth.avature.net,/careers                 # uclahealth (662 live jobs; ~49 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 682
-workmyway,workmyway.avature.net,/careers                   # workmyway (221 live jobs; ~35 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 40 JobDetail links on page 1, stated total 236
-koch,koch.avature.net,/careers                             # koch (6 live jobs; ~32 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total None
-jrg,jrg.avature.net,/careers                               # jrg (43 live jobs; ~31 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 24 JobDetail links on page 1, stated total 49
-sandboxbnc,sandboxbnc.avature.net,/careers                 # sandboxbnc (20 live jobs; ~31 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total None
-sandboxashfieldhealthcare,sandboxashfieldhealthcare.avature.net,/careers # sandboxashfieldhealthcare (59 live jobs; ~29 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 60 JobDetail links on page 1, stated total 59
-deloitteus,deloitteus.avature.net,/careers                 # deloitteus (10 live jobs; ~25 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 10 JobDetail links on page 1, stated total None
-regis,regis.avature.net,/careers                           # regis (94 live jobs; ~22 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 161
-totalenergies,totalenergies.avature.net,/careers           # totalenergies (999 live jobs; ~22 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total 999
-primero,primero.avature.net,/careers                       # primero (71 live jobs; ~19 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 40 JobDetail links on page 1, stated total 77
-bravura,bravura.avature.net,/careers                       # bravura (7 live jobs; ~17 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total None
-dth,dth.avature.net,/careers                               # dth (97 live jobs; ~17 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 50 JobDetail links on page 1, stated total 56
-laplanduk,laplanduk.avature.net,/careers                   # laplanduk (84 live jobs; ~17 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 81
-uatashfieldhealthcare,uatashfieldhealthcare.avature.net,/en_US/careers # uatashfieldhealthcare (74 live jobs; ~13 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 50 JobDetail links on page 1, stated total 74
-fonterrakf,fonterrakf.avature.net,/careers                 # fonterrakf (29 live jobs; ~12 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 36 JobDetail links on page 1, stated total 39
-fb,fb.avature.net,/careers                                 # fb (206 live jobs; ~11 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 24 JobDetail links on page 1, stated total 218
-a2milkkf,a2milkkf.avature.net,/careers                     # a2milkkf (9 live jobs; ~10 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 24 JobDetail links on page 1, stated total 9
-transcom,transcom.avature.net,/careers                     # transcom (165 live jobs; ~10 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 198
-tescoinsuranceandmoneyservices,tescoinsuranceandmoneyservices.avature.net,/careers # tescoinsuranceandmoneyservices (8 live jobs; ~9 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total None
-dhlconsulting,dhlconsulting.avature.net,/careers           # dhlconsulting (9 live jobs; ~8 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total None
-manpowergroupco,manpowergroupco.avature.net,/careers       # manpowergroupco (6 live jobs; ~8 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total None
-sandboxamspsr,sandboxamspsr.avature.net,/careers           # sandboxamspsr (1 live jobs; ~8 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 1 JobDetail links on page 1, stated total None
-harmanglobal,harmanglobal.avature.net,/careers             # harmanglobal (448 live jobs; ~7 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 100 JobDetail links on page 1, stated total 437
-bmcrecruit,bmcrecruit.avature.net,/careers                 # bmcrecruit (78 live jobs; ~6 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 115
-frequentis,frequentis.avature.net,/careers                 # frequentis (63 live jobs; ~6 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 60 JobDetail links on page 1, stated total 74
-stjude,stjude.avature.net,/careers                         # stjude (164 live jobs; ~6 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 80 JobDetail links on page 1, stated total 167
-advocateaurorahealth,advocateaurorahealth.avature.net,/careers # advocateaurorahealth (595 live jobs; ~5 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 24 JobDetail links on page 1, stated total 582
-bnc,bnc.avature.net,/careers                               # bnc (20 live jobs; ~5 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total None
-rohdeschwarz,rohdeschwarz.avature.net,/careers             # rohdeschwarz (344 live jobs; ~5 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 237
-sandboxpomerleau,sandboxpomerleau.avature.net,/careers     # sandboxpomerleau (211 live jobs; ~5 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 213
-mclaren,mclaren.avature.net,/careers                       # mclaren (88 live jobs; ~4 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 59 JobDetail links on page 1, stated total 86
-aesc,aesc.avature.net,/careers                             # aesc (41 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 42 JobDetail links on page 1, stated total 48
-auspost,auspost.avature.net,/careers                       # auspost (161 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 148
-cicor,cicor.avature.net,/careers                           # cicor (21 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 16
-intercaretherapy,intercaretherapy.avature.net,/careers     # intercaretherapy (186 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 189
-mhcta,mhcta.avature.net,/careers                           # mhcta (263 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 75 JobDetail links on page 1, stated total 282
-pepsicoglobalpontoon,pepsicoglobalpontoon.avature.net,/careers # pepsicoglobalpontoon (21 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 80 JobDetail links on page 1, stated total 21
-pomerleau,pomerleau.avature.net,/careers                   # pomerleau (215 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 230
-sandboxino1,sandboxino1.avature.net,/careers               # sandboxino1 (76 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 125 JobDetail links on page 1, stated total 75
-travisperkins,travisperkins.avature.net,/en_US/careers     # travisperkins (278 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total 255
-zungfu,zungfu.avature.net,/careers                         # zungfu (10 live jobs; ~3 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 36 JobDetail links on page 1, stated total 9
-berenberg,berenberg.avature.net,/careers                   # berenberg (39 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total 35
-colorado,colorado.avature.net,/jobs                        # colorado (57 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 100 JobDetail links on page 1, stated total 65
-deloittece,deloittece.avature.net,/careers                 # deloittece (554 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 30 JobDetail links on page 1, stated total 540
-fmlogistic,fmlogistic.avature.net,/careers                 # fmlogistic (2 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 8 JobDetail links on page 1, stated total None
-jackhenry,jackhenry.avature.net,/careers                   # jackhenry (72 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 24 JobDetail links on page 1, stated total 55
-lululemoninc,lululemoninc.avature.net,/careers             # lululemoninc (999 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 10 JobDetail links on page 1, stated total 999
-mt,mt.avature.net,/careers                                 # mt (466 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 50 JobDetail links on page 1, stated total 487
-santos,santos.avature.net,/careers                         # santos (13 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 12 JobDetail links on page 1, stated total None
-skanska,skanska.avature.net,/careers                       # skanska (120 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 6 JobDetail links on page 1, stated total 133
-traderjoes,traderjoes.avature.net,/careers                 # traderjoes (151 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 101 JobDetail links on page 1, stated total 219
-uop,uop.avature.net,/careers                               # uop (10 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 50 JobDetail links on page 1, stated total 11
-wickes,wickes.avature.net,/careers                         # wickes (117 live jobs; ~2 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 20 JobDetail links on page 1, stated total 128
-lindner,lindner.avature.net,/careers                       # lindner (10 live jobs; ~1 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 40 JobDetail links on page 1, stated total None
-lol,lol.avature.net,/careers                               # lol (10 live jobs; ~1 in our index) [resolved needs_human] | PROBED 2026-07-28: 200, 10 JobDetail links on page 1, stated total None
+a2milkkf,a2milkkf.avature.net,/careers  # 9 postings in 3 requests, page size 6. REGISTERED in avature.go
+advocateaurorahealth,clinicianjobs.advocatehealth.org,/careers  # 580 postings in 98 requests, page size 6; was advocateaurorahealth.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+aesc,jobs.aesc-group.com,/en_US/careers  # 46 postings in 9 requests, page size 6; was aesc.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+ally,ally.avature.net,/careers  # 65 postings in 12 requests, page size 6. REGISTERED in avature.go
+amswh,amswh.avature.net,/careers  # 89 postings in 19 requests, page size 5. REGISTERED in avature.go
+astellas,astellas.avature.net,/en_GB/careers  # 39 postings in 5 requests, page size 10; was astellas.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+astellasjapan,astellasjapan.avature.net,/en_GB/careers  # 56 postings in 7 requests, page size 10; was astellasjapan.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+auspost,jobs.auspost.com.au,/en_GB/careers  # 149 postings in 26 requests, page size 6; was auspost.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+baufest,baufest.avature.net,/jobs  # 31 postings in 3 requests, page size 20. REGISTERED in avature.go
+berenberg,berenberg.avature.net,/en_GB/careers  # 35 postings in 5 requests, page size 10; was berenberg.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+bloomberg,bloomberg.avature.net,/careers  # 398 postings in 36 requests, page size 12. REGISTERED in avature.go
+bmcrecruit,jobs.bmc.com,/careers  # 115 postings in 21 requests, page size 6; was bmcrecruit.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+bnc,emplois.bnc.ca,/fr_CA/careers  # 346 postings in 19 requests, page size 20; was bnc.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+bravura,bravura.avature.net,/en_US/careers  # 5 postings in 2 requests, page size 5; was bravura.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+broadinstitute,broadinstitute.avature.net,/en_US/careers  # 42 postings in 8 requests, page size 6; was broadinstitute.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+cdcn,cdcn.avature.net,/careers  # 190 postings in 9 requests, page size 25. REGISTERED in avature.go
+cicor,cicor.avature.net,/en_US/careers  # 16 postings in 4 requests, page size 6; was cicor.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+ciusss,ciusss.avature.net,/fr_CA/careers  # 132 postings in 23 requests, page size 6; was ciusss.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+colorado,jobs.colorado.edu,/jobs  # 69 postings in 4 requests, page size 25; was colorado.avature.net/jobs on 2026-07-28. REGISTERED in avature.go
+cyclecarriage,cyclecarriage.avature.net,/careers  # 37 postings in 4 requests, page size 15. REGISTERED in avature.go
+deloittebe,deloittebe.avature.net,/en_US/careers  # 241 postings in 15 requests, page size 18. REGISTERED in avature.go
+deloittece,apply.deloittece.com,/en_US/careers  # 540 postings in 55 requests, page size 10; was deloittece.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+deloittecm,deloittecm.avature.net,/en_US/careers  # 441 postings in 75 requests, page size 6. REGISTERED in avature.go
+deloitteus,apply.deloitte.com,/en_US/careers  # 962 postings in 98 requests, page size 10; was deloitteus.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+dfiretailgroup,dfiretailgroup.avature.net,/en_US/careers  # 133 postings in 15 requests, page size 10; was dfiretailgroup.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+dhlconsulting,dhlconsulting.avature.net,/en_US/careers  # 6 postings in 2 requests, page size 6; was dhlconsulting.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+dpdhlgroup,dpdhlgroup.avature.net,/en_US/jobs  # 2010 postings in 202 requests, page size 10; was dpdhlgroup.avature.net/jobs on 2026-07-28. NOT REGISTERED: exceeds the 2,000-record paging window
+dth,dth.avature.net,/en_US/careers  # 56 postings in 7 requests, page size 10; was dth.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+ea,jobs.ea.com,/en_US/careers  # 391 postings in 21 requests, page size 20; was ea.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+fb,careers.fbcareers.com,/careers  # 223 postings in 39 requests, page size 6; was fb.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+fmlogistic,fmlogistic.avature.net,/en_US/careers  # 2 postings in 2 requests, page size 2; was fmlogistic.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+fonterrakf,careers.fonterra.com,/careers  # 40 postings in 8 requests, page size 6; was fonterrakf.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+forvis,forvis.avature.net,/campuscareers  # 70 postings in 13 requests, page size 6. REGISTERED in avature.go
+frequentis,jobs.frequentis.com,/careers  # 74 postings in 5 requests, page size 20; was frequentis.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+gpshospitality,gpshospitality.avature.net,/careers  # 1170 postings in 118 requests, page size 10. REGISTERED in avature.go
+harmanglobal,jobsearch.harman.com,/en_US/careers  # 438 postings in 23 requests, page size 20; was harmanglobal.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+insperity,insperity.avature.net,/en_US/careers  # 124 postings in 22 requests, page size 6; was insperity.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+intercaretherapy,intercaretherapy.avature.net,/en_US/careers  # 189 postings in 33 requests, page size 6; was intercaretherapy.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+jackhenry,jackhenry.avature.net,/careers  # 54 postings in 10 requests, page size 6. REGISTERED in avature.go
+jakala,careers.jakala.com,/en_US/careers  # 61 postings in 12 requests, page size 6; was jakala.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+jrg,jrg.avature.net,/en_US/careers  # 49 postings in 10 requests, page size 6; was jrg.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+justicejobs,jobs.justice.gov.uk,/careers  # 403 postings in 69 requests, page size 6; was justicejobs.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+koch,koch.avature.net,/en_US/careers  # 2004 postings in 335 requests, page size 6; was koch.avature.net/careers on 2026-07-28. NOT REGISTERED: exceeds the 2,000-record paging window
+laplanduk,laplanduk.avature.net,/en_US/careers  # 81 postings in 15 requests, page size 6; was laplanduk.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+lindner,lindner.avature.net,/de_DE/careers  # 36 postings in 5 requests, page size 10; was lindner.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+lol,lol.avature.net,/careers  # 11 postings in 3 requests, page size 10. REGISTERED in avature.go
+lululemoninc,careers.lululemon.com,/en_US/careers  # 1106 postings in 112 requests, page size 10; was lululemoninc.avature.net/careers on 2026-07-28. NOT REGISTERED: failed 2 of 3 attempts with HTTP/2 "stream error ... INTERNAL_ERROR; received from peer", once on its first request
+manpowergroupco,manpowergroupco.avature.net,/es_CO/careers  # 2004 postings in 335 requests, page size 6; was manpowergroupco.avature.net/careers on 2026-07-28. NOT REGISTERED: exceeds the 2,000-record paging window
+mantech,careers.mantech.com,/en_US/careers  # 727 postings in 123 requests, page size 6; was mantech.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+mclaren,mclarencareers.mclaren.com,/careers  # 85 postings in 6 requests, page size 19; was mclaren.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+mercadona,mercadona.avature.net,/es_ES/careers  # 392 postings in 67 requests, page size 6; was mercadona.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+mhcta,mhcta.avature.net,/careers  # 282 postings in 20 requests, page size 15. REGISTERED in avature.go
+mt,careers.mt.com,/en_US/careers  # 487 postings in 50 requests, page size 10; was mt.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+nva,nva.avature.net,/careers  # 2010 postings in 202 requests, page size 10. NOT REGISTERED: exceeds the 2,000-record paging window
+onecall,onecall.avature.net,/careers  # 19 postings in 5 requests, page size 6. REGISTERED in avature.go
+pepsicoglobalpontoon,pepsicoglobalpontoon.avature.net,/careers  # 656 postings in 34 requests, page size 20. REGISTERED in avature.go
+pomerleau,pomerleau.avature.net,/en_US/careers  # 231 postings in 40 requests, page size 6; was pomerleau.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+primero,primero.avature.net,/en_GB/careers  # 77 postings in 9 requests, page size 10; was primero.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+radpartners,radpartners.avature.net,/careers  # 652 postings in 110 requests, page size 6. REGISTERED in avature.go
+regis,regis.avature.net,/en_US/careers  # 163 postings in 29 requests, page size 6; was regis.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+resourcebank,resourcebank.avature.net,/careers  # 24 postings in 4 requests, page size 20. REGISTERED in avature.go
+rohdeschwarz,jobs.rohde-schwarz.com,/en_US/careers  # 235 postings in 41 requests, page size 6; was rohdeschwarz.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+sandboxamspsr,sandboxamspsr.avature.net,/en_US/careers  # 1 postings in 2 requests, page size 1; was sandboxamspsr.avature.net/careers on 2026-07-28. NOT REGISTERED: vendor sandbox/UAT instance, postings are test artefacts
+sandboxashfieldhealthcare,sandboxashfieldhealthcare.avature.net,/en_GB/careers  # 59 postings in 7 requests, page size 10; was sandboxashfieldhealthcare.avature.net/careers on 2026-07-28. NOT REGISTERED: vendor sandbox/UAT instance, postings are test artefacts
+sandboxbnc,sandboxbnc.avature.net,/fr_CA/careers  # 403 postings in 22 requests, page size 20; was sandboxbnc.avature.net/careers on 2026-07-28. NOT REGISTERED: vendor sandbox/UAT instance, postings are test artefacts
+sandboxea,sandboxea.avature.net,/en_US/careers  # 448 postings in 24 requests, page size 20; was sandboxea.avature.net/careers on 2026-07-28. NOT REGISTERED: vendor sandbox/UAT instance, postings are test artefacts
+sandboxino1,sandboxino1.avature.net,/en_US/careers  # 75 postings in 4 requests, page size 25; was sandboxino1.avature.net/careers on 2026-07-28. NOT REGISTERED: vendor sandbox/UAT instance, postings are test artefacts
+sandboxpomerleau,sandboxpomerleau.avature.net,/en_US/careers  # 213 postings in 37 requests, page size 6; was sandboxpomerleau.avature.net/careers on 2026-07-28. NOT REGISTERED: vendor sandbox/UAT instance, postings are test artefacts
+santos,recruitment.santos.com,/careers  # 2 postings in 2 requests, page size 2; was santos.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+skanska,skanska.avature.net,/careers  # 130 postings in 23 requests, page size 6. NOT REGISTERED: display name already registered on jibe, needs a double_count verdict first
+stjude,talent.stjude.org,/careers  # 167 postings in 10 requests, page size 20; was stjude.avature.net/careers on 2026-07-28. NOT REGISTERED: display name already registered on jibe, needs a double_count verdict first
+synopsys,synopsys.avature.net,/careers  # 405 postings in 69 requests, page size 6. REGISTERED in avature.go
+tesco,careers.tesco.com,/en_GB/careers  # 1463 postings in 148 requests, page size 10. REGISTERED in avature.go
+tescoinsuranceandmoneyservices,tescoinsuranceandmoneyservices.avature.net,/careers  # 6 postings in 2 requests, page size 6. REGISTERED in avature.go
+totalenergies,jobs.totalenergies.com,/en_US/careers  # 1045 postings in 54 requests, page size 20; was totalenergies.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+traderjoes,traderjoes.avature.net,/careers  # 220 postings in 12 requests, page size 20. REGISTERED in avature.go
+transcom,apply.careers.transcom.com,/en_US/careers  # 199 postings in 35 requests, page size 6; was transcom.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+travisperkins,travisperkins.avature.net,/careers  # 248 postings in 14 requests, page size 20; was travisperkins.avature.net/en_US/careers on 2026-07-28. REGISTERED in avature.go
+uatashfieldhealthcare,uatashfieldhealthcare.avature.net,/en_GB/careers  # 74 postings in 9 requests, page size 10; was uatashfieldhealthcare.avature.net/en_US/careers on 2026-07-28. NOT REGISTERED: vendor sandbox/UAT instance, postings are test artefacts
+uclahealth,uclahealth.avature.net,/careers  # 675 postings in 115 requests, page size 6. REGISTERED in avature.go
+unifi,careers.unifiservice.com,/careers  # 704 postings in 37 requests, page size 20; was unifi.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+uop,uop.avature.net,/careers  # 11 postings in 4 requests, page size 10. REGISTERED in avature.go
+vanoord,vanoord.avature.net,/en_US/careers  # 51 postings in 10 requests, page size 6; was vanoord.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+wickes,wickes.avature.net,/careers  # 125 postings in 8 requests, page size 20. REGISTERED in avature.go
+workmyway,emea.workmyway.com,/en_GB/careers  # 233 postings in 25 requests, page size 10; was workmyway.avature.net/careers on 2026-07-28. REGISTERED in avature.go
+xerox,xerox.avature.net,/en_US/careers  # 358 postings in 73 requests, page size 5. REGISTERED in avature.go
+zungfu,zungfu.avature.net,/en_US/careers  # 9 postings in 3 requests, page size 6; was zungfu.avature.net/careers on 2026-07-28. REGISTERED in avature.go
