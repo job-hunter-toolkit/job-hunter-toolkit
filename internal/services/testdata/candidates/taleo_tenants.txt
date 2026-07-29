@@ -6,6 +6,68 @@
 # rather than from docs/source-backlog.md's one-line "still missing".
 #
 # ---------------------------------------------------------------------------
+# RE-MEASURED 2026-07-29. THE ANSWER IS STILL NO, FOR A DIFFERENT REASON.
+# ---------------------------------------------------------------------------
+#
+# The section below headed "WHAT WOULD CHANGE THE ANSWER" set a two-part test:
+# eight byte-identical requests must return the same count, AND that count must
+# equal totalCount. Both halves were re-run on 2026-07-29, same body, same
+# headers, pageSize 1000, 1.5s apart.
+#
+# The FIRST half now passes on four of the five tenants that answer:
+#
+#   host                  totalCount   items per request (x8)      union
+#   molgroup.taleo.net    402          312 x8                      312
+#   baesystems.taleo.net  162          143 x8                      143
+#   stantec.taleo.net     184          127 x8                      127
+#   wsp.taleo.net         204          174 x8                      174
+#   ttec.taleo.net        111          25,25,25,25,25,25,110,25    110
+#
+# baesystems, stantec and wsp alternated between two counts on 2026-07-28 and
+# are stable today; ttec still is not, and its unstable answer is the SMALL one
+# seven times in eight. A ttec source registered today would have reported 25 of
+# its 111 postings on seven of eight nightly crawls. That alone is the failure
+# mode this project cares about most, and it has not gone away -- it has just
+# moved to a different tenant, which is what "per tenant rather than
+# platform-wide" predicted.
+#
+# The SECOND half fails on every tenant, and 2026-07-29 established why it is
+# not a paging problem and cannot be worked around:
+#
+#   * the facets in the SAME response count the full totalCount. molgroup's
+#     JOB_FIELD facet quantities sum to 402 and its JOB_SCHEDULE facet to 402
+#     (Full-time 347 + Part-time 55), while requisitionList holds 312. A
+#     response whose own facets disagree with its own list is truncating the
+#     list, not describing a smaller board.
+#   * slicing by a facet does not recover the missing rows. Requesting molgroup
+#     with JOB_SCHEDULE=Full-time answers totalCount 347 and 280 items;
+#     JOB_SCHEDULE=Part-time answers totalCount 55 and 32 items. The two slices
+#     union to exactly 312 -- the same 312 -- so the 90 missing requisitions are
+#     unreachable through this endpoint by any query tried.
+#   * a pageNo walk does not help either, and now for a plainer reason than the
+#     drift recorded below: at pageSize=100 the server answered pageNo=1 with
+#     312 items, then 100, 96 and 25 on pages 2-4, unioning to the same 312. It
+#     ignores the pageSize it is given on the first page and honours it after.
+#   * sorting ascending instead of descending returns the same 312 (0 new ids).
+#
+# So the best available read of a Taleo career section is 69-88% of the number
+# that section's own API states, with the shortfall unexplained and no query
+# that closes it. Registering it would put four employers into the crawl each
+# reporting a fraction of itself, with a totalCount field sitting right there in
+# the response proving the fraction is wrong.
+#
+# Kaiser Permanente, the employer docs/source-backlog.md names for this
+# platform, was re-checked on 2026-07-29 and is unchanged: kp.taleo.net answers,
+# /careersection/external/jobsearch.ftl still 302s to mysubmissions.ftl, and all
+# three portal ids known to this file answer careerSectionUnAvailable:true.
+#
+# What would change the answer NOW is narrower than what this file asked for on
+# 2026-07-28: find one tenant where len(requisitionList) == totalCount on eight
+# identical requests. Until then the endpoint's own arithmetic says it is
+# lying, and an honest "not covered" beats a source that reports 77% of an
+# employer and looks healthy doing it.
+#
+# ---------------------------------------------------------------------------
 # WHAT WORKS
 # ---------------------------------------------------------------------------
 #
@@ -122,10 +184,10 @@
 #
 # Format below: host,section,portal  # measured
 # ============================================================================
-molgroup.taleo.net,external,8205100397    # MOL Group. totalCount 402, stable union 312, 8/8 identical responses
-baesystems.taleo.net,2,101430233          # BAE Systems. totalCount 183, union 164, responses alternate 25/164
-stantec.taleo.net,,101430233              # Stantec. totalCount 184, union 127, responses alternate 100/127. Section name not found; portal works without one
-wsp.taleo.net,us,101430233                # WSP. totalCount 205, union 175, responses alternate 100/175
-ttec.taleo.net,2,160131726                # TTEC. totalCount 111, returned 25 on 3 of 3 requests
+molgroup.taleo.net,external,8205100397    # MOL Group. 2026-07-29: totalCount 402, 312 items on 8 of 8 identical requests
+baesystems.taleo.net,2,101430233          # BAE Systems. 2026-07-29: totalCount 162, 143 items on 8 of 8 (no longer alternating; was 25/164 on 2026-07-28)
+stantec.taleo.net,,101430233              # Stantec. 2026-07-29: totalCount 184, 127 items on 8 of 8 (was 100/127). Section name not found; portal works without one. NOTE: "stantec" is already registered on oracle_orc (hdhl.fa.us6.oraclecloud.com,CX_1), so this tenant needs a double_count verdict before it is ever registered
+wsp.taleo.net,us,101430233                # WSP. 2026-07-29: totalCount 204, 174 items on 8 of 8 (was 100/175)
+ttec.taleo.net,2,160131726                # TTEC. 2026-07-29: totalCount 111, returned 25 on 7 of 8 requests and 110 on the eighth. Still the disqualifying tenant
 westpac.taleo.net,2,160140091             # Westpac. totalCount 3, returned 0 postings on 3 of 3 requests
 jacobs.taleo.net,ex,101430233             # Jacobs. Answers, totalCount 0. Not evidence of anything either way

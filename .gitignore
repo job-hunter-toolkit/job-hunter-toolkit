@@ -1,13 +1,28 @@
 # Compiled binaries. `go build` with no -o drops a binary named after the
-# directory, which is how an 11MB `cmd` file once ended up committed-adjacent.
+# directory it built, which is how an 11MB `cmd` file once ended up
+# committed-adjacent.
+#
+# These are deliberately anchored to a leading slash AND written without a
+# trailing one, so each ignores a FILE at the repository root and never a
+# directory. `/cmd` used to shadow the conventional Go `cmd/` source tree, so
+# adding a second binary silently committed nothing and the mistake was
+# invisible until someone went looking for the file they had written.
 /job-hunter-toolkit
-/cmd
+/job-hunter-mcp
 *.exe
 *.test
 
-# Test and coverage output
+# Test and coverage output.
+#
+# Named exactly rather than by prefix. `coverage.*` was unanchored, so it
+# matched any path segment beginning "coverage." anywhere in the tree -- and it
+# silently swallowed internal/mcp/coverage.go, a source file, which built fine
+# locally and failed CI with "undefined" errors for symbols whose definition was
+# simply not in the repository. An ignore rule that can hide a .go file is worse
+# than the artifact it was written for.
 *.out
-coverage.*
+/coverage.html
+/coverage.txt
 
 # macOS
 .DS_Store
