@@ -10,10 +10,12 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,7 +24,9 @@ import (
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/httpx"
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/schedule"
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/services"
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/shard"
 	"github.com/spf13/cobra"
 )
 
@@ -900,6 +904,7 @@ func newTotalCommand() *cobra.Command {
 		flags        globalFlags
 		allowPartial bool
 		manifestPath string
+		sched        scheduleFlags
 	)
 
 	cmd := &cobra.Command{
@@ -909,106 +914,15 @@ func newTotalCommand() *cobra.Command {
 			"Writes a single row of \"DATE POSTINGS COMPANIES STATUS\" to stdout and\n" +
 			"a header to stderr, so the row can be appended straight to a record file.\n" +
 			"STATUS is complete, or partial when --allow-partial records a deadline\n" +
-			"snapshot that must remain visibly distinct from a completed crawl.",
+			"snapshot that must remain visibly distinct from a completed crawl.\n\n" +
+			"--schedule opts into budget-aware scheduling: the run refreshes the most\n" +
+			"valuable stale sources that fit the budget, remembers what each one cost\n" +
+			"and yielded, and reports partial whenever it left anything unattempted.\n" +
+			"It is off by default and changes nothing about a run that does not ask\n" +
+			"for it.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logger := flags.logger(cmd.ErrOrStderr())
-
-			ctx, cancel := flags.crawlContext(cmd)
-			defer cancel()
-
-			client, err := flags.client(logger)
-			if err != nil {
-				return err
-			}
-
-			startedAt := time.Now().UTC()
-			sources := services.SourcesMatching(nil)
-			sourceJobs, sourceResults := services.Observe(sources, logger)
-
-			jobs := internal.Dedupe(
-				internal.AllWithConcurrency(
-					ctx,
-					client,
-					flags.concurrency,
-					sourceJobs...,
-				),
-			)
-
-			var (
-				perCompany = map[string]int{}
-				total      int
-				failed     int
-			)
-
-			for jobPosting, err := range jobs {
-				if err != nil {
-					failed++
-
-					continue
-				}
-
-				perCompany[jobPosting.Company]++
-				total++
-			}
-
-			// Truncation is decided from the crawl context, not from the
-			// per-source errors. A single slow board hitting the HTTP client's
-			// own timeout produces an error that wraps context.DeadlineExceeded
-			// too, so inspecting individual errors would condemn a perfectly
-			// complete crawl.
-			truncated := ctx.Err() != nil
-			status := "complete"
-			if truncated {
-				status = "partial"
-			}
-
-			finishedAt := time.Now().UTC()
-			manifest := newCrawlManifest(
-				startedAt,
-				finishedAt,
-				flags.timeout,
-				status,
-				total,
-				len(perCompany),
-				sourceResults(),
-			)
-			if manifestPath != "" {
-				if err := writeCrawlManifest(manifestPath, manifest); err != nil {
-					return err
-				}
-			}
-
-			logger.InfoContext(ctx, "crawl finished",
-				slog.Int("postings", total),
-				slog.Int("companies", len(perCompany)),
-				slog.Int("failed_sources", failed),
-				slog.String("status", status),
-				slog.Bool("truncated", truncated),
-			)
-
-			fmt.Fprintf(cmd.ErrOrStderr(), "DATE POSTINGS COMPANIES STATUS\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %d %d %s\n",
-				time.Now().Format("01/02/06"), total, len(perCompany), status)
-
-			// Default to failing closed. Callers that deliberately retain a
-			// deadline snapshot must opt in, and the fourth output field keeps
-			// that observation visibly distinct from a complete crawl.
-			if truncated && !allowPartial {
-				return fmt.Errorf(
-					"crawl did not finish within %s: counted %d postings from %d companies, but this is incomplete and must not be recorded",
-					flags.timeout, total, len(perCompany))
-			}
-
-			if truncated {
-				logger.WarnContext(ctx, "recording partial crawl by explicit request",
-					slog.Int("postings", total),
-					slog.Int("companies", len(perCompany)),
-					slog.Duration("timeout", flags.timeout),
-				)
-			}
-
-			return nil
+			return runTotal(cmd, &flags, &sched, allowPartial, manifestPath)
 		},
 	}
 
@@ -1017,9 +931,612 @@ func newTotalCommand() *cobra.Command {
 		"return a successful, explicitly partial row when the overall deadline is reached")
 	cmd.Flags().StringVar(&manifestPath, "manifest", "",
 		"write a versioned JSON crawl manifest to this path")
+	sched.register(cmd)
 
 	return cmd
 }
+
+// runTotal is `total`, with and without scheduling.
+//
+// The two paths are one function rather than two on purpose. Everything after
+// source selection — deduplication, counting, the manifest, the single stdout
+// row and the failing-closed check — is the part the nightly depends on, and a
+// second copy of it is how the scheduled row would quietly stop meaning what the
+// unscheduled row means. Scheduling therefore changes exactly three things: the
+// order sources are dispatched in, a dispatch gate that declines work the budget
+// cannot pay for, and one extra condition on the word "complete".
+func runTotal(
+	cmd *cobra.Command,
+	flags *globalFlags,
+	sched *scheduleFlags,
+	allowPartial bool,
+	manifestPath string,
+) error {
+	logger := flags.logger(cmd.ErrOrStderr())
+
+	if err := sched.validate(cmd); err != nil {
+		return err
+	}
+
+	registry := services.SourcesMatching(nil)
+	sources := registry
+
+	// A nil scheduledRun is the unscheduled crawl: no plan, no gate, no state
+	// file, and therefore the behaviour that shipped before --schedule existed.
+	var run *scheduledRun
+
+	if sched.enabled {
+		prepared, err := sched.prepare(cmd, logger, flags, registry, time.Now())
+		if err != nil {
+			return err
+		}
+
+		run = prepared
+		sources = run.sources
+
+		if sched.dryRun {
+			// Nothing was crawled, so nothing is counted and no row is printed.
+			// A dry run that emitted a DATE row would be a fabricated
+			// measurement, which is the one thing jobs_record.txt cannot survive.
+			return nil
+		}
+	}
+
+	ctx, cancel := flags.crawlContext(cmd)
+	defer cancel()
+
+	client, err := flags.client(logger)
+	if err != nil {
+		return err
+	}
+
+	startedAt := time.Now().UTC()
+	sourceJobs, sourceResults := services.Observe(sources, logger)
+
+	if sched.enabled {
+		sourceJobs = run.arm(sources, sourceJobs, startedAt)
+	}
+
+	jobs := internal.Dedupe(
+		internal.AllWithConcurrency(
+			ctx,
+			client,
+			flags.concurrency,
+			sourceJobs...,
+		),
+	)
+
+	var (
+		perCompany = map[string]int{}
+		total      int
+		failed     int
+	)
+
+	for jobPosting, err := range jobs {
+		if err != nil {
+			failed++
+
+			continue
+		}
+
+		perCompany[jobPosting.Company]++
+		total++
+	}
+
+	// Truncation is decided from the crawl context, not from the
+	// per-source errors. A single slow board hitting the HTTP client's
+	// own timeout produces an error that wraps context.DeadlineExceeded
+	// too, so inspecting individual errors would condemn a perfectly
+	// complete crawl.
+	truncated := ctx.Err() != nil
+	status := "complete"
+	if truncated {
+		status = "partial"
+	}
+
+	runs := sourceResults()
+
+	deferred := 0
+	if sched.enabled {
+		deferred = run.labelDeclined(runs)
+	}
+
+	finishedAt := time.Now().UTC()
+	manifest := newCrawlManifest(
+		startedAt,
+		finishedAt,
+		flags.timeout,
+		status,
+		total,
+		len(perCompany),
+		runs,
+	)
+
+	// A budget-limited run is partial by definition, and this is the invariant
+	// most at risk from wiring the scheduler in: jobs_record.txt is the project's
+	// headline time series, and one row that says complete while 7,000 sources
+	// were never attempted corrupts it permanently.
+	//
+	// shard.Manifest.Complete is the existing definition of finished — status
+	// complete *and* every listed source terminal — and a declined source is
+	// recorded deferred, which is not terminal. Reusing it rather than counting
+	// skips here means the scheduled row and the merge cannot disagree about what
+	// complete means.
+	//
+	// The check is deliberately confined to the scheduled path. It would be a
+	// no-op on an unscheduled crawl, which cannot leave a source unattempted
+	// without the context expiring, but "would be a no-op" is not the same as "is
+	// a no-op", and every existing invocation has to stay byte-identical.
+	if sched.enabled && !manifest.Complete() {
+		status = "partial"
+		manifest.Status = status
+	}
+
+	if manifestPath != "" {
+		if err := writeCrawlManifest(manifestPath, manifest); err != nil {
+			return err
+		}
+	}
+
+	if sched.enabled {
+		if err := run.fold(cmd.ErrOrStderr(), registry, manifest, finishedAt); err != nil {
+			return err
+		}
+	}
+
+	logger.InfoContext(ctx, "crawl finished",
+		slog.Int("postings", total),
+		slog.Int("companies", len(perCompany)),
+		slog.Int("failed_sources", failed),
+		slog.Int("deferred_sources", deferred),
+		slog.String("status", status),
+		slog.Bool("truncated", truncated),
+	)
+
+	fmt.Fprintf(cmd.ErrOrStderr(), "DATE POSTINGS COMPANIES STATUS\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %d %d %s\n",
+		time.Now().Format("01/02/06"), total, len(perCompany), status)
+
+	// Default to failing closed. Callers that deliberately retain a
+	// deadline snapshot must opt in, and the fourth output field keeps
+	// that observation visibly distinct from a complete crawl.
+	//
+	// The trigger stays truncation, not partiality. Under --schedule a partial
+	// row is the designed outcome rather than a missed deadline, so exiting
+	// non-zero for it would make the normal case look like a failure; the status
+	// field, not the exit code, is what keeps it distinct from a complete crawl.
+	if truncated && !allowPartial {
+		return fmt.Errorf(
+			"crawl did not finish within %s: counted %d postings from %d companies, but this is incomplete and must not be recorded",
+			flags.timeout, total, len(perCompany))
+	}
+
+	if truncated {
+		logger.WarnContext(ctx, "recording partial crawl by explicit request",
+			slog.Int("postings", total),
+			slog.Int("companies", len(perCompany)),
+			slog.Duration("timeout", flags.timeout),
+		)
+	}
+
+	return nil
+}
+
+// scheduleFlags are `total`'s opt-in budget-aware scheduling flags.
+//
+// internal/schedule shipped complete, tested and imported by nothing. Wiring it
+// in is a behavioural change to the one command a nightly workflow parses, so
+// every flag here defaults to off and the default invocation never reads or
+// writes a state file, never builds a plan, and never consults a gate.
+type scheduleFlags struct {
+	enabled   bool
+	statePath string
+	budget    time.Duration
+	planPath  string
+	dryRun    bool
+}
+
+func (s *scheduleFlags) register(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&s.enabled, "schedule", false,
+		"crawl the most valuable stale sources that fit the budget, reading and updating persisted per-source state")
+	cmd.Flags().StringVar(&s.statePath, "schedule-state", "",
+		"scheduler state file; defaults to job-hunter-toolkit/scheduler-state.jsonl under the user cache directory")
+	cmd.Flags().DurationVar(&s.budget, "schedule-budget", 0,
+		"wall-clock budget the plan packs against; defaults to --timeout")
+	cmd.Flags().StringVar(&s.planPath, "schedule-plan", "",
+		"write the plan this run built to this path as JSON")
+	cmd.Flags().BoolVar(&s.dryRun, "schedule-dry-run", false,
+		"build and report the plan without crawling and without touching the state file")
+}
+
+// validate rejects the scheduling flags that would otherwise be silent no-ops.
+//
+// A flag that is accepted and ignored is worse than one that is refused: a
+// workflow that passes --schedule-budget without --schedule would look budgeted
+// and crawl everything, and nothing in its output would say so.
+func (s *scheduleFlags) validate(cmd *cobra.Command) error {
+	if s.enabled {
+		return nil
+	}
+
+	for _, name := range []string{"schedule-state", "schedule-budget", "schedule-plan", "schedule-dry-run"} {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("--%s has no effect without --schedule", name)
+		}
+	}
+
+	return nil
+}
+
+// defaultSchedulerStatePath is where scheduler state lives when
+// --schedule-state is not given.
+//
+// os.UserCacheDir rather than a fixed path under /tmp, for the reason
+// docs/posting-cache.md gives at length: a predictable path in a world-writable
+// directory is a phishing primitive. State is less sensitive than the posting
+// URLs that argument was written about — it holds source keys, durations and
+// counts, not what a user searched for — but the file decides which boards this
+// crawler talks to next, and a path any local user can pre-create or replace is
+// a path any local user can use to steer that.
+//
+// The directory is created 0700. schedule.WriteFile publishes through
+// os.CreateTemp, which creates 0600, and rename preserves it, so the file needs
+// no further chmod.
+func defaultSchedulerStatePath() (string, error) {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf(
+			"locate a user cache directory for scheduler state: %w (pass --schedule-state to choose the path explicitly)", err)
+	}
+
+	return filepath.Join(dir, "job-hunter-toolkit", "scheduler-state.jsonl"), nil
+}
+
+// scheduledRun carries one scheduled crawl's plan, state and dispatch gate.
+//
+// The zero value is the unscheduled crawl: no plan, no gate, nothing to fold.
+type scheduledRun struct {
+	statePath string
+	store     *schedule.Store
+	origin    schedule.Origin
+	plan      schedule.Plan
+	policy    schedule.Policy
+
+	// sources is the whole registry reordered: planned sources first in the
+	// plan's execution order, then everything the plan did not select.
+	sources []services.Source
+
+	gate schedule.Gate
+
+	mu       sync.Mutex
+	declined map[schedule.SourceID]struct{}
+}
+
+// prepare reads state, builds the plan and reports it.
+func (s *scheduleFlags) prepare(
+	cmd *cobra.Command,
+	logger *slog.Logger,
+	flags *globalFlags,
+	registry []services.Source,
+	now time.Time,
+) (*scheduledRun, error) {
+	if len(registry) == 0 {
+		return nil, fmt.Errorf("schedule a crawl: the registry is empty")
+	}
+
+	statePath := s.statePath
+	if statePath == "" {
+		resolved, err := defaultSchedulerStatePath()
+		if err != nil {
+			return nil, err
+		}
+
+		statePath = resolved
+	}
+
+	// A state file that cannot be read is a worse plan, never a refusal to
+	// crawl. schedule.ReadFile already degrades to a cold start and documents its
+	// error as advisory; the nightly is this project's only live verification, so
+	// losing a day's data to a mangled cache file would be the larger failure.
+	store, origin, err := schedule.ReadFile(statePath)
+	if err != nil {
+		logger.Warn("scheduler state unusable, planning from a cold start",
+			slog.String("path", statePath),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	budget := s.budget
+	if budget == 0 {
+		budget = flags.timeout
+	}
+
+	// A zero-valued globalFlags reaches here in tests, where cobra has not
+	// applied the flag defaults. Build rejects a bounded budget with no workers
+	// rather than guessing, so supply the same default the crawl itself uses.
+	workers := flags.concurrency
+	if workers < 1 {
+		workers = internal.DefaultConcurrency
+	}
+
+	run := &scheduledRun{
+		statePath: statePath,
+		store:     store,
+		origin:    origin,
+		declined:  map[schedule.SourceID]struct{}{},
+	}
+
+	run.plan, err = schedule.Build(registry, store, schedule.Options{
+		Now:    now,
+		Budget: schedule.Budget{Wall: budget},
+
+		Workers: workers,
+
+		// One process, so one shard. More shards would raise the global capacity
+		// term and claim a budget this run does not have.
+		Shards: 1,
+
+		PerHostLimit: flags.perHostLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	planned, err := run.plan.Sources(registry)
+	if err != nil {
+		return nil, err
+	}
+
+	run.sources = orderForPlan(planned, registry)
+
+	if s.planPath != "" {
+		if err := writeSchedulePlan(s.planPath, run.plan); err != nil {
+			return nil, err
+		}
+	}
+
+	writeScheduleSummary(cmd.ErrOrStderr(), run, budget, len(registry))
+
+	return run, nil
+}
+
+// orderForPlan puts the planned sources first, in the plan's execution order,
+// and appends every source the plan did not select.
+//
+// The unselected ones are still handed to the crawl, where the gate declines
+// them at dispatch and they are recorded deferred. Dropping them instead would
+// produce a manifest listing only what ran, and shard.Manifest.Complete would
+// then call a run that skipped seven thousand sources complete — which is
+// exactly the corruption this whole change has to avoid. They cost one gate call
+// each and are dispatched last, after every source that has real work to do.
+func orderForPlan(planned, registry []services.Source) []services.Source {
+	selected := make(map[schedule.SourceID]struct{}, len(planned))
+	for _, source := range planned {
+		selected[schedule.SourceID{Platform: source.Platform, Key: source.Key}] = struct{}{}
+	}
+
+	ordered := make([]services.Source, 0, len(registry))
+	ordered = append(ordered, planned...)
+
+	for _, source := range registry {
+		if _, ok := selected[schedule.SourceID{Platform: source.Platform, Key: source.Key}]; ok {
+			continue
+		}
+
+		ordered = append(ordered, source)
+	}
+
+	return ordered
+}
+
+// arm builds the dispatch gate against a real start time and wraps each observed
+// source with it.
+//
+// The gate is consulted where the sequence is first iterated, which is inside
+// the worker goroutine after it has taken a slot, so it measures real elapsed
+// time rather than the plan's prediction. A declined source is never started, so
+// services.Observe never marks it running and its zero duration never reaches
+// the cost estimator.
+func (r *scheduledRun) arm(sources []services.Source, jobs []internal.JobsFunc, startedAt time.Time) []internal.JobsFunc {
+	budget := r.plan.Budget.Wall
+	deadline := startedAt.Add(budget)
+
+	if budget <= 0 {
+		// An unbounded plan orders rather than selects, so the gate must not
+		// decline on time; only membership of the plan matters. A deadline far in
+		// the future says that without a second gate implementation.
+		deadline = startedAt.Add(100 * 365 * 24 * time.Hour)
+	}
+
+	r.gate = r.plan.Gate(time.Now, deadline)
+
+	gated := make([]internal.JobsFunc, len(jobs))
+	for i, source := range sources {
+		gated[i] = r.gateSource(source, jobs[i])
+	}
+
+	return gated
+}
+
+func (r *scheduledRun) gateSource(source services.Source, jobs internal.JobsFunc) internal.JobsFunc {
+	return func(ctx context.Context, client *http.Client) internal.Jobs {
+		return func(yield func(*internal.JobPosting, error) bool) {
+			if !r.gate(ctx, source) {
+				r.decline(source)
+
+				return
+			}
+
+			jobs(ctx, client)(yield)
+		}
+	}
+}
+
+func (r *scheduledRun) decline(source services.Source) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.declined[schedule.SourceID{Platform: source.Platform, Key: source.Key}] = struct{}{}
+}
+
+// labelDeclined rewrites the status of every source the gate turned away, and
+// reports how many there were.
+//
+// services.Observe leaves an unstarted source "planned", which is true but
+// understated: it does not distinguish work the process never reached from work
+// this run decided not to do. schedule.StatusDeferred says the second, and Fold
+// treats both as having taught it nothing.
+func (r *scheduledRun) labelDeclined(runs []services.SourceRun) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	deferred := 0
+
+	for i := range runs {
+		id := schedule.SourceID{Platform: runs[i].Platform, Key: runs[i].Key}
+		if _, ok := r.declined[id]; !ok {
+			continue
+		}
+
+		runs[i].Status = schedule.StatusDeferred
+		deferred++
+	}
+
+	return deferred
+}
+
+// fold folds this run's manifest back into the state file, so the next plan is
+// built from what this run measured rather than from what the last one guessed.
+func (r *scheduledRun) fold(
+	stderr io.Writer,
+	registry []services.Source,
+	manifest shard.Manifest,
+	now time.Time,
+) error {
+	next := schedule.FoldAll(r.store, registry, []shard.Manifest{manifest}, now, r.policy)
+	next.Writer = schedulerStateWriter()
+
+	dir := filepath.Dir(r.statePath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create scheduler state directory %q: %w", dir, err)
+	}
+
+	if err := schedule.WriteFile(r.statePath, next); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stderr, "scheduler state: wrote %d sources and %d groups to %s\n",
+		next.Len(), next.GroupLen(), r.statePath)
+
+	return nil
+}
+
+// schedulerStateWriter identifies what wrote a state file, so a file that starts
+// producing strange plans can be traced to a build.
+func schedulerStateWriter() string {
+	if commit := buildCommit(); commit != "" {
+		return "total@" + commit
+	}
+
+	return "total"
+}
+
+func writeSchedulePlan(path string, plan schedule.Plan) error {
+	encoded, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode schedule plan: %w", err)
+	}
+
+	if err := os.WriteFile(path, append(encoded, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write schedule plan %q: %w", path, err)
+	}
+
+	return nil
+}
+
+// writeScheduleSummary explains the plan on stderr, because a scheduler that
+// cannot say why it skipped something is indistinguishable from one that lost
+// it.
+func writeScheduleSummary(stderr io.Writer, run *scheduledRun, budget time.Duration, registrySize int) {
+	plan := run.plan
+
+	fmt.Fprintf(stderr,
+		"schedule: state %s (%s, %d sources, %d groups), budget %s, workers %d\n",
+		run.statePath, run.origin, run.store.Len(), run.store.GroupLen(), budget, plan.Workers)
+
+	fmt.Fprintf(stderr,
+		"schedule: plan %s planned %d of %d sources, %ds predicted against %s capacity\n",
+		plan.PlanID, len(plan.Items), registrySize,
+		plan.PlannedMS/1000, capacitySeconds(plan.GlobalCapacityMS))
+
+	lanes := map[schedule.Lane]int{}
+	for _, item := range plan.Items {
+		lanes[item.Lane]++
+	}
+
+	fmt.Fprintf(stderr, "schedule: lanes aging=%d value=%d\n",
+		lanes[schedule.LaneAging], lanes[schedule.LaneValue])
+
+	reasons := map[string]int{}
+	for _, deferral := range plan.Deferred {
+		reasons[deferral.Reason]++
+	}
+
+	// Sorted, never ranged from the map: a summary whose line order depends on
+	// map iteration is the same defect the plan itself is careful not to have.
+	for _, reason := range slices.Sorted(maps.Keys(reasons)) {
+		fmt.Fprintf(stderr, "schedule: deferred %s=%d\n", reason, reasons[reason])
+	}
+
+	groups := slices.Clone(plan.Groups)
+	slices.SortFunc(groups, func(a, b schedule.GroupBudget) int {
+		if a.PlannedMS != b.PlannedMS {
+			return cmp.Compare(b.PlannedMS, a.PlannedMS)
+		}
+
+		return cmp.Compare(a.Key, b.Key)
+	})
+
+	for _, group := range groups[:min(len(groups), scheduleSummaryGroups)] {
+		if group.Sources == 0 {
+			continue
+		}
+
+		measured := "assumed"
+		if group.Measured {
+			measured = "measured"
+		}
+
+		fmt.Fprintf(stderr,
+			"schedule:   group %s: %d sources, %ds of %s, parallelism %.1f (%s)\n",
+			group.Key, group.Sources, group.PlannedMS/1000, capacitySeconds(group.CapacityMS),
+			float64(group.ParallelismMilli)/1000, measured)
+	}
+}
+
+// capacitySeconds renders a capacity for the summary.
+//
+// An unbounded plan carries a sentinel capacity of about 2.3e15 ms, which is
+// arithmetic rather than a measurement; printing it as a number of seconds
+// invites someone to read it as one.
+func capacitySeconds(capacityMS int64) string {
+	if capacityMS >= unboundedCapacityMS {
+		return "unlimited"
+	}
+
+	return strconv.FormatInt(capacityMS/1000, 10) + "s"
+}
+
+// unboundedCapacityMS is the threshold above which a capacity is the scheduler's
+// "no limit" sentinel rather than a budget. internal/schedule uses
+// math.MaxInt64/4; anything within an order of magnitude of that is not a
+// deadline anybody set.
+const unboundedCapacityMS int64 = math.MaxInt64 / 8
+
+// scheduleSummaryGroups is how many affinity groups the stderr summary names.
+// The registry has hundreds; the ones that bound a run are the handful with the
+// most planned time.
+const scheduleSummaryGroups = 8
 
 // sourceHealth is one company's result from a health check.
 type sourceHealth struct {
