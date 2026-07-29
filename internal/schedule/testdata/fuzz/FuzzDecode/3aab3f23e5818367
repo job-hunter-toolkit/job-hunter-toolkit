@@ -1,0 +1,2 @@
+go test fuzz v1
+string("{\"kind\":\"header\"}\n{\"kind\":\"source\",\"plAtform\":\"0\",\"keY\":\"0\",\"postings\":[]}")

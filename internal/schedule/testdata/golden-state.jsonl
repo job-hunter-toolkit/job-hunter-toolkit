@@ -1,0 +1,6 @@
+{"kind":"header","schema":"job-hunter-toolkit/scheduler-state","version":1,"written_at":"2026-07-28T09:12:00Z","writer":"9c71fc0"}
+{"kind":"source","platform":"ashby","key":"0x","company":"0x","last_attempt":"2026-07-28T09:03:11Z","last_success":"2026-07-28T09:03:11Z","duration_ms":[80,74,91],"postings":[13,13,14]}
+{"kind":"source","platform":"lever","key":"gone","retired":true,"retired_at":"2026-07-01T00:00:00Z"}
+{"kind":"source","platform":"personio","key":"zeta","company":"Zeta","group":"platform:personio","last_attempt":"2026-07-27T09:03:11Z","duration_ms":[2400,2600],"postings":[12],"consecutive_failures":2,"error_class":"timeout"}
+{"kind":"group","key":"platform:personio","parallelism_milli":3900,"observed_at":"2026-07-28T09:12:00Z","samples":4}
+{"kind":"group","key":"service:boards-api.greenhouse.io","parallelism_milli":3820,"samples":6}

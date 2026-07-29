@@ -65,6 +65,33 @@ func workdayCXSURL(host, company, sitePath string) string {
 	return fmt.Sprintf("https://%s/wday/cxs/%s/%s/jobs", host, company, site)
 }
 
+// A failing Workday tenant is not a dead one, and this list is where that
+// mistake would be made.
+//
+// The 2026-07-28 full crawl failed on six tenants here: citrix, dnb, echostar,
+// epicgames, godaddy and veritas. All six were re-probed and ALL SIX ARE ALIVE.
+// Their pods were in maintenance. The evidence, per tenant:
+//
+//   - DNS resolves, and to Workday's own address (wd1 tenants all to
+//     209.177.165.20, wd5 to 209.177.169.65) — no NXDOMAIN, no parked host.
+//   - The human-facing site URL serves Workday's maintenance page. Three
+//     answered HTTP 500 with a body whose entire content is
+//     `window.location.href = "https://community.workday.com/maintenance-page"`;
+//     the other three followed that redirect to a page titled "Workday is
+//     currently unavailable."
+//   - The cxs endpoint the adapter POSTs to answers 422, 403 "permission
+//     denied", or 401 "Unable to verify credentials for system account" — never
+//     404, and never a body that says the tenant does not exist.
+//
+// That is the trap docs/adding-a-source.md records: a down pod and a deleted
+// tenant are indistinguishable in the adapter's error text, and the distinction
+// is only visible by asking the host a second question. Six of the fourteen
+// failures in that crawl were this, so pruning on the error text alone would
+// have deleted six live enterprise tenants — including GoDaddy and Epic Games —
+// and the deletion would have been invisible while the failure was not.
+//
+// Removal here needs a 404, a 410 or a DNS failure, confirmed on separate
+// probes. None of these six has ever produced one.
 var WorkdayCompanyURLs = []string{
 	"https://3m.wd1.myworkdayjobs.com/Search",
 	"https://aah.wd5.myworkdayjobs.com/External",
