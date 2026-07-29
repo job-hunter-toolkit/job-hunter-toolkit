@@ -3,15 +3,20 @@ package internal
 import (
 	"context"
 	"fmt"
-	"iter"
 	"net/http"
 	"sync"
+
+	"github.com/job-hunter-toolkit/job-hunter-toolkit/jobposting"
 )
 
-// Jobs is a sequence of job postings, or an error if one occurs
-// while fetching the postings. The first error might not be the end
+// Jobs is [jobposting.Seq]: a sequence of job postings, or an error if one
+// occurs while fetching the postings. The first error might not be the end
 // of the sequence, depending on how the jobs are sourced.
-type Jobs = iter.Seq2[*JobPosting, error]
+//
+// JobsFunc stays internal on purpose. It names a *http.Client, so promoting it
+// would pull net/http into the vocabulary every consumer links, and the crawler
+// contract is not part of this extraction pass.
+type Jobs = jobposting.Seq
 
 // JobsFunc is a function that returns a sequence of job postings
 // from a job source. It returns a sequence of jobs, or an error

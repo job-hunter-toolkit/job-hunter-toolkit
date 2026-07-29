@@ -7,54 +7,6 @@ import (
 	"strings"
 )
 
-// Provenance records where a piece of posting data came from, because data an
-// employer published in a structured field and data inferred from prose do not
-// deserve equal trust.
-type Provenance string
-
-// Provenance values, in descending order of trustworthiness.
-//
-// The distinction exists so a consumer can decide how much to trust a figure
-// rather than being handed one number with no idea how it was obtained. A wrong
-// salary is indistinguishable from a right one at a glance, so the only defence
-// is knowing where it came from.
-const (
-	// ProvenanceEmployer means the platform published the value in a dedicated
-	// API field. Authoritative.
-	ProvenanceEmployer Provenance = "employer"
-
-	// ProvenanceStructured means the value came from markup the board renders
-	// from a real pay field, a container that declares its contents to be the
-	// pay range. Not an API field, but not a guess either.
-	ProvenanceStructured Provenance = "structured"
-
-	// ProvenanceDescription means the value was read out of description prose.
-	// Best-effort, and the only source that can plausibly be wrong about what a
-	// number means.
-	ProvenanceDescription Provenance = "description"
-)
-
-// trustRank orders provenances so the best available source can be chosen.
-var trustRank = map[Provenance]int{
-	ProvenanceEmployer:    3,
-	ProvenanceStructured:  2,
-	ProvenanceDescription: 1,
-}
-
-// MoreTrustedThan reports whether this compensation came from a better source
-// than other. A nil or empty-provenance value is the least trusted.
-func (c *Compensation) MoreTrustedThan(other *Compensation) bool {
-	if c == nil {
-		return false
-	}
-
-	if other == nil {
-		return true
-	}
-
-	return trustRank[c.Provenance] > trustRank[other.Provenance]
-}
-
 // Plausibility bounds for an extracted pay figure, once annualized.
 //
 // These exist to reject the many large numbers in a job description that are not
