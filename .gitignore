@@ -1,7 +1,14 @@
 # Compiled binaries. `go build` with no -o drops a binary named after the
-# directory, which is how an 11MB `cmd` file once ended up committed-adjacent.
+# directory it built, which is how an 11MB `cmd` file once ended up
+# committed-adjacent.
+#
+# These are deliberately anchored to a leading slash AND written without a
+# trailing one, so each ignores a FILE at the repository root and never a
+# directory. `/cmd` used to shadow the conventional Go `cmd/` source tree, so
+# adding a second binary silently committed nothing and the mistake was
+# invisible until someone went looking for the file they had written.
 /job-hunter-toolkit
-/cmd
+/job-hunter-mcp
 *.exe
 *.test
 
