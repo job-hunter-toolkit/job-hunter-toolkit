@@ -909,6 +909,7 @@ func newTotalCommand() *cobra.Command {
 		flags        globalFlags
 		allowPartial bool
 		manifestPath string
+		postingsPath string
 		sched        scheduleFlags
 	)
 
@@ -927,7 +928,7 @@ func newTotalCommand() *cobra.Command {
 			"for it.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTotal(cmd, &flags, &sched, allowPartial, manifestPath)
+			return runTotal(cmd, &flags, &sched, allowPartial, manifestPath, postingsPath)
 		},
 	}
 
@@ -936,6 +937,8 @@ func newTotalCommand() *cobra.Command {
 		"return a successful, explicitly partial row when the overall deadline is reached")
 	cmd.Flags().StringVar(&manifestPath, "manifest", "",
 		"write a versioned JSON crawl manifest to this path")
+	cmd.Flags().StringVar(&postingsPath, "postings", "",
+		"also write every deduplicated posting to this path as NDJSON (the same records `postings --json` emits), so a nightly count can feed `corpus apply` without a second crawl; on a write failure the partial file is removed and the count continues, because the row must never be lost to the tee")
 	sched.register(cmd)
 
 	return cmd
@@ -956,11 +959,51 @@ func runTotal(
 	sched *scheduleFlags,
 	allowPartial bool,
 	manifestPath string,
+	postingsPath string,
 ) error {
 	logger := flags.logger(cmd.ErrOrStderr())
 
 	if err := sched.validate(cmd); err != nil {
 		return err
+	}
+
+	// Opened before the crawl so a bad path fails in the first second, not
+	// after 15 minutes of board traffic. The encoder is the same one `corpus
+	// crawl` uses, so the two commands cannot drift into writing different
+	// record shapes for the same posting.
+	var (
+		postingsFile    *os.File
+		postingsEncoder *json.Encoder
+	)
+
+	if postingsPath != "" {
+		file, err := os.Create(postingsPath)
+		if err != nil {
+			return fmt.Errorf("create postings %q: %w", postingsPath, err)
+		}
+
+		postingsFile = file
+		postingsEncoder = json.NewEncoder(file)
+	}
+
+	// dropPostingsTee abandons the tee without touching the count or the row.
+	// It removes the file rather than leaving it: a partial postings stream
+	// that parses cleanly is worse than none, because `corpus apply` would
+	// fold it as though it were the whole crawl and close postings that are
+	// merely missing from a truncated file.
+	dropPostingsTee := func(cause error) {
+		if postingsFile == nil {
+			return
+		}
+
+		logger.Error("postings tee failed; removing the partial file so nothing folds it",
+			slog.String("path", postingsPath), slog.String("error", cause.Error()))
+
+		postingsFile.Close()
+		os.Remove(postingsPath)
+
+		postingsFile = nil
+		postingsEncoder = nil
 	}
 
 	registry := services.SourcesMatching(nil)
@@ -1026,6 +1069,25 @@ func runTotal(
 
 		perCompany[jobPosting.Company]++
 		total++
+
+		if postingsEncoder != nil {
+			if encodeErr := postingsEncoder.Encode(jobPosting); encodeErr != nil {
+				dropPostingsTee(encodeErr)
+			}
+		}
+	}
+
+	if postingsFile != nil {
+		// A close error is a write error that arrived late (the final flush), so
+		// it gets the same fail-closed treatment: no file at all rather than one
+		// that might be short.
+		if closeErr := postingsFile.Close(); closeErr != nil {
+			postingsFile = nil
+
+			logger.Error("postings tee failed on close; removing the file so nothing folds it",
+				slog.String("path", postingsPath), slog.String("error", closeErr.Error()))
+			os.Remove(postingsPath)
+		}
 	}
 
 	// Truncation is decided from the crawl context, not from the

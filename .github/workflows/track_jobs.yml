@@ -219,6 +219,7 @@ jobs:
           --timeout=120m \
           --allow-partial \
           --manifest=crawl-manifest.json \
+          --postings=postings.ndjson \
           --log-level=info \
           --log-format=json \
           > total.txt; then
@@ -486,6 +487,30 @@ jobs:
           total.txt
         if-no-files-found: warn
         retention-days: 14
+
+    - name: Upload postings for the corpus workflow
+      # The corpus workflow (corpus.yml, 21:00 UTC) folds this crawl's full
+      # posting stream instead of running a second full crawl twelve hours
+      # later, halving both the daily traffic every job board sees from this
+      # project and the corpus workflow's runner minutes. The tee that produced
+      # postings.ndjson removes the file rather than leave it short on any
+      # write failure, so an artifact that exists is a whole stream; when it is
+      # missing, corpus.yml falls back to crawling for itself.
+      #
+      # continue-on-error and a step of its own, positioned after the
+      # diagnostics upload: nothing about feeding the corpus may cost the
+      # day's row, which has not yet been committed at this point.
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@v5
+      with:
+        name: nightly-postings-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          postings.ndjson
+          crawl-manifest.json
+        if-no-files-found: warn
+        compression-level: 9
+        retention-days: 2
 
     - name: Install gnuplot
       if: steps.count.outputs.recorded == 'true' || steps.count.outputs.preview == 'true'

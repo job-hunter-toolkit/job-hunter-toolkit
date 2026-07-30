@@ -112,9 +112,20 @@ Concrete, in the order they pay off:
 4. **Keep `cancel-in-progress` on CI and off the crawl.** Already correct today,
    and worth not regressing: cancelling a five-hour crawl at minute 300 throws
    away the whole day.
-5. **Publish the corpus as a release artifact, not a committed blob.** A daily
-   committed dataset grows the clone for every user and every CI checkout
-   forever.
+5. **Publish the corpus somewhere a browser can read it, and not as an
+   append-only committed blob.** This bullet originally said "as a release
+   artifact", and measurement overturned that: GitHub release assets honour
+   Range requests but send no `Access-Control-Allow-Origin` header at all,
+   answer preflight with 405, and hand out signed download URLs that expire in
+   about an hour, so a browser fetch fails on both hops.
+   `raw.githubusercontent.com` measured `206` + `accept-ranges: bytes` +
+   `access-control-allow-origin: *`, which is why generations live on an
+   orphan branch holding only the latest one, replaced each publish. The
+   objection this bullet was really making — a daily committed dataset grows
+   the clone for every user and every CI checkout forever — still stands, and
+   a *replaced* orphan branch respects it: the cost is a constant, not a
+   series. The full measurements are in `.github/workflows/corpus.yml`'s
+   header.
 
 The failure mode to design against is not a large bill; it is CI being disabled
 and the project losing its only source of live verification. Everything above
