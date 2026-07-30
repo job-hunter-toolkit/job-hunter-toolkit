@@ -1,0 +1,213 @@
+name: Release
+
+# Builds versioned, prebuilt binaries so that non-Go users can install the
+# toolkit. On a v* tag it cross-compiles job-hunter-toolkit and job-hunter-mcp
+# for the four platform pairs CI's portability job already asserts, proves the
+# build is reproducible by building everything twice from a cold cache, and
+# publishes the archives, a SHA256SUMS file and a changelog stub as a GitHub
+# release.
+#
+# Cost: this workflow runs ONLY on v* tag pushes and manual dispatch -- there
+# is no schedule and no per-commit trigger, so it costs nothing between
+# releases. One release is a single ubuntu-latest job; the two full build
+# passes measured 72s + 69s locally, so with checkout, module download,
+# packaging and upload a run should stay under ~10 runner-minutes.
+on:
+  push:
+    tags: [ 'v*' ]
+  # Dry-run path. A tag cannot be un-pushed, so the only way to exercise this
+  # workflow before cutting a real release is to dispatch it from a branch:
+  # every step runs except publication, and the archives land in a workflow
+  # artifact for inspection instead of a release.
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Create the GitHub release. Only honoured when dispatched from a v*
+          tag; a run from a branch is always a dry run regardless of this
+          input.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, prove determinism, publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # `gh release create` needs write. Every step before it only reads.
+      contents: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        # Full history: the changelog stub needs the previous v* tag, and
+        # `git describe` cannot find it in a shallow clone.
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Derive the version
+      id: version
+      run: |
+        set -euo pipefail
+        if [ "$GITHUB_REF_TYPE" = tag ]; then
+          VERSION="$GITHUB_REF_NAME"
+        else
+          # Branch dispatch: an obviously-not-a-release version string, so a
+          # dry-run archive can never be mistaken for a published one.
+          VERSION="v0.0.0-dry.g$(git rev-parse --short HEAD)"
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "building $VERSION"
+
+    - name: Build and package, twice
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        set -euo pipefail
+
+        # Everything below is pinned to the commit, not the clock, so the
+        # same tag always produces byte-identical archives:
+        #   - binaries: CGO_ENABLED=0 -trimpath, and the VCS stamp that
+        #     buildCommit() reads is the commit hash, not a timestamp;
+        #   - tar: entries sorted, ownership zeroed, mtimes set to the commit
+        #     time, gzip -n so no name/timestamp leaks into the header;
+        #   - zip: sorted file list, -X to drop UID/GID/atime extra fields,
+        #     file mtimes set to the commit time under a fixed TZ.
+        SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+        export SOURCE_DATE_EPOCH TZ=UTC
+
+        build_and_package() {
+          local dist="$1"
+          mkdir -p "$dist"
+          local pair goos goarch ext name staging
+          for pair in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
+            goos="${pair%/*}"; goarch="${pair#*/}"
+            ext=""; [ "$goos" = windows ] && ext=".exe"
+            name="job-hunter-toolkit_${VERSION}_${goos}_${goarch}"
+            staging="$dist/$name"
+            mkdir -p "$staging"
+
+            # The CLI's main package has no version variable yet, so only the
+            # MCP server gets -X stamped; the CLI still self-reports its
+            # commit via debug.ReadBuildInfo. Stamping the CLI is a noted
+            # follow-up in docs/releasing.md, not a linker flag here: -X
+            # against a symbol that does not exist is silently ignored, which
+            # would look like success while stamping nothing.
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "-s -w" \
+              -o "$staging/job-hunter-toolkit$ext" .
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+              -o "$staging/job-hunter-mcp$ext" ./cmd/job-hunter-mcp
+
+            cp LICENSE README.md "$staging/"
+            find "$staging" -exec touch -d "@$SOURCE_DATE_EPOCH" {} +
+
+            case "$goos" in
+            windows)
+              (cd "$dist" && find "$name" -type f | LC_ALL=C sort \
+                | zip -X -q "$name.zip" -@)
+              ;;
+            *)
+              tar --sort=name --owner=0 --group=0 --numeric-owner \
+                --mtime="@$SOURCE_DATE_EPOCH" -C "$dist" -cf - "$name" \
+                | gzip -n > "$dist/$name.tar.gz"
+              ;;
+            esac
+            rm -rf "$staging"
+          done
+          (cd "$dist" && LC_ALL=C sha256sum -- *.tar.gz *.zip > SHA256SUMS)
+        }
+
+        build_and_package dist
+
+        # The second pass starts from a cold build cache on purpose. Without
+        # `go clean -cache` the second build would mostly copy the first
+        # one's cached objects back out, and "the cache returns the same
+        # bytes" is not the property being proven -- "compiling this commit
+        # twice yields the same bytes" is.
+        go clean -cache
+        build_and_package dist-again
+
+    - name: Fail on checksum drift between the two builds
+      run: |
+        set -euo pipefail
+        if ! diff dist/SHA256SUMS dist-again/SHA256SUMS; then
+          echo "::error::the two build passes produced different bytes; refusing to release a build that cannot be reproduced"
+          exit 1
+        fi
+        echo "both passes byte-identical:"
+        cat dist/SHA256SUMS
+
+    - name: Generate the changelog stub
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        set -euo pipefail
+        # The previous v* tag bounds the commit list. The very first release
+        # has no previous tag, in which case the stub says so rather than
+        # dumping the repository's entire history.
+        PREV="$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)"
+        {
+          echo "## $VERSION"
+          echo
+          if [ -n "$PREV" ]; then
+            echo "Changes since $PREV:"
+            echo
+            git log --no-merges --format='- %s (%h)' "$PREV..HEAD"
+          else
+            echo "First tagged release."
+          fi
+          echo
+          echo "### Verify"
+          echo
+          echo 'Checksums for every archive are in `SHA256SUMS`. This release'
+          echo 'run built everything twice, the second time from a cold build'
+          echo 'cache, and verified the two passes byte-identical. After'
+          echo 'downloading:'
+          echo
+          echo '```console'
+          echo '$ sha256sum --ignore-missing -c SHA256SUMS'
+          echo '```'
+        } > dist/RELEASE_NOTES.md
+        cat dist/RELEASE_NOTES.md
+
+    - name: Upload archives as a workflow artifact
+      # Always, so a dry run leaves something to inspect and a real release
+      # keeps a copy independent of the release assets.
+      uses: actions/upload-artifact@v5
+      with:
+        name: release-${{ steps.version.outputs.version }}
+        path: |
+          dist/*.tar.gz
+          dist/*.zip
+          dist/SHA256SUMS
+          dist/RELEASE_NOTES.md
+        if-no-files-found: error
+        retention-days: 14
+
+    - name: Publish the GitHub release
+      # Publication requires a real v* tag: always on a tag push, and on
+      # manual dispatch only when the run was dispatched FROM a tag with
+      # publish=true. A dispatch from a branch can never publish.
+      if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.publish)
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        set -euo pipefail
+        # --verify-tag refuses to invent a tag that does not exist on the
+        # remote; this step only ever attaches assets to one that does.
+        gh release create "$VERSION" \
+          dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
+          --title "$VERSION" \
+          --notes-file dist/RELEASE_NOTES.md \
+          --verify-tag
