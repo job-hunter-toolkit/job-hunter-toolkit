@@ -1130,3 +1130,68 @@ func TestPostingsCommandRejectsBadFilterValues(t *testing.T) {
 		})
 	}
 }
+
+func TestTotalPostingsTeeRefusesABadPathBeforeCrawling(t *testing.T) {
+	t.Parallel()
+
+	// The tee opens its file before any board is contacted, so a typo in a
+	// workflow's --postings path costs one second, not a fifteen-minute crawl
+	// whose stream then has nowhere to go.
+	cmd := newRootCommand()
+
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"total",
+		"--timeout=1ns",
+		"--postings=" + filepath.Join(t.TempDir(), "no-such-dir", "postings.ndjson"),
+	})
+
+	err := cmd.ExecuteContext(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "create postings") {
+		t.Fatalf("ExecuteContext() error = %v, want a create postings error before the crawl", err)
+	}
+
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want nothing: no crawl ran, so no row may be printed", stdout.String())
+	}
+}
+
+func TestTotalPostingsTeeSurvivesAnEmptyPartialCrawl(t *testing.T) {
+	t.Parallel()
+
+	// An instantly-expired deadline produces a crawl with zero postings. The tee
+	// must still produce a well-formed (empty) file and the row must be exactly
+	// what it would have been without the flag, because the nightly parses it.
+	cmd := newRootCommand()
+	postingsPath := filepath.Join(t.TempDir(), "postings.ndjson")
+
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"total",
+		"--timeout=1ns",
+		"--allow-partial",
+		"--postings=" + postingsPath,
+	})
+
+	if err := cmd.ExecuteContext(t.Context()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v, want the tee to never fail a run the row survives", err)
+	}
+
+	fields := strings.Fields(stdout.String())
+	if len(fields) != 4 || fields[3] != "partial" {
+		t.Fatalf("stdout fields = %q, want DATE POSTINGS COMPANIES partial", fields)
+	}
+
+	data, err := os.ReadFile(postingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile(postings) error = %v, want the tee file to exist after a clean close", err)
+	}
+
+	if len(data) != 0 {
+		t.Errorf("postings file = %d bytes, want empty for a crawl that yielded nothing", len(data))
+	}
+}

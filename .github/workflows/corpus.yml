@@ -114,9 +114,57 @@ jobs:
           echo "generation=0" >> "$GITHUB_OUTPUT"
         fi
 
+    - name: Reuse the nightly's postings if it published them today
+      id: nightly
+      # track_jobs.yml tees its crawl to postings.ndjson and uploads it as a
+      # nightly-postings-* artifact. Folding that stream instead of crawling
+      # again halves the daily traffic every board sees from this project and
+      # most of this workflow's runner minutes. The tee fails closed -- a file
+      # that exists is a whole stream -- so the only checks needed here are
+      # that the artifact is from TODAY's successful nightly and that both
+      # files are present and non-trivial.
+      #
+      # continue-on-error: a missing or stale artifact means the crawl step
+      # below runs exactly as it did before this optimisation existed.
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+
+        TODAY=$(date -u +%Y-%m-%d)
+
+        RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/track_jobs.yml/runs?status=success&created=>=$TODAY&per_page=1" \
+          --jq '.workflow_runs[0].id // empty')
+
+        if [ -z "$RUN_ID" ]; then
+          echo "no successful Track Jobs run today; will crawl"
+          exit 0
+        fi
+
+        gh run download "$RUN_ID" --repo "${{ github.repository }}" \
+          --pattern 'nightly-postings-*' --dir nightly-artifact || exit 0
+
+        FOUND=$(find nightly-artifact -name postings.ndjson | head -1)
+        MANIFEST=$(find nightly-artifact -name crawl-manifest.json | head -1)
+
+        if [ -z "$FOUND" ] || [ -z "$MANIFEST" ] || [ ! -s "$FOUND" ]; then
+          echo "artifact incomplete; will crawl"
+          exit 0
+        fi
+
+        mv "$FOUND" postings.ndjson
+        mv "$MANIFEST" crawl-manifest.json
+        echo "reused=true" >> "$GITHUB_OUTPUT"
+        echo "reusing postings from Track Jobs run $RUN_ID ($(wc -l < postings.ndjson) postings)"
+
     - name: Crawl
+      # Runs only when the nightly's postings were not reusable, so on a
+      # healthy day this workflow performs no crawl at all.
+      #
       # Crawl 120m < step 135m < job 150m; the crawl must stop itself and hand
       # its artifacts to the fold rather than be killed holding them.
+      if: steps.nightly.outputs.reused != 'true'
       timeout-minutes: 135
       run: |
         set -euo pipefail
