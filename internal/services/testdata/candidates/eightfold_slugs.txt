@@ -27,9 +27,12 @@
 # posting; docs/research/ats-platform-survey.md keeps that deferred behind the
 # shared jsonld.go helper it recommends.
 #
-# 18 slugs are registered in internal/services/eightfold.go as
-# EightfoldCompanies. Adding more means probing them the same way and
-# confirming twice, not promoting a name off this list because it looks live.
+# 40 slugs are registered in internal/services/eightfold.go as
+# EightfoldCompanies: 18 on the list API, and since 2026-07-30 another 22 gated
+# tenants on the sitemap + JSON-LD fallback (see the GATED section for the
+# measurements and the promotion rules). Adding more means probing them the
+# same way and confirming twice, not promoting a name off this list because it
+# looks live.
 # ============================================================================
 
 # --- REGISTERED: HTTP 200 with postings, confirmed on two separate runs -----
@@ -87,121 +90,155 @@ zebra
 
 # --- GATED: HTTP 403, {"message": "Not authorized for PCSX"} ----------------
 #
-# 109 tenants, the majority of the platform. None of these is crawlable by the
-# adapter in internal/services/eightfold.go, and registering one would add a
-# permanently failing source. They are kept because they are verified live
-# Eightfold employers, which makes them the ready-made input list for the
-# JSON-LD detail-walk if that route is ever built.
+# 109 tenants, the majority of the platform. The list API is closed to all of
+# them, but on 2026-07-30 every one was probed at
+# https://{slug}.eightfold.ai/careers/sitemap.xml, the route the survey
+# proposed around the wall, and the wall does NOT extend to it:
+#
+#   real     54   a sitemap whose <loc> entries point at the tenant's own
+#                 board; 62,982 job URLs across the 54
+#   decoy     3   target, kroger and qa serve a byte-identical sitemap listing
+#                 EIGHTFOLD'S OWN careers board (app.eightfold.ai?domain=
+#                 eightfold.ai, 65 postings). A 200 sitemap is NOT evidence the
+#                 tenant publishes one; the adapter checks the loc host and
+#                 refuses this shape
+#   none     52   404 or no job URLs: genuinely unreachable by either route
+#
+# The fallback in internal/services/eightfold.go costs ~1 request per posting
+# (each job page is fetched for its schema.org JSON-LD block), so registration
+# is a per-tenant cost decision made from the measured sitemap size, and three
+# rules were applied on 2026-07-30:
+#
+#   1. the sitemap must be real (54 qualify);
+#   2. the job pages must actually carry a JobPosting JSON-LD block -- trimble's
+#      do not, on either its branded host or trimble.eightfold.ai (measured:
+#      200 with zero ld+json blocks), so trimble stays here despite its real
+#      307-URL sitemap;
+#   3. the board must be 500 postings or fewer, keeping the route's whole bill
+#      at 4,051 requests per crawl across the 22 that qualify. The 15 real
+#      sitemaps above 500 -- ericsson (501), deloitte (613, the .de board),
+#      sephora (889), astrazeneca (945), elcompanies (1,153), infineon (1,208),
+#      lamresearch (1,255), hp (1,286), arcadis (1,347), mc/Mayo Clinic (1,350),
+#      morganstanley (1,358), vodafone (1,399), caci (1,646), microsoft (1,739),
+#      appliedmaterials (1,775), qualcomm (1,876), eaton (2,248), micron
+#      (2,737), citi (3,429), ngc (3,668), starbucks (21,834) -- stay staged
+#      until the crawl has budget for them, and several of those names
+#      (arcadis, caci, citi, ford, ngc, vodafone, ...) ALSO collide with
+#      employers already in the registry on other platforms, so they need a
+#      double-count verdict per double_count_test.go before any registration.
+#
+# Each line below records its sitemap probe. Slugs marked "sitemap OK ... ->
+# REGISTERED" moved to EightfoldCompanies; everything else is still gated-only.
 
-10xgenomics
-3qdigital
-activision
-aijob-etx
-alnylam
-amdocs
-amgen
-appliedmaterials
-arcadis
-astrazeneca
-atb
-auburn
-baruch
-bayerwfx
-bluecrabconsulting
-bms
-bostonscientific
-britishcouncil
-brocku
-caci
-capitalone
-ccep
-citi
-climate
-coitgroup
-coloradowfx
-conagra
-cornell
-corteva
-coupang
-cs
-dcsg
-deloitte
-desjardins
-dexcom
-dolby
-dsm
-dwd
-eaton
-egnyte
-elcompanies
-elevateservices
-ericsson
-femsa
-fisherinvestments
-foleyeq
-ford
-fortive
-forvia
-globalfoundries
-grupobimbo
-hp
-hpe
-huntsman
-infineon
-johndeere
-juniper
-kroger
-laddrr
-lamresearch
-livongo
-mc
-mercadolibre
-micron
-microsoft
-midfirst
-mongodb
-morganstanley
-mtb
-mtsi-va
-new
-ngc
-noom
-oebb
-oneten
-paypal
-postmates
-premierhealth
-prudential
-qa
-qualcomm
-ralliant
-rotoplas
-samsungnext
-sephora
-slb
-softtek
-spglobal
-stage
-starbucks
-stateauto
-talentexchangedemo-sbx
-target
-teladochealth
-telekom
-telekom-growthhub
-trabajo
-trimble
-trinet
-twilio
-ukg
-usc
-vialto
-virginia
-vizientinc
-vodafone
-whirlpool
-wpengine
-yeti
+10xgenomics  # sitemap OK 2026-07-30, 25 job urls on careers.10xgenomics.com -> REGISTERED (sitemap route)
+3qdigital  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+activision  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+aijob-etx  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+alnylam  # sitemap OK 2026-07-30, 152 job urls on jobs.alnylam.com -> REGISTERED (sitemap route)
+amdocs  # sitemap OK 2026-07-30, 7 job urls on jobs.amdocs.com -> REGISTERED (sitemap route)
+amgen  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+appliedmaterials  # sitemap real 2026-07-30, 1775 job urls on careers.appliedmaterials.com; staged: over the 500-posting budget
+arcadis  # sitemap real 2026-07-30, 1347 job urls on jobs.arcadis.com; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+astrazeneca  # sitemap real 2026-07-30, 945 job urls on astrazeneca.eightfold.ai; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+atb  # sitemap OK 2026-07-30, 45 job urls on careers.atb.com -> REGISTERED (sitemap route)
+auburn  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+baruch  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+bayerwfx  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+bluecrabconsulting  # sitemap OK 2026-07-30, 2 job urls on bluecrabconsulting.eightfold.ai -> REGISTERED (sitemap route)
+bms  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+bostonscientific  # sitemap real 2026-07-30, 591 job urls on bostonscientific.eightfold.ai; staged: over the 500-posting budget
+britishcouncil  # sitemap OK 2026-07-30, 82 job urls on careers.britishcouncil.org -> REGISTERED (sitemap route)
+brocku  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+caci  # sitemap real 2026-07-30, 1646 job urls on searchcareers.caci.com; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+capitalone  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+ccep  # sitemap OK 2026-07-30, 45 job urls on jobs.ccep.com -> REGISTERED (sitemap route)
+citi  # sitemap real 2026-07-30, 3429 job urls on citi.eightfold.ai; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+climate  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+coitgroup  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+coloradowfx  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+conagra  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+cornell  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+corteva  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+coupang  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+cs  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+dcsg  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+deloitte  # sitemap real 2026-07-30, 613 job urls on de-job.deloitte.com; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+desjardins  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+dexcom  # sitemap OK 2026-07-30, 294 job urls on careers.dexcom.com -> REGISTERED (sitemap route)
+dolby  # sitemap real 2026-07-30, 81 job urls on jobs.dolby.com; staged: inside the budget, but the name collides with the registry -- double-count verdict needed first
+dsm  # sitemap OK 2026-07-30, 425 job urls on jobs.dsm-firmenich.com -> REGISTERED (sitemap route)
+dwd  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+eaton  # sitemap real 2026-07-30, 2248 job urls on eaton.eightfold.ai; staged: over the 500-posting budget
+egnyte  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+elcompanies  # sitemap real 2026-07-30, 1153 job urls on careers.elcompanies.com; staged: over the 500-posting budget
+elevateservices  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+ericsson  # sitemap real 2026-07-30, 501 job urls on jobs.ericsson.com; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+femsa  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+fisherinvestments  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+foleyeq  # sitemap OK 2026-07-30, 78 job urls on jobs.foleyeq.com -> REGISTERED (sitemap route)
+ford  # sitemap real 2026-07-30, 599 job urls on jobs.ford.com; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+fortive  # sitemap real 2026-07-30, 310 job urls on fortive.eightfold.ai; staged: inside the budget, but the name collides with the registry -- double-count verdict needed first
+forvia  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+globalfoundries  # sitemap OK 2026-07-30, 500 job urls on careers.gf.com -> REGISTERED (sitemap route)
+grupobimbo  # sitemap real 2026-07-30, 562 job urls on careers.bimbobakeriesusa.com; staged: over the 500-posting budget
+hp  # sitemap real 2026-07-30, 1286 job urls on apply.hp.com; staged: over the 500-posting budget
+hpe  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+huntsman  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+infineon  # sitemap real 2026-07-30, 1208 job urls on jobs.infineon.com; staged: over the 500-posting budget
+johndeere  # sitemap OK 2026-07-30, 204 job urls on careers.deere.com -> REGISTERED (sitemap route)
+juniper  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+kroger  # sitemap DECOY 2026-07-30: app.eightfold.ai?domain=eightfold.ai, Eightfold's own board
+laddrr  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+lamresearch  # sitemap real 2026-07-30, 1255 job urls on careers.lamresearch.com; staged: over the 500-posting budget
+livongo  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+mc  # sitemap real 2026-07-30, 1350 job urls on careers.mayoclinic.org; staged: over the 500-posting budget
+mercadolibre  # sitemap real 2026-07-30, 845 job urls on mercadolibre.eightfold.ai; staged: over the 500-posting budget
+micron  # sitemap real 2026-07-30, 2737 job urls on careers.micron.com; staged: over the 500-posting budget
+microsoft  # sitemap real 2026-07-30, 1739 job urls on apply.careers.microsoft.com; staged: over the 500-posting budget
+midfirst  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+mongodb  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+morganstanley  # sitemap real 2026-07-30, 1358 job urls on morganstanley.eightfold.ai; staged: over the 500-posting budget
+mtb  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+mtsi-va  # sitemap OK 2026-07-30, 390 job urls on talent.mtsi-va.com -> REGISTERED (sitemap route)
+new  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+ngc  # sitemap real 2026-07-30, 3668 job urls on jobs.northropgrumman.com; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+noom  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+oebb  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+oneten  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+paypal  # sitemap OK 2026-07-30, 152 job urls on paypal.eightfold.ai -> REGISTERED (sitemap route)
+postmates  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+premierhealth  # sitemap real 2026-07-30, 571 job urls on careers.premierhealth.com; staged: over the 500-posting budget
+prudential  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+qa  # sitemap DECOY 2026-07-30: app.eightfold.ai?domain=eightfold.ai, Eightfold's own board
+qualcomm  # sitemap real 2026-07-30, 1876 job urls on careers.qualcomm.com; staged: over the 500-posting budget
+ralliant  # sitemap OK 2026-07-30, 240 job urls on ralliant.eightfold.ai -> REGISTERED (sitemap route)
+rotoplas  # sitemap OK 2026-07-30, 15 job urls on careers.rotoplas.com -> REGISTERED (sitemap route)
+samsungnext  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+sephora  # sitemap real 2026-07-30, 889 job urls on join.sephora.com; staged: over the 500-posting budget
+slb  # sitemap real 2026-07-30, 553 job urls on apply.slb.com; staged: over the 500-posting budget
+softtek  # sitemap OK 2026-07-30, 334 job urls on softtek.eightfold.ai -> REGISTERED (sitemap route)
+spglobal  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+stage  # sitemap none 2026-07-30 (HTTP 403, 0 job urls)
+starbucks  # sitemap real 2026-07-30, 21834 job urls on apply.starbucks.com; staged: over the 500-posting budget
+stateauto  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+talentexchangedemo-sbx  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+target  # sitemap DECOY 2026-07-30: app.eightfold.ai?domain=eightfold.ai, Eightfold's own board
+teladochealth  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+telekom  # sitemap none 2026-07-30 (HTTP 307, 0 job urls)
+telekom-growthhub  # sitemap OK 2026-07-30, 223 job urls on telekom-growthhub.eightfold.ai -> REGISTERED (sitemap route)
+trabajo  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+trimble  # sitemap real 2026-07-30, 307 job urls; job pages carry no JSON-LD on either host -- not crawlable despite the sitemap
+trinet  # sitemap OK 2026-07-30, 205 job urls on jobs.trinet.com -> REGISTERED (sitemap route)
+twilio  # sitemap real 2026-07-30, 180 job urls on jobs.twilio.com; staged: inside the budget, but the name collides with the registry -- double-count verdict needed first
+ukg  # sitemap OK 2026-07-30, 288 job urls on apply.ukg.com -> REGISTERED (sitemap route)
+usc  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+vialto  # sitemap OK 2026-07-30, 140 job urls on careers.vialto.com -> REGISTERED (sitemap route)
+virginia  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+vizientinc  # sitemap OK 2026-07-30, 205 job urls on careers.vizientinc.com -> REGISTERED (sitemap route)
+vodafone  # sitemap real 2026-07-30, 1399 job urls on jobs.vodafone.com; staged: over the 500-posting budget; name collides with the registry, double-count verdict needed
+whirlpool  # sitemap real 2026-07-30, 76 job urls on jobs.whirlpool.com; staged: inside the budget, but the name collides with the registry -- double-count verdict needed first
+wpengine  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
+yeti  # sitemap none 2026-07-30 (HTTP 404, 0 job urls)
 
 # --- Resolve, but run no careers board (HTTP 404) ---------------------------
 #

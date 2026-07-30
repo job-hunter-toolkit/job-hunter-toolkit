@@ -3,13 +3,17 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal"
+	"golang.org/x/net/html"
 )
 
 // eightfoldPlatform is the platform name this file registers under, shared with
@@ -51,12 +55,25 @@ const eightfoldMaxPages = 2000
 // tenants and is what the API is addressed by; the branded hosts are not
 // derivable from it.
 //
-// **Every slug here answered the list API with postings on two separate runs.**
-// That matters more than usual on this platform: roughly three quarters of
-// Eightfold tenants answer this endpoint with HTTP 403 and
+// **Every slug here answered one of the two crawl routes with postings on two
+// separate runs.** That matters more than usual on this platform: roughly three
+// quarters of Eightfold tenants answer the list API with HTTP 403 and
 // `{"message": "Not authorized for PCSX"}` instead, and a walled tenant is
 // indistinguishable from a live one by name alone. See
 // docs/source-backlog.md for the walled list and what is known about it.
+//
+// Since 2026-07-30 a gated tenant is no longer automatically uncrawlable: when
+// the list API answers the PCSX wall, [Eightfold] falls back to the tenant's
+// public sitemap plus the schema.org JSON-LD on each job page. The tenants
+// registered on that route are the ones whose sitemap was measured real (54 of
+// the 109 gated tenants publish one; 3 publish a decoy pointing at Eightfold's
+// own board and 52 publish none) AND whose job pages actually carry JSON-LD
+// (trimble's do not) AND whose board is small enough that one-request-per-
+// posting is affordable (500 postings or fewer measured; the 15 larger real
+// sitemaps, from ericsson's 501 to starbucks' 21,834, stay staged in the
+// candidate file with their sizes). The 22 that passed all three gates are
+// marked "sitemap route" below; together they measured 4,051 postings on
+// 2026-07-30, which is what that route costs per crawl in requests.
 //
 // A handful of slugs are the employer's ticker or a product name rather than
 // something a job seeker would type, which docs/adding-a-source.md warns about;
@@ -81,24 +98,46 @@ const eightfoldMaxPages = 2000
 // for fcx and 281 against 272 for netapp. Bayer is the one real trade, 482
 // against 638. TestSuccessFactorsAddsNoDoubleCountedEmployer enforces the rule.
 var EightfoldCompanies = []string{
+	"10xgenomics", // sitemap route, 25 measured 2026-07-30
 	"albemarle",
+	"alnylam", // sitemap route, 152
+	"amdocs",  // sitemap route, 7
+	"atb",     // sitemap route, 45; ATB Financial
 	"bcg",
+	"bluecrabconsulting", // sitemap route, 2
+	"britishcouncil",     // sitemap route, 82
+	"ccep",               // sitemap route, 45; Coca-Cola Europacific Partners
 	"coca-colafemsa",
 	"costar",
+	"dexcom", // sitemap route, 294
+	"dsm",    // sitemap route, 425; dsm-firmenich
 	"faurecia",
 	"fluor",
+	"foleyeq", // sitemap route, 78
 	"ftr",
+	"globalfoundries", // sitemap route, 500
 	"gotinder",
 	"houstonisd",
 	"hsbc",
 	"insight",
+	"johndeere", // sitemap route, 204
 	"libertymutual",
+	"mtsi-va", // sitemap route, 390; Modern Technology Solutions Inc
 	"netflix",
 	"oxxo",
+	"paypal",   // sitemap route, 152
+	"ralliant", // sitemap route, 240
+	"rotoplas", // sitemap route, 15
+	"softtek",  // sitemap route, 334
 	"stmicroelectronics",
 	"symetra",
+	"telekom-growthhub", // sitemap route, 223; Deutsche Telekom's internal-mobility brand
 	"tevapharm",
+	"trinet", // sitemap route, 205
+	"ukg",    // sitemap route, 288
 	"vale",
+	"vialto",     // sitemap route, 140
+	"vizientinc", // sitemap route, 205
 }
 
 // eightfoldJobs is the subset of an Eightfold list response this adapter uses.
@@ -240,20 +279,87 @@ func eightfoldTimestamp(seconds int64) time.Time {
 	return time.Unix(seconds, 0).UTC()
 }
 
+// eightfoldListURL is the list API for one page of a tenant's postings.
+func eightfoldListURL(company string, start int) string {
+	return "https://" + company + ".eightfold.ai/api/apply/v2/jobs" +
+		"?start=" + strconv.Itoa(start) +
+		"&num=" + strconv.Itoa(eightfoldPageSize)
+}
+
+// eightfoldFirstPage fetches page 0 of the list API with status visibility,
+// because HTTP 403 is a meaningful answer on this platform rather than a
+// failure: it is the per-tenant PCSX wall docs/adding-a-source.md describes, and
+// it is what routes a tenant onto the sitemap fallback.
+//
+// gated is reported only for a 403 whose body carries the wall's own "PCSX"
+// marker. A bare 403 from a proxy or a WAF is not the wall, and treating it as
+// one would quietly reroute a healthy list tenant onto a route that costs one
+// request per posting.
+func eightfoldFirstPage(ctx context.Context, httpClient *http.Client, company string) (doc *eightfoldJobs, gated bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, eightfoldListURL(company, 0), nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to create request for Eightfold company %q: %w", company, err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to make request to Eightfold for company %q: %w", company, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusForbidden {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if strings.Contains(string(body), "PCSX") {
+			return nil, true, nil
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, fmt.Errorf("unexpected status code from Eightfold for company %q: %s", company, resp.Status)
+	}
+
+	doc = new(eightfoldJobs)
+	if err := json.NewDecoder(resp.Body).Decode(doc); err != nil {
+		return nil, false, fmt.Errorf("failed to decode response from Eightfold for company %q: %w", company, err)
+	}
+
+	return doc, false, nil
+}
+
 // Eightfold returns all of the job postings for a given company, or an error if
 // there was a problem making the request or parsing the response.
 //
-// A tenant that answers HTTP 403 is not broken infrastructure: Eightfold gates
-// this endpoint per tenant, and a walled tenant reports
-// `{"message": "Not authorized for PCSX"}` behind that status. The status text
-// reaches the operator through fetchJSON's error, which is enough to tell that
-// case apart from a 404 (no such tenant) in a `health` run.
+// The list API is the primary route: ten postings per request against roughly
+// one per request on the fallback below, so it is tried first for every tenant.
+//
+// A tenant that answers HTTP 403 with `{"message": "Not authorized for PCSX"}`
+// is not broken infrastructure — Eightfold gates the list API per tenant, 109
+// of 133 live tenants measured — and since 2026-07-30 it is not the end of the
+// road either: those tenants fall back to the public sitemap at
+// /careers/sitemap.xml plus the schema.org JSON-LD block on each job page,
+// which the wall does not cover. See [eightfoldSitemapWalk] for that route's
+// own verification rules and costs.
 func Eightfold(ctx context.Context, httpClient *http.Client, company string) internal.Jobs {
 	return func(yield func(*internal.JobPosting, error) bool) {
 		var (
 			guard pageRepeatGuard
 			start int
 		)
+
+		first, gated, err := eightfoldFirstPage(ctx, httpClient, company)
+		if err != nil {
+			yield(nil, err)
+
+			return
+		}
+
+		if gated {
+			eightfoldSitemapWalk(ctx, httpClient, company, yield)
+
+			return
+		}
 
 		for page := 0; page < eightfoldMaxPages; page++ {
 			if ctx.Err() != nil {
@@ -262,15 +368,16 @@ func Eightfold(ctx context.Context, httpClient *http.Client, company string) int
 				return
 			}
 
-			doc, err := fetchJSON[eightfoldJobs](ctx, httpClient, "Eightfold", company, jsonRequest{
-				URL: "https://" + company + ".eightfold.ai/api/apply/v2/jobs" +
-					"?start=" + strconv.Itoa(start) +
-					"&num=" + strconv.Itoa(eightfoldPageSize),
-			})
-			if err != nil {
-				yield(nil, err)
+			doc := first
+			if page > 0 {
+				doc, err = fetchJSON[eightfoldJobs](ctx, httpClient, "Eightfold", company, jsonRequest{
+					URL: eightfoldListURL(company, start),
+				})
+				if err != nil {
+					yield(nil, err)
 
-				return
+					return
+				}
 			}
 
 			if len(doc.Positions) == 0 {
@@ -357,6 +464,406 @@ func Eightfold(ctx context.Context, httpClient *http.Client, company string) int
 		// way Lever and Teamtailor report theirs.
 		yield(nil, fmt.Errorf("refusing to keep paginating Eightfold for company %q: the board was still serving full pages after %d pages of %d",
 			company, eightfoldMaxPages, eightfoldPageSize))
+	}
+}
+
+const (
+	// eightfoldSitemapPath is the tenant-relative path of the public sitemap the
+	// fallback route reads. The PCSX wall on the list API does not cover it: 54
+	// of the 109 gated tenants measured on 2026-07-30 serve a real one here.
+	eightfoldSitemapPath = "/careers/sitemap.xml"
+
+	// eightfoldSitemapMaxBytes bounds how much sitemap is read. The largest real
+	// sitemap measured (starbucks) is 6.1 MB for 21,834 postings; 16 MB is well
+	// past anything a registrable tenant publishes, and a sitemap bigger than
+	// this fails [eightfoldSitemapMaxPostings] anyway.
+	eightfoldSitemapMaxBytes = 16 << 20
+
+	// eightfoldSitemapMaxPostings bounds how many job pages one gated tenant may
+	// cost, and exceeding it is an error rather than a truncation.
+	//
+	// The sitemap route costs one request per posting — Eightfold's job pages
+	// carry no list API for a gated tenant — so a board's size IS its request
+	// bill, and registering a tenant on this route is a cost decision made from
+	// a measured size. Every tenant registered on it measured 500 or fewer
+	// postings on 2026-07-30 (4,051 across all 22); the ceiling is 4x the
+	// largest so ordinary growth does not trip it. A tenant that outgrows it
+	// wants that decision re-made, not silently paid: yielding a partial board
+	// would violate the rule that a partial crawl never looks complete, so the
+	// walk refuses up front.
+	eightfoldSitemapMaxPostings = 2000
+)
+
+// eightfoldSitemap is the subset of a sitemap.xml document the fallback uses.
+type eightfoldSitemap struct {
+	URLs []struct {
+		Loc string `xml:"loc"`
+	} `xml:"url"`
+}
+
+// eightfoldSitemapLocs fetches a gated tenant's sitemap and returns its job-page
+// URLs exactly as published.
+//
+// Three shapes come back from the 109 gated tenants and only one of them is
+// crawlable, so the other two are named errors rather than empty successes:
+//
+//   - 54 tenants publish a real sitemap whose <loc> entries point at the
+//     tenant's own board (careers.deere.com, paypal.eightfold.ai, ...);
+//   - 3 publish a DECOY: a byte-identical sitemap listing Eightfold's own
+//     careers board at app.eightfold.ai?domain=eightfold.ai (target, kroger,
+//     qa all serve the same 65 postings — Eightfold's, not theirs). Crawling
+//     it would attribute Eightfold's openings to the tenant, the Oracle
+//     benchmark-tenant mistake with a different vendor;
+//   - 52 answer 404 or an empty document, so the tenant is genuinely
+//     unreachable and the error says exactly that.
+func eightfoldSitemapLocs(ctx context.Context, httpClient *http.Client, company string) ([]string, error) {
+	sitemapURL := "https://" + company + ".eightfold.ai" + eightfoldSitemapPath
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sitemapURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for Eightfold company %q: %w", company, err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request to Eightfold for company %q: %w", company, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Eightfold company %q gates its list API and its sitemap answered %s: not crawlable by either route", company, resp.Status)
+	}
+
+	var doc eightfoldSitemap
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, eightfoldSitemapMaxBytes)).Decode(&doc); err != nil {
+		return nil, fmt.Errorf("failed to decode sitemap from Eightfold for company %q: %w", company, err)
+	}
+
+	locs := make([]string, 0, len(doc.URLs))
+
+	for _, entry := range doc.URLs {
+		loc := strings.TrimSpace(entry.Loc)
+		if !strings.Contains(loc, "/careers/job/") {
+			continue
+		}
+
+		parsed, err := url.Parse(loc)
+		if err != nil {
+			continue
+		}
+
+		if strings.EqualFold(parsed.Hostname(), "app.eightfold.ai") &&
+			parsed.Query().Get("domain") == "eightfold.ai" && company != "eightfold" {
+			return nil, fmt.Errorf("Eightfold company %q gates its list API and its sitemap is the app.eightfold.ai decoy listing Eightfold's own board: not crawlable by either route", company)
+		}
+
+		locs = append(locs, loc)
+	}
+
+	if len(locs) == 0 {
+		return nil, fmt.Errorf("Eightfold company %q gates its list API and its sitemap lists no job pages: not crawlable by either route", company)
+	}
+
+	if len(locs) > eightfoldSitemapMaxPostings {
+		return nil, fmt.Errorf("refusing to walk the Eightfold sitemap for company %q: %d job pages at one request each is past the %d this route is budgeted for, and yielding a subset would report a partial board as complete", company, len(locs), eightfoldSitemapMaxPostings)
+	}
+
+	return locs, nil
+}
+
+// eightfoldJobLD is the subset of a job page's schema.org JobPosting JSON-LD
+// block this adapter reads. baseSalary is deliberately absent: no gated tenant
+// registered here published one when measured, and pay found in description
+// prose goes through [internal.ParseCompensationFromDescription] instead.
+type eightfoldJobLD struct {
+	Type            string `json:"@type"`
+	Title           string `json:"title"`
+	Description     string `json:"description"`
+	DatePosted      string `json:"datePosted"`
+	EmploymentType  string `json:"employmentType"`
+	JobLocationType string `json:"jobLocationType"`
+	JobLocation     struct {
+		Address struct {
+			Locality string          `json:"addressLocality"`
+			Region   string          `json:"addressRegion"`
+			Country  json.RawMessage `json:"addressCountry"`
+		} `json:"address"`
+	} `json:"jobLocation"`
+}
+
+// eightfoldLDCountry reads schema.org's addressCountry, which the spec allows as
+// either a bare string or a Country object with a name.
+func eightfoldLDCountry(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+
+	var country struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(raw, &country) == nil {
+		return strings.TrimSpace(country.Name)
+	}
+
+	return ""
+}
+
+// eightfoldLDTime parses a JSON-LD timestamp. Eightfold emits zone-less ISO
+// 8601 ("2026-07-27T13:21:22") on every tenant measured; the RFC 3339 form is
+// accepted too in case a tenant configures one. Stored as UTC like every other
+// date in this project.
+func eightfoldLDTime(value string) time.Time {
+	value = strings.TrimSpace(value)
+
+	for _, layout := range []string{"2006-01-02T15:04:05", time.RFC3339} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.UTC()
+		}
+	}
+
+	return time.Time{}
+}
+
+// eightfoldExternalIDFromLoc returns the numeric position id from a sitemap job
+// URL, which is the leading digits of the path segment after /careers/job/:
+// .../careers/job/563431013427445-software-support-specialist-... -> 563431013427445.
+func eightfoldExternalIDFromLoc(loc string) string {
+	_, rest, ok := strings.Cut(loc, "/careers/job/")
+	if !ok {
+		return ""
+	}
+
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+
+	return rest[:end]
+}
+
+// eightfoldLDBlocks returns the parsed JSON-LD JobPosting blocks on a page.
+func eightfoldLDBlocks(doc *html.Node) []eightfoldJobLD {
+	var (
+		blocks []eightfoldJobLD
+		walk   func(*html.Node)
+	)
+
+	walk = func(n *html.Node) {
+		if n == nil {
+			return
+		}
+
+		if n.Type == html.ElementNode && n.Data == "script" {
+			for _, attr := range n.Attr {
+				if strings.EqualFold(attr.Key, "type") && strings.EqualFold(attr.Val, "application/ld+json") {
+					var text strings.Builder
+					for c := n.FirstChild; c != nil; c = c.NextSibling {
+						if c.Type == html.TextNode {
+							text.WriteString(c.Data)
+						}
+					}
+
+					var block eightfoldJobLD
+					if err := json.Unmarshal([]byte(text.String()), &block); err == nil && block.Type == "JobPosting" {
+						blocks = append(blocks, block)
+					}
+				}
+			}
+		}
+
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+
+	walk(doc)
+
+	return blocks
+}
+
+// eightfoldJobPage fetches one sitemap job page and reads its JSON-LD.
+//
+// The fetch goes to the tenant's {slug}.eightfold.ai host even when the sitemap
+// published a branded host, because the branded hosts (careers.deere.com,
+// apply.hp.com, ...) are all fronts for the same Eightfold backend with nothing
+// textually in common — exactly the Radancy shape — and only the eightfold.ai
+// suffix is covered by the shared pacing key in httpx. Measured 2026-07-30: the
+// eightfold.ai host serves the identical page and JSON-LD for the same path.
+// The posting's published URL stays the sitemap's canonical loc.
+//
+// ok is false, with no error, for a page that answered 404 or 410: sitemaps lag
+// the board, a posting can close between the sitemap fetch and its page fetch,
+// and a closed posting is an ordinary absence rather than a failed source. It
+// is also false for a 200 page carrying no JobPosting block, which is how a
+// trimble-shaped tenant (client-rendered pages, no JSON-LD at all) surfaces;
+// the caller turns all-pages-empty into an error.
+func eightfoldJobPage(ctx context.Context, httpClient *http.Client, company, loc string) (posting *internal.JobPosting, ok bool, err error) {
+	parsed, err := url.Parse(loc)
+	if err != nil {
+		return nil, false, nil
+	}
+
+	fetchURL := "https://" + company + ".eightfold.ai" + parsed.EscapedPath()
+	if parsed.RawQuery != "" {
+		fetchURL += "?" + parsed.RawQuery
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to create request for Eightfold company %q: %w", company, err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to make request to Eightfold for company %q: %w", company, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return nil, false, nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, fmt.Errorf("unexpected status code from Eightfold for company %q at %s: %s", company, fetchURL, resp.Status)
+	}
+
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to parse HTML from Eightfold for company %q: %w", company, err)
+	}
+
+	blocks := eightfoldLDBlocks(doc)
+	if len(blocks) == 0 {
+		return nil, false, nil
+	}
+
+	block := blocks[0]
+
+	address := block.JobLocation.Address
+
+	// Joined most-specific first, skipping parts already present in an earlier
+	// one: amdocs publishes region "Uusimaa,FI" with country "FI", and joining
+	// blindly would render "HKI, Uusimaa,FI, FI".
+	parts := make([]string, 0, 3)
+	for _, part := range []string{address.Locality, address.Region, eightfoldLDCountry(address.Country)} {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+
+		redundant := false
+		for _, earlier := range parts {
+			if strings.Contains(strings.ToLower(earlier), strings.ToLower(part)) {
+				redundant = true
+
+				break
+			}
+		}
+
+		if !redundant {
+			parts = append(parts, part)
+		}
+	}
+
+	location := strings.Join(parts, ", ")
+	if location == "" {
+		location = "unknown/remote"
+	}
+
+	posting = &internal.JobPosting{
+		Company:  company,
+		URL:      loc,
+		Title:    strings.TrimSpace(block.Title),
+		Location: location,
+		PostedAt: eightfoldLDTime(block.DatePosted),
+		Source: internal.PostingSource{
+			Platform: eightfoldPlatform,
+			Key:      company,
+		},
+	}
+
+	if id := eightfoldExternalIDFromLoc(loc); id != "" {
+		posting.ExternalID = id
+	}
+
+	if employment, ok := internal.NormalizeEmploymentType(block.EmploymentType); ok {
+		posting.EmploymentType = employment
+	}
+
+	// schema.org's own remote marker. The same asymmetry as [eightfoldRemote]:
+	// TELECOMMUTE sets the flag, anything else stays unset so the location text
+	// heuristic keeps working.
+	if strings.EqualFold(strings.TrimSpace(block.JobLocationType), "TELECOMMUTE") {
+		posting.WorkplaceType = internal.WorkplaceTypeRemote
+		posting.Remote = eightfoldRemote(internal.WorkplaceTypeRemote)
+	}
+
+	posting.Compensation = internal.ParseCompensationFromDescription(block.Description)
+
+	return posting, true, nil
+}
+
+// eightfoldSitemapWalk crawls a gated tenant through its public sitemap, one
+// job-page request per posting.
+//
+// This is the expensive route — the 22 tenants registered on it measured 4,051
+// postings, so roughly 4,100 requests per crawl against ~410 if the list API
+// ever opens up for them — and it is only entered after the list API answered
+// the PCSX wall, never by preference.
+func eightfoldSitemapWalk(ctx context.Context, httpClient *http.Client, company string, yield func(*internal.JobPosting, error) bool) {
+	locs, err := eightfoldSitemapLocs(ctx, httpClient, company)
+	if err != nil {
+		yield(nil, err)
+
+		return
+	}
+
+	var (
+		seen      = make(map[string]bool, len(locs))
+		attempted = 0
+		yielded   = 0
+	)
+
+	for _, loc := range locs {
+		if ctx.Err() != nil {
+			yield(nil, ctx.Err())
+
+			return
+		}
+
+		if seen[loc] {
+			continue
+		}
+
+		seen[loc] = true
+
+		posting, ok, err := eightfoldJobPage(ctx, httpClient, company, loc)
+		if err != nil {
+			yield(nil, err)
+
+			return
+		}
+
+		attempted++
+
+		if !ok {
+			continue
+		}
+
+		yielded++
+
+		if !yield(posting, nil) {
+			return
+		}
+	}
+
+	// Every page fetched and none carried a JobPosting block: that is not a
+	// board with nothing to say, it is a tenant whose job pages this route
+	// cannot read (trimble renders them client-side with no JSON-LD at all),
+	// and reporting zero postings would make it indistinguishable from an
+	// employer that is not hiring.
+	if attempted > 0 && yielded == 0 {
+		yield(nil, fmt.Errorf("unexpected response shape from Eightfold for company %q: %d sitemap job pages fetched but none carried a schema.org JobPosting block", company, attempted))
 	}
 }
 

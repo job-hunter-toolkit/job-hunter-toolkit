@@ -1,0 +1,45 @@
+# ============================================================================
+# Amazon's own careers site: one employer, one endpoint (# starts a comment).
+#
+# Not a shared ATS. www.amazon.jobs is an iCIMS-backed search API Amazon runs
+# itself — every posting carries an id_icims — and it is the largest employer
+# docs/source-backlog.md listed as missing. This file exists to hold this
+# platform to the same rule as every other: what is registered is measured, and
+# the measurements live next to the entry.
+#
+# MEASURED 2026-07-30, live from a container that reaches job boards, against
+# GET https://www.amazon.jobs/en/search.json:
+#
+#   size        facet counts sum to 22,346 postings (22,348 on a second
+#               capture minutes later -- the board moves) (57 countries, 60
+#               business categories; both dimensions sum identically, which is
+#               what makes business_category a partition of the whole board)
+#   hits        saturates at 10,000: an unfiltered query answers hits=10000
+#               while its own facets sum to 22,346
+#   page size   result_limit is honoured up to 100; 200/500/1000 answer
+#               HTTP 200, zero jobs, error "Result limit cannot be greater
+#               than 100"
+#   window      offset+result_limit past 10,000 answers HTTP 200, zero jobs,
+#               error "Cannot return more than 10000 results at once" — the
+#               same 10,000-row Elasticsearch window as Radancy and Oracle ORC,
+#               but avoidable here because the search accepts exact filters
+#               over the facets it reports (business_category[]=aws answers
+#               exactly the facet's count). Largest single category: aws at
+#               7,731; largest measured intersection USA x aws at 5,255
+#   filters     business_category[] and normalized_country_code[] are exact,
+#               including the "no-business-category" bucket (545), so nothing
+#               is only reachable through the window
+#   subsidiaries AWS rides this endpoint as business_category "aws" (7,731).
+#               Whole Foods Market corporate roles ride it too (97 postings, all
+#               published by "Amazon.com Services LLC"); WFM in-store hourly
+#               hiring is a separate system and is NOT covered
+#   canonical URL https://www.amazon.jobs{job_path}; verified resolving 200 with
+#               no redirect. url_next_step is an apply redirect into
+#               account.amazon.jobs and is never published
+#   pay         no structured pay field, and 0 of 30 sampled list descriptions
+#               carried a dollar figure (US pay disclosures are only on detail
+#               pages, at one request per posting — refused)
+#   cost        one facet request + ~230 page requests for ~22,300 postings
+#               = ~75 postings per request
+# ============================================================================
+www.amazon.jobs    # REGISTERED in internal/services/amazon.go, 22,346-22,348 postings by facet sum 2026-07-30
