@@ -1,0 +1,261 @@
+name: Publish Corpus
+
+# Crawls the full registry, folds the run into the previous corpus generation
+# (internal/corpus: identity, closure, .jhtc), and publishes the new generation.
+#
+# WHERE GENERATIONS LIVE, AND THE EVIDENCE (measured 2026-07-29, curl through
+# an HTTP proxy; re-verify before relitigating this):
+#
+#   Release assets (the crawl-budget-model.md suggestion) FAIL the PWA:
+#     GET https://github.com/<owner>/<repo>/releases/download/... returns a 302
+#     to release-assets.githubusercontent.com with a SIGNED URL EXPIRING IN ~1h
+#     (se= parameter). The final hop honours Range (206 Partial Content,
+#     Accept-Ranges: bytes) but sends NO Access-Control-Allow-Origin header at
+#     all, even with an Origin header on the request, and answers preflight
+#     OPTIONS with 405. A browser fetch therefore fails CORS outright, on both
+#     the redirect hop and the asset hop. Range works; CORS does not.
+#
+#   raw.githubusercontent.com PASSES:
+#     GET with `Origin: https://example.com` and `Range: bytes=1000000-1000099`
+#     against a 4.8 MB blob returned 206 with `accept-ranges: bytes`,
+#     `content-range: bytes 1000000-1000099/4862985` and
+#     `access-control-allow-origin: *` (cache-control: max-age=300). Preflight
+#     OPTIONS returns 403, but single-byte-range Range headers are
+#     CORS-safelisted by the Fetch spec, so a browser issues simple range GETs
+#     without preflighting. (Not yet exercised from a real browser; the PWA
+#     agent should confirm and must keep to single ranges.)
+#
+# DECISION: an orphan branch `corpus` holding ONLY the latest generation,
+# REPLACED by a single parentless commit each publish — never appended to. The
+# crawl-budget-model.md objection to committed blobs is that a daily commit
+# grows every clone forever; a replaced orphan branch adds one generation
+# (~36 MiB at full scale) as a constant, not a series. actions/checkout fetches
+# a single ref at depth 1, so CI checkouts never see it. A reader that needs an
+# atomic multi-file view resolves the branch SHA via api.github.com (which does
+# send access-control-allow-origin: *) and fetches every file pinned to
+# raw.githubusercontent.com/<owner>/<repo>/<sha>/<file>; a reader that fetches
+# by branch name instead is protected by manifest.json's content_digest — a
+# torn read fails `corpus verify` rather than parsing plausibly.
+#
+# COST: this workflow is a second full crawl per day plus a fold and a push.
+# The only end-to-end crawl measurement is 945 s in a container (07/28); the
+# nightly bills ~22 elapsed minutes on a healthy night. Estimate for this job:
+# ~25-30 min/night, so roughly 800-900 Actions minutes/month. That is accepted
+# because full postings exist nowhere else — track_jobs.yml's crawl discards
+# them — and the corpus is the data product every planned surface (PWA, MCP,
+# phone) reads. The obvious halving is for the nightly to emit
+# postings.ndjson as an artifact this workflow consumes instead of re-crawling;
+# that is a track_jobs.yml change and is deliberately not made here.
+# Politeness: the schedule sits 12 hours off the nightly's 09:00 crawl so the
+# boards never see the two runs together, and per-host pacing in internal/httpx
+# is unchanged.
+
+on:
+  schedule:
+  - cron: "0 21 * * *"
+  # Scheduled workflows are disabled after 60 days without repository activity,
+  # and the nightly once silently stopped that way. Keep a manual trigger.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # Not cancel-in-progress, same reasoning as track_jobs.yml: killing a crawl
+  # near its end throws the run away. Serialising the group is also what makes
+  # the publish's force-push safe: nothing else writes refs/heads/corpus.
+  group: publish-corpus
+  cancel-in-progress: false
+
+jobs:
+  publish_corpus:
+    name: Crawl, fold, and publish a corpus generation
+    runs-on: ubuntu-latest
+    # Budget ladder, following track_jobs.yml's arithmetic: crawl 120m < crawl
+    # step 135m < job 150m. The apply/publish steps after the crawl are minutes
+    # of CPU and one push; they live inside the same job budget.
+    timeout-minutes: 150
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Build
+      run: go build -o job-hunter-toolkit .
+
+    - name: Fetch previous generation
+      id: prev
+      run: |
+        set -euo pipefail
+
+        # The previous generation is the fold's base. Fail closed on anything
+        # except "the branch does not exist yet": silently starting from an
+        # empty corpus would reset every first_seen date the corpus exists to
+        # hold, which is exactly the kind of wrong-but-plausible output the
+        # nightly's guards were built against.
+        if git ls-remote --exit-code origin refs/heads/corpus >/dev/null 2>&1; then
+          git fetch --quiet --depth 1 origin refs/heads/corpus
+          mkdir corpus-prev
+          git archive FETCH_HEAD | tar -x -C corpus-prev
+
+          # verify recomputes the content digest over every column, so a torn
+          # or corrupted previous publish is refused here, not folded into.
+          ./job-hunter-toolkit corpus verify --corpus corpus-prev
+
+          PREV_GENERATION=$(python3 -c "import json;print(json.load(open('corpus-prev/manifest.json'))['generation'])")
+          echo "generation=$PREV_GENERATION" >> "$GITHUB_OUTPUT"
+          echo "previous generation: $PREV_GENERATION"
+        else
+          echo "no corpus branch yet; this run publishes generation 1"
+          echo "generation=0" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Crawl
+      # Crawl 120m < step 135m < job 150m; the crawl must stop itself and hand
+      # its artifacts to the fold rather than be killed holding them.
+      timeout-minutes: 135
+      run: |
+        set -euo pipefail
+
+        # --allow-partial: a deadline crawl is still foldable. The manifest
+        # records per-source outcomes and internal/corpus refuses every
+        # non-complete source as evidence of absence, so a partial crawl can
+        # refresh what it saw and can never close what it did not.
+        ./job-hunter-toolkit corpus crawl \
+          --timeout=120m \
+          --allow-partial \
+          --postings=postings.ndjson \
+          --manifest=crawl-manifest.json \
+          --log-level=info \
+          --log-format=json
+
+    - name: Apply into the next generation
+      id: apply
+      run: |
+        set -euo pipefail
+
+        # --run-at defaults to the manifest's finished_at and the fold is
+        # deterministic, so a re-run of a failed publish rebuilds the identical
+        # generation instead of a subtly different one.
+        ./job-hunter-toolkit corpus apply \
+          --corpus corpus-prev \
+          --output corpus-next \
+          --postings postings.ndjson \
+          --manifest crawl-manifest.json \
+          --retire-missing \
+          > apply-summary.json
+
+        cat apply-summary.json
+
+        # The full-column digest check on what is about to be served.
+        ./job-hunter-toolkit corpus verify --corpus corpus-next
+
+        PREV_GENERATION="${{ steps.prev.outputs.generation }}"
+        GENERATION=$(python3 -c "import json;print(json.load(open('apply-summary.json'))['generation'])")
+        ROWS=$(python3 -c "import json;print(json.load(open('apply-summary.json'))['rows'])")
+        OPEN=$(python3 -c "import json;print(json.load(open('apply-summary.json'))['open'])")
+
+        # Guards, in the nightly's fail-closed style. The generation must be
+        # exactly base+1 (anything else means the fold ran against a base other
+        # than the one fetched), and a corpus that lost its rows outright is a
+        # bug, never a publish.
+        if [ "$GENERATION" -ne $(( PREV_GENERATION + 1 )) ]; then
+          echo "::error::apply produced generation $GENERATION from base $PREV_GENERATION; refusing to publish"
+          exit 1
+        fi
+        if [ "$ROWS" -lt 1 ]; then
+          echo "::error::apply produced an empty corpus; refusing to publish"
+          exit 1
+        fi
+
+        echo "generation=$GENERATION" >> "$GITHUB_OUTPUT"
+        echo "rows=$ROWS" >> "$GITHUB_OUTPUT"
+        echo "open=$OPEN" >> "$GITHUB_OUTPUT"
+
+        {
+          echo "## Corpus generation $GENERATION"
+          echo
+          echo '```json'
+          cat apply-summary.json
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Publish generation to the corpus branch
+      env:
+        GENERATION: ${{ steps.apply.outputs.generation }}
+        ROWS: ${{ steps.apply.outputs.rows }}
+        OPEN: ${{ steps.apply.outputs.open }}
+      run: |
+        set -euo pipefail
+
+        git config user.name "Job Hunter Toolkit Bot"
+        git config user.email "job-hunter-toolkit@users.noreply.github.com"
+
+        for attempt in 1 2 3 4 5; do
+          # Fetch-before-write, the authoritative check in the nightly's style:
+          # if the branch already carries this generation or a newer one — a
+          # re-run of an old failed job, a manual dispatch racing the schedule
+          # past the concurrency group — leave it alone rather than clobbering
+          # newer data with older.
+          if git fetch --quiet --depth 1 origin refs/heads/corpus 2>/dev/null; then
+            REMOTE_GENERATION=$(git show FETCH_HEAD:manifest.json 2>/dev/null \
+              | python3 -c "import json,sys;print(json.load(sys.stdin)['generation'])" || echo 0)
+            if [ "$REMOTE_GENERATION" -ge "$GENERATION" ]; then
+              echo "::notice::corpus branch already holds generation $REMOTE_GENERATION >= $GENERATION; leaving it alone"
+              exit 0
+            fi
+          fi
+
+          # One parentless commit holding only the generation, built with the
+          # plumbing so nothing touches the checkout's working tree or index.
+          # The branch is REPLACED, never appended to: history lives in the
+          # generation's own runs.ndjson, and an ever-growing binary branch is
+          # exactly what docs/crawl-budget-model.md forbids committing.
+          TREE=$(
+            export GIT_INDEX_FILE="$(mktemp -u)"
+            git read-tree --empty
+            for name in corpus.jhtc sources.json runs.ndjson manifest.json; do
+              BLOB=$(git hash-object -w "corpus-next/$name")
+              git update-index --add --cacheinfo "100644,$BLOB,$name"
+            done
+            git write-tree
+          )
+
+          COMMIT=$(git commit-tree "$TREE" -m "corpus generation $GENERATION: $ROWS rows, $OPEN open")
+
+          if git push --quiet --force origin "$COMMIT:refs/heads/corpus"; then
+            echo "published generation $GENERATION: $ROWS rows, $OPEN open"
+            exit 0
+          fi
+
+          echo "::warning::push rejected on attempt $attempt; refetching"
+          sleep $(( attempt * 15 ))
+        done
+
+        echo "::error::could not publish generation $GENERATION after 5 attempts"
+        exit 1
+
+    - name: Compress crawl postings for retention
+      if: always()
+      continue-on-error: true
+      # The corpus is derived state, rebuildable only from the crawl's
+      # immutable postings stream; keeping a week of streams is what makes a
+      # bad fold recoverable. Diagnostics only — never allowed to fail the run.
+      run: gzip -9 -k postings.ndjson || true
+
+    - name: Upload crawl and fold diagnostics
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@v5
+      with:
+        name: corpus-run-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          crawl-manifest.json
+          apply-summary.json
+          postings.ndjson.gz
+        if-no-files-found: warn
+        retention-days: 7

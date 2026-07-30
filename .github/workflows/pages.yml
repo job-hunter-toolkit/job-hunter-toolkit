@@ -1,0 +1,78 @@
+name: Deploy Website
+
+# Builds the corpus-backed PWA in web/ — static HTML/CSS/JS plus the query
+# engine (web/engine + internal/corpus + query) compiled to WebAssembly — and
+# deploys it to GitHub Pages. The site is a pure client: it fetches the latest
+# corpus generation from the host recorded in web/config.js (the corpus
+# branch, per corpus.yml's header) and answers every query in the browser.
+# This workflow ships code only, never data: publishing the corpus is
+# corpus.yml's job, so a corpus publish does not redeploy the site and a site
+# deploy does not touch the corpus.
+#
+# COST: runs only on pushes to master that touch web/ (or this file), plus a
+# manual trigger. The build is a Go compile of one small wasm binary plus file
+# copies — ~1-2 min/run including deploy. At the observed cadence of web/
+# changes (bursts around feature work, quiet otherwise) that is ~10-20 runs a
+# month worst case: ~20-40 Actions minutes/month, noise next to the crawls'
+# ~1,700. Accepted because the alternative — committing built wasm to the repo
+# — puts a 4 MB binary in every clone and drifts from the toolchain.
+#
+# The smoke tests (web/test/*.mjs) are deliberately NOT run here: they run in
+# ci.yml territory and duplicating them would double their minutes. This
+# workflow's job is assembly and deploy, and the build failing is its test.
+
+on:
+  push:
+    branches: [master]
+    paths:
+    - "web/**"
+    - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  # One deploy at a time, newest wins: a stale deploy overwriting a newer one
+  # is worse than a cancelled build.
+  group: deploy-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the site and wasm engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Assemble site
+      run: |
+        set -euo pipefail
+        ./web/build.sh site
+
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v5
+      with:
+        path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - name: Deploy
+      id: deployment
+      uses: actions/deploy-pages@v5

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>job-hunter-toolkit — search the snapshot</title>
+    <meta
+      name="description"
+      content="Search a nightly snapshot of job postings crawled from thousands of company job boards. No backend, no tracking: the query engine runs in your browser."
+    />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>job-hunter-toolkit</h1>
+      <p class="tagline">
+        Search a nightly snapshot of postings crawled from thousands of company
+        job boards. The query engine runs entirely in your browser — no
+        backend, no account, no tracking.
+      </p>
+    </header>
+
+    <main>
+      <div id="banner" class="banner" role="status"></div>
+      <p id="stage" class="stage" role="status"></p>
+      <p id="error" class="error" hidden></p>
+
+      <form id="filters" hidden>
+        <div class="grid">
+          <label
+            >Title contains
+            <input id="f-title" type="text" placeholder="engineer, developer" autocomplete="off" />
+          </label>
+          <label
+            >Title excludes
+            <input id="f-exclude" type="text" placeholder="manager, staffing" autocomplete="off" />
+          </label>
+          <label
+            >Location contains
+            <input id="f-location" type="text" placeholder="remote, berlin" autocomplete="off" />
+          </label>
+          <label
+            >Company contains
+            <input id="f-company" type="text" autocomplete="off" />
+          </label>
+          <label
+            >Department or team
+            <input id="f-department" type="text" placeholder="engineering, security" autocomplete="off" />
+          </label>
+          <label
+            >Minimum annual pay
+            <input id="f-minpay" type="number" min="0" step="1000" placeholder="e.g. 150000" />
+          </label>
+          <label
+            >Employment type
+            <select id="f-employment">
+              <option value="">any</option>
+              <option value="full_time">full-time</option>
+              <option value="part_time">part-time</option>
+              <option value="contract">contract</option>
+              <option value="internship">internship</option>
+              <option value="temporary">temporary</option>
+              <option value="volunteer">volunteer</option>
+            </select>
+          </label>
+          <label
+            >Workplace type
+            <select id="f-workplace">
+              <option value="">any</option>
+              <option value="remote">remote</option>
+              <option value="hybrid">hybrid</option>
+              <option value="onsite">onsite</option>
+            </select>
+          </label>
+          <label
+            >Posted since
+            <select id="f-since">
+              <option value="">any time</option>
+              <option value="1">last day</option>
+              <option value="7">last week</option>
+              <option value="30">last month</option>
+              <option value="90">last 90 days</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label class="check"><input id="f-remote" type="checkbox" /> Remote only</label>
+          <label class="check"><input id="f-haspay" type="checkbox" /> Published pay only</label>
+          <label class="check" title="Include postings the corpus believes have closed or whose source has gone quiet">
+            <input id="f-closed" type="checkbox" /> Include closed and lapsed
+          </label>
+          <button type="submit">Search</button>
+        </div>
+      </form>
+
+      <section id="results" hidden>
+        <p id="count" class="count" role="status"></p>
+        <ul id="list" class="list"></ul>
+        <button id="more" type="button" hidden>Load more</button>
+      </section>
+
+      <noscript>
+        <p class="error">
+          This page runs its query engine in your browser and needs JavaScript
+          and WebAssembly. The same data is queryable from the command line:
+          see the repository below.
+        </p>
+      </noscript>
+    </main>
+
+    <footer>
+      <p>
+        Every number on this page comes from the snapshot named in the banner —
+        nothing here is live, and postings may have closed since the crawl.
+        Built from
+        <a href="https://github.com/job-hunter-toolkit/job-hunter-toolkit" rel="noopener noreferrer">job-hunter-toolkit</a>;
+        the crawler, the file format and this page's query engine are the same
+        Go code the CLI runs.
+      </p>
+    </footer>
+  </body>
+</html>

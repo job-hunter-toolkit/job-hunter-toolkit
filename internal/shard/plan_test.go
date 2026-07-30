@@ -512,6 +512,17 @@ func TestPlanSummaryNamesTheLargestGroup(t *testing.T) {
 		}
 	}
 
-	test.True(t, strings.HasPrefix(string(largest), platformPrefix),
-		test.Sprintf("largest affinity group %q is unexpectedly not a whole platform", largest))
+	// Either prefix is a shared backend. This used to accept only a
+	// platform-keyed group, which was narrower than the claim above: when the
+	// iCIMS promotion took that platform to 1,626 hosts, every one of them
+	// resolved to the same service policy key and "service:icims" became the
+	// largest group — a shared, indivisible backend exactly as this test
+	// describes, spelled with the other prefix. What would actually falsify the
+	// claim is a per-host group of one tenant outgrowing every shared backend,
+	// and that is what still fails here.
+	shared := strings.HasPrefix(string(largest), platformPrefix) ||
+		strings.HasPrefix(string(largest), servicePrefix)
+
+	test.True(t, shared,
+		test.Sprintf("largest affinity group %q is unexpectedly not a shared backend", largest))
 }

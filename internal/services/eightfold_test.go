@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -489,6 +491,259 @@ func TestEightfoldWorkplaceType(t *testing.T) {
 			test.Eq(t, tc.want, eightfoldWorkplaceType(tc.raw))
 		})
 	}
+}
+
+// eightfoldRouteTransport serves one response, with its own status, per exact
+// request URL. The sitemap fallback mixes a 403 list API, a 200 sitemap and
+// per-page responses in one walk, which neither fixtureTransport (one status
+// for every route) nor eightfoldPageTransport (200 only) can express.
+type eightfoldRouteTransport struct {
+	routes map[string]struct {
+		status int
+		body   string
+	}
+	requests []string
+}
+
+func (tr *eightfoldRouteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	tr.requests = append(tr.requests, req.URL.String())
+
+	route, ok := tr.routes[req.URL.String()]
+	if !ok {
+		route = struct {
+			status int
+			body   string
+		}{http.StatusNotFound, "no fixture"}
+	}
+
+	return &http.Response{
+		StatusCode: route.status,
+		Status:     http.StatusText(route.status),
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(route.body)),
+		Request:    req,
+	}, nil
+}
+
+// eightfoldFixture reads a capture from a live Eightfold tenant, byte-for-byte.
+func eightfoldFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("testdata", name))
+	must.NoError(t, err)
+
+	return string(body)
+}
+
+const eightfoldPCSXBody = `{"message": "Not authorized for PCSX"}`
+
+// TestEightfoldFallsBackToSitemapForGatedTenant walks the fallback end to end
+// on real bytes: the amdocs sitemap and job page captured 2026-07-30, behind a
+// PCSX-walled list API.
+//
+// The assertions pin the route's two URL decisions: the fetch goes to the
+// tenant's eightfold.ai host (the only host the shared pacing key covers),
+// while the published posting URL stays the sitemap's canonical loc on the
+// branded host. A sitemap entry whose page has since answered 404 is skipped
+// rather than failing the board, because sitemaps lag the board they index.
+func TestEightfoldFallsBackToSitemapForGatedTenant(t *testing.T) {
+	t.Parallel()
+
+	const (
+		canonical = "https://jobs.amdocs.com/careers/job/563431013427445-software-support-specialist-finland-helsinki-amdocs-site-?domain=amdocs.com"
+		rewritten = "https://amdocs.eightfold.ai/careers/job/563431013427445-software-support-specialist-finland-helsinki-amdocs-site-?domain=amdocs.com"
+	)
+
+	transport := &eightfoldRouteTransport{routes: map[string]struct {
+		status int
+		body   string
+	}{
+		eightfoldPageURL("amdocs", 0):                     {http.StatusForbidden, eightfoldPCSXBody},
+		"https://amdocs.eightfold.ai/careers/sitemap.xml": {http.StatusOK, eightfoldFixture(t, "eightfold_amdocs_sitemap.xml")},
+		rewritten: {http.StatusOK, eightfoldFixture(t, "eightfold_amdocs_job_page.html")},
+		// The other six sitemap entries answer 404, the closed-posting case.
+	}}
+
+	postings, errs := drain(Eightfold(t.Context(), &http.Client{Transport: transport}, "amdocs"))
+
+	must.SliceEmpty(t, errs)
+	must.Len(t, 1, postings)
+
+	posting := postings[0]
+	test.Eq(t, "amdocs", posting.Company)
+	test.Eq(t, canonical, posting.URL)
+	test.Eq(t, "Software Support Specialist", posting.Title)
+	test.Eq(t, "HKI, Uusimaa,FI", posting.Location)
+	test.Eq(t, "563431013427445", posting.ExternalID)
+	test.Eq(t, internal.EmploymentTypeFullTime, posting.EmploymentType)
+	test.Eq(t, time.Date(2026, 7, 27, 13, 21, 22, 0, time.UTC), posting.PostedAt)
+	test.Eq(t, internal.PostingSource{Platform: "eightfold", Key: "amdocs"}, posting.Source)
+
+	// Every job-page fetch must have gone to the eightfold.ai host: the
+	// branded hosts share one backend with nothing textually in common, so
+	// only the eightfold.ai suffix is paced.
+	for _, url := range transport.requests {
+		test.StrContains(t, url, "amdocs.eightfold.ai")
+	}
+}
+
+// TestEightfoldSitemapDecoyIsAnError pins the trap found on 2026-07-30: three
+// gated tenants (target, kroger, qa) serve a byte-identical "sitemap" listing
+// Eightfold's OWN careers board at app.eightfold.ai?domain=eightfold.ai.
+// Crawling it would attribute Eightfold's 65 openings to Target.
+func TestEightfoldSitemapDecoyIsAnError(t *testing.T) {
+	t.Parallel()
+
+	const decoy = `<?xml version='1.0' encoding='UTF-8'?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://app.eightfold.ai/careers?domain=eightfold.ai</loc></url>
+  <url><loc>https://app.eightfold.ai/careers/job/68761290831--0831-p5-staff-mle-us-santa-clara-pipeline-santa-clara-ca-usa?domain=eightfold.ai</loc></url>
+</urlset>`
+
+	transport := &eightfoldRouteTransport{routes: map[string]struct {
+		status int
+		body   string
+	}{
+		eightfoldPageURL("target", 0):                     {http.StatusForbidden, eightfoldPCSXBody},
+		"https://target.eightfold.ai/careers/sitemap.xml": {http.StatusOK, decoy},
+	}}
+
+	postings, errs := drain(Eightfold(t.Context(), &http.Client{Transport: transport}, "target"))
+
+	test.SliceEmpty(t, postings)
+	must.Len(t, 1, errs)
+	test.StrContains(t, errs[0].Error(), `"target"`)
+	test.StrContains(t, errs[0].Error(), "decoy")
+}
+
+// TestEightfoldGatedTenantWithoutASitemapIsAnError covers the 52 of 109 gated
+// tenants whose sitemap answers 404: unreachable by either route, and the error
+// has to say which tenant and why.
+func TestEightfoldGatedTenantWithoutASitemapIsAnError(t *testing.T) {
+	t.Parallel()
+
+	transport := &eightfoldRouteTransport{routes: map[string]struct {
+		status int
+		body   string
+	}{
+		eightfoldPageURL("capitalone", 0): {http.StatusForbidden, eightfoldPCSXBody},
+	}}
+
+	postings, errs := drain(Eightfold(t.Context(), &http.Client{Transport: transport}, "capitalone"))
+
+	test.SliceEmpty(t, postings)
+	must.Len(t, 1, errs)
+	test.StrContains(t, errs[0].Error(), `"capitalone"`)
+	test.StrContains(t, errs[0].Error(), "not crawlable by either route")
+}
+
+// TestEightfoldSitemapPagesWithoutJSONLDAreAnError is the trimble shape,
+// measured 2026-07-30: a real sitemap (307 postings) whose job pages render
+// client-side and carry no JSON-LD at all, on either host. Zero postings from
+// fetched pages must be an error, not an empty board.
+func TestEightfoldSitemapPagesWithoutJSONLDAreAnError(t *testing.T) {
+	t.Parallel()
+
+	const sitemap = `<?xml version='1.0' encoding='UTF-8'?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://trimblecareers.trimble.com/careers/job/171837153889-accounts-payable?domain=trimble.com</loc></url>
+</urlset>`
+
+	transport := &eightfoldRouteTransport{routes: map[string]struct {
+		status int
+		body   string
+	}{
+		eightfoldPageURL("trimble", 0):                     {http.StatusForbidden, eightfoldPCSXBody},
+		"https://trimble.eightfold.ai/careers/sitemap.xml": {http.StatusOK, sitemap},
+		"https://trimble.eightfold.ai/careers/job/171837153889-accounts-payable?domain=trimble.com": {
+			http.StatusOK, `<!doctype html><html><head></head><body>client-rendered</body></html>`},
+	}}
+
+	postings, errs := drain(Eightfold(t.Context(), &http.Client{Transport: transport}, "trimble"))
+
+	test.SliceEmpty(t, postings)
+	must.Len(t, 1, errs)
+	test.StrContains(t, errs[0].Error(), `"trimble"`)
+	test.StrContains(t, errs[0].Error(), "none carried a schema.org JobPosting")
+}
+
+// TestEightfoldSitemapRefusesABoardPastTheBudget: the sitemap route costs one
+// request per posting, so a tenant bigger than the budget is a cost decision to
+// re-make, not a bill to silently pay or a board to silently truncate.
+func TestEightfoldSitemapRefusesABoardPastTheBudget(t *testing.T) {
+	t.Parallel()
+
+	var sitemap strings.Builder
+	sitemap.WriteString(`<?xml version='1.0' encoding='UTF-8'?><urlset>`)
+
+	for i := range eightfoldSitemapMaxPostings + 1 {
+		fmt.Fprintf(&sitemap, `<url><loc>https://apply.starbucks.com/careers/job/%d-role?domain=starbucks.com</loc></url>`, i+1)
+	}
+
+	sitemap.WriteString(`</urlset>`)
+
+	transport := &eightfoldRouteTransport{routes: map[string]struct {
+		status int
+		body   string
+	}{
+		eightfoldPageURL("starbucks", 0):                     {http.StatusForbidden, eightfoldPCSXBody},
+		"https://starbucks.eightfold.ai/careers/sitemap.xml": {http.StatusOK, sitemap.String()},
+	}}
+
+	postings, errs := drain(Eightfold(t.Context(), &http.Client{Transport: transport}, "starbucks"))
+
+	test.SliceEmpty(t, postings)
+	must.Len(t, 1, errs)
+	test.StrContains(t, errs[0].Error(), `"starbucks"`)
+	test.StrContains(t, errs[0].Error(), "refusing to walk")
+}
+
+// TestEightfoldBare403IsAnErrorNotAFallback: only the PCSX wall routes onto the
+// sitemap. A 403 from a proxy or WAF, without the wall's marker, must surface
+// as the error it is instead of quietly costing a sitemap walk.
+func TestEightfoldBare403IsAnErrorNotAFallback(t *testing.T) {
+	t.Parallel()
+
+	transport := &eightfoldRouteTransport{routes: map[string]struct {
+		status int
+		body   string
+	}{
+		eightfoldPageURL("qualcomm", 0): {http.StatusForbidden, `<html>blocked</html>`},
+	}}
+
+	postings, errs := drain(Eightfold(t.Context(), &http.Client{Transport: transport}, "qualcomm"))
+
+	test.SliceEmpty(t, postings)
+	must.Len(t, 1, errs)
+	test.StrContains(t, errs[0].Error(), `"qualcomm"`)
+	test.StrContains(t, errs[0].Error(), "Forbidden")
+	test.Len(t, 1, transport.requests)
+}
+
+func TestEightfoldExternalIDFromLoc(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		loc  string
+		want string
+	}{
+		{"https://jobs.amdocs.com/careers/job/563431013427445-software-support?domain=amdocs.com", "563431013427445"},
+		{"https://x.eightfold.ai/careers/job/123", "123"},
+		{"https://x.eightfold.ai/careers/nothing", ""},
+		{"https://x.eightfold.ai/careers/job/none-numeric", ""},
+	} {
+		test.Eq(t, tc.want, eightfoldExternalIDFromLoc(tc.loc))
+	}
+}
+
+func TestEightfoldLDTime(t *testing.T) {
+	t.Parallel()
+
+	// The zone-less form is what every tenant measured emits.
+	test.Eq(t, time.Date(2026, 7, 27, 13, 21, 22, 0, time.UTC), eightfoldLDTime("2026-07-27T13:21:22"))
+	test.Eq(t, time.Date(2026, 7, 27, 13, 21, 22, 0, time.UTC), eightfoldLDTime("2026-07-27T13:21:22Z"))
+	test.True(t, eightfoldLDTime("").IsZero())
+	test.True(t, eightfoldLDTime("Posted 5 Days Ago").IsZero())
 }
 
 // TestEightfoldCompaniesComeFromTheCandidateFile keeps the registered list

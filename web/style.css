@@ -1,0 +1,308 @@
+/* style.css — hand-rolled, no framework. Light and dark via prefers-color-scheme. */
+
+:root {
+  --bg: #fafaf8;
+  --fg: #1a1c1e;
+  --muted: #5c6470;
+  --card: #ffffff;
+  --border: #d9dce1;
+  --accent: #2455a4;
+  --accent-fg: #ffffff;
+  --fresh-bg: #e8f4ea;
+  --fresh-border: #3d8b50;
+  --aging-bg: #fdf3dd;
+  --aging-border: #b07d1e;
+  --old-bg: #fbe9e7;
+  --old-border: #b3423a;
+  --badge-bg: #eef0f3;
+  --pay-bg: #e4efe6;
+  --pay-fg: #245c33;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181c;
+    --fg: #e6e8eb;
+    --muted: #9aa3ad;
+    --card: #1f2329;
+    --border: #363c45;
+    --accent: #7aa5e8;
+    --accent-fg: #10131a;
+    --fresh-bg: #1c2b20;
+    --fresh-border: #4f9d63;
+    --aging-bg: #2e2716;
+    --aging-border: #c9963a;
+    --old-bg: #321d1b;
+    --old-border: #d0655c;
+    --badge-bg: #2a2f37;
+    --pay-bg: #20301f;
+    --pay-fg: #8fc79a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0 auto;
+  max-width: 62rem;
+  padding: 1.5rem 1rem 3rem;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 0.25rem 0 1.25rem;
+  color: var(--muted);
+  max-width: 44rem;
+}
+
+/* The honesty banner. Its color is the freshness verdict. */
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+  align-items: baseline;
+  padding: 0.7rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  font-size: 0.95rem;
+}
+
+.banner:empty {
+  display: none;
+}
+
+.banner.fresh {
+  background: var(--fresh-bg);
+  border-color: var(--fresh-border);
+}
+
+.banner.aging {
+  background: var(--aging-bg);
+  border-color: var(--aging-border);
+}
+
+.banner.old,
+.banner.partial {
+  background: var(--old-bg);
+  border-color: var(--old-border);
+}
+
+.banner .strong {
+  font-weight: 650;
+}
+
+.banner .warn {
+  flex-basis: 100%;
+  font-weight: 650;
+}
+
+.stage {
+  color: var(--muted);
+  font-size: 0.9rem;
+  min-height: 1.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  padding: 0.7rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--old-border);
+  background: var(--old-bg);
+}
+
+/* Filters */
+form {
+  margin: 1rem 0 1.5rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 550;
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  align-items: center;
+  margin-top: 0.9rem;
+}
+
+.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--fg);
+  font-weight: 450;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.5rem 1.4rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.08);
+}
+
+#more {
+  display: block;
+  margin: 1.25rem auto 0;
+  background: var(--card);
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+/* Results */
+.count {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.card .title {
+  font-weight: 650;
+  color: var(--accent);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.card a.title:hover {
+  text-decoration: underline;
+}
+
+.card .where {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0.1rem 0 0.4rem;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.badge {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--fg);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge.pay {
+  background: var(--pay-bg);
+  color: var(--pay-fg);
+  font-weight: 600;
+}
+
+.badge.platform {
+  color: var(--muted);
+}
+
+/* Lifecycle states: open is the quiet default; anything else must be seen. */
+.badge.state-open {
+  background: var(--fresh-bg);
+  color: var(--fresh-border);
+  font-weight: 600;
+}
+
+.badge.state-stale {
+  background: var(--aging-bg);
+  color: var(--aging-border);
+  font-weight: 600;
+}
+
+.badge.state-closed,
+.badge.state-lapsed {
+  background: var(--old-bg);
+  color: var(--old-border);
+  font-weight: 600;
+}
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+footer a {
+  color: var(--accent);
+}

@@ -156,6 +156,11 @@ func newRootCommand() *cobra.Command {
 		// newShardCommand attaches its own plan/run/merge subcommands.
 		newShardCommand(),
 		newCompanyCommand(),
+
+		// newCorpusCommand attaches its own crawl/apply/inspect/query/verify
+		// subcommands: the plumbing from a crawl's artifacts into a published
+		// .jhtc generation.
+		newCorpusCommand(),
 	)
 
 	return root
