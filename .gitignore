@@ -26,3 +26,6 @@
 
 # macOS
 .DS_Store
+
+# Assembled site (web/build.sh output); pages.yml builds it fresh.
+web/dist/
