@@ -23,27 +23,7 @@ the per-platform costs.
 
 ## Install
 
-Prebuilt binaries for Linux (amd64, arm64), macOS (Apple silicon), and Windows
-(amd64) are published on the
-[releases page](https://github.com/job-hunter-toolkit/job-hunter-toolkit/releases).
-Each archive contains the `job-hunter-toolkit` CLI and the `job-hunter-mcp`
-MCP server. Download the archive for your platform, unpack it, and put the
-binaries somewhere on your `PATH`:
-
-```console
-$ tar -xzf job-hunter-toolkit_v1.0.0_linux_amd64.tar.gz
-$ ./job-hunter-toolkit_v1.0.0_linux_amd64/job-hunter-toolkit --help
-```
-
-Every release ships a `SHA256SUMS` file, verified reproducible by the release
-build itself; to check a download, put it next to the archive and run:
-
-```console
-$ sha256sum --ignore-missing -c SHA256SUMS
-```
-
-See [docs/releasing.md](docs/releasing.md) for how releases are built and
-verified. With a Go toolchain installed, installing from source still works:
+With a Go toolchain installed:
 
 ```console
 $ go install github.com/job-hunter-toolkit/job-hunter-toolkit@latest
