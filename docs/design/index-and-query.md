@@ -1,5 +1,9 @@
 # The query layer and the `index` command
 
+> **Status: partially implemented** — the query language is public as
+> [`query`](../../query) (`Query`, `Match`, `Apply`). The scan image, the
+> `index` command, cursors and `Fields()` are still proposed.
+
 `main.go` already has a query language. Eleven flags — title, exclude-title,
 location, company, remote, has-pay, min-pay, department, employment-type,
 workplace-type, posted-since — OR within a flag and AND across flags, executed
@@ -198,6 +202,21 @@ type Value interface {
 }
 
 func (q *Query) Field(flag string) (Value, bool)
+```
+
+```mermaid
+flowchart TD
+    classDef impl fill:#ddf4ff,stroke:#0969da,color:#0969da
+    classDef surface fill:#f6f8fa,stroke:#57606a,color:#24292f
+
+    fields["query.Fields()\none table, one source of truth"]:::impl
+    cli["CLI flags\n--title, --exclude-title, ..."]:::surface
+    url["URL query keys\ntitle=go, location=remote"]:::surface
+    mcp["MCP argument schema\ntitle: [go, golang]"]:::surface
+
+    fields --> cli
+    fields --> url
+    fields --> mcp
 ```
 
 Encoding and parsing:
@@ -816,13 +835,28 @@ for free.
 
 At open, for each corpus file the query needs:
 
-```
-if index/<path>.jhti exists
-   and its corpus_file_sha256 == manifest.Files[path].SHA256
-   and its identity hash matches the manifest's
-   and its format version is readable
-then use the shard
-else scan the corpus file
+```mermaid
+flowchart LR
+    classDef good fill:#dafbe1,stroke:#1a7f37,color:#116329
+    classDef warn fill:#fff8c5,stroke:#9a6700,color:#7d4e00
+
+    start(["corpus file"])
+    c1{"index/&lt;path&gt;.jhti\nexists?"}
+    c2{"corpus_file_sha256 matches\nmanifest.Files[path].SHA256?"}
+    c3{"identity hash matches\nthe manifest's?"}
+    c4{"format version\nreadable?"}
+    use(["use the shard"]):::good
+    scan(["scan the corpus file"]):::warn
+
+    start --> c1
+    c1 -- no --> scan
+    c1 -- yes --> c2
+    c2 -- no --> scan
+    c2 -- yes --> c3
+    c3 -- no --> scan
+    c3 -- yes --> c4
+    c4 -- no --> scan
+    c4 -- yes --> use
 ```
 
 There is no third outcome. A shard built from yesterday's Greenhouse file has

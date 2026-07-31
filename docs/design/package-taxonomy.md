@@ -1,5 +1,10 @@
 # The package taxonomy and the public API
 
+> **Status: partially implemented** — steps 2 and 3 of §9 landed as
+> [`jobposting`](../../jobposting) and [`query`](../../query);
+> [`public-api-extraction.md`](public-api-extraction.md) is the running status
+> record.
+
 Today `go.mod` declares `github.com/job-hunter-toolkit/job-hunter-toolkit` and
 every package lives under `internal/`. Nothing outside the repository can import
 a single type. `docs/surfaces-and-extensibility.md` §2 proposes promoting a small
@@ -217,27 +222,58 @@ everything, says so in one line.
 Depth is four layers plus `main`. Every edge points down; there are no upward
 edges, so the graph is trivially acyclic.
 
+```mermaid
+flowchart BT
+    classDef impl fill:#ddf4ff,stroke:#0969da,color:#0969da
+    classDef proposed fill:#fff8c5,stroke:#9a6700,color:#7d4e00
+    classDef ext fill:#f6f8fa,stroke:#57606a,color:#24292f
+
+    subgraph L0["L0 — stdlib only"]
+        jp["jobposting"]
+    end
+    subgraph L1["L1"]
+        q["query"]
+        pio["postingio"]
+        snap["snapshot"]
+        stor["storage"]
+    end
+    subgraph L2["L2"]
+        src["source"]
+        storimpl["storage/{memory,ndjson,corpus}"]
+    end
+    subgraph L3["L3"]
+        plat["sources/&lt;platform&gt;"]
+    end
+    subgraph L4["L4"]
+        all["sources/all"]
+    end
+    cli["internal/cli"]
+    main["main"]
+
+    q --> jp
+    pio --> jp
+    snap --> jp
+    stor --> jp
+    stor --> q
+    storimpl --> stor
+    src --> jp
+    src --> snap
+    plat --> src
+    all --> plat
+    cli --> q
+    cli --> all
+    cli --> storimpl
+    main --> cli
+
+    class jp,q impl
+    class pio,snap,stor,src,plat,all,storimpl proposed
 ```
-                        ┌───────────────┐
-  L0  stdlib only       │  jobposting   │   no net/http, no x/net, no deps
-                        └───────┬───────┘
-              ┌────────────┬────┴───────┬──────────────┐
-              ▼            ▼            ▼              ▼
-  L1      ┌───────┐   ┌─────────┐  ┌──────────┐  ┌──────────┐
-          │ query │   │postingio│  │ snapshot │  │ storage  │──▶ query
-          └───┬───┘   └─────────┘  └────┬─────┘  └────┬─────┘
-              │                         │             │
-              │                         ▼             ▼
-  L2          │                    ┌────────┐   storage/{memory,ndjson,corpus}
-              │                    │ source │──▶ net/http, internal/httpx
-              │                    └───┬────┘
-              │                        ▼
-  L3          │              sources/<platform> ──▶ internal/ats, internal/paydetect
-              │                        ▼
-  L4          │                  sources/all
-              │                        │
-              └────────────────────────┴──────────▶ internal/cli ──▶ main
-```
+
+An arrow means "imports"; blue is shipped (`jobposting`, `query`), amber is
+what this document still proposes. `source` additionally imports `net/http` and
+`internal/httpx`; `sources/<platform>` imports `internal/ats` and
+`internal/paydetect` — elided above to keep the layering readable. Every import
+edge points toward a strictly lower layer, so the graph is trivially acyclic.
 
 Rules, and how each is enforced:
 
@@ -881,6 +917,29 @@ than `var All = source.All`, so `go doc` on the shim points at the new home.
 | 7 | `main`'s `postingOutput`/`postingColumn`/`newPostingPrinter` → `postingio/` | mostly |
 | 8 | `storage/` and its backends | new code |
 | 9 | delete every shim; `internal` and `internal/services` disappear | yes |
+
+```mermaid
+flowchart LR
+    classDef mech fill:#dafbe1,stroke:#1a7f37,color:#116329
+    classDef risky fill:#fff8c5,stroke:#9a6700,color:#7d4e00
+    classDef newcode fill:#ddf4ff,stroke:#0969da,color:#0969da
+
+    s1["1 · cli"]:::mech
+    s2["2 · jobposting split"]:::risky
+    s3["3 · query"]:::mech
+    s4["4 · snapshot"]:::mech
+    s5["5 · source"]:::mech
+    s6["6 · sources/&lt;platform&gt;,\ndrop init()"]:::risky
+    s7["7 · postingio"]:::mech
+    s8["8 · storage"]:::newcode
+    s9["9 · delete shims"]:::mech
+
+    s1 --> s2 --> s3 --> s4 --> s5 --> s6 --> s7 --> s8 --> s9
+```
+
+Amber is where "mechanical" breaks down — the two subsections below say exactly
+why — and every step compiles and passes the existing tests before the next
+begins.
 
 ### Where step 2 is not mechanical
 

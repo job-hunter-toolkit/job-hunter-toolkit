@@ -1,5 +1,9 @@
 # The corpus format
 
+> **Status: implemented** — [`internal/corpus`](../../internal/corpus)
+> (identity in `identity.go`, the closure rule in `closure.go`, `Apply` in
+> `apply.go`, the `.jhtc` container in `table.go`).
+
 `docs/crawl-budget-model.md` replaces "did the crawl finish?" with "how stale is
 each source?", and that question has no answer until postings persist across
 runs. Today a run emits `postings.ndjson` plus a manifest and forgets both, and
@@ -237,6 +241,37 @@ type Verdict struct {
 func Qualifies(run services.SourceRun, st SourceState, p Policy) Verdict
 ```
 
+```mermaid
+flowchart TD
+    classDef good fill:#dafbe1,stroke:#1a7f37,color:#116329
+    classDef bad fill:#ffebe9,stroke:#cf222e,color:#82071e
+    classDef data fill:#f6f8fa,stroke:#57606a,color:#24292f
+
+    start(["source run"]):::data
+    c1{"status == complete?"}
+    c2{"errors == 0?"}
+    c3{"zero postings AND\ntrailing median non-zero?"}
+    c4{"EmptyStreak reached?"}
+    c5{"count ≥ MinRatio ×\ntrailing median?"}
+    ok(["qualifies — may count\nas evidence of absence"]):::good
+    no1(["refused:\nstatus:*"]):::bad
+    no2(["refused:\nerrors"]):::bad
+    no3(["refused:\nempty-streak-too-short"]):::bad
+    no4(["refused:\nvolume-drop"]):::bad
+
+    start --> c1
+    c1 -- no --> no1
+    c1 -- yes --> c2
+    c2 -- no --> no2
+    c2 -- yes --> c3
+    c3 -- yes --> c4
+    c4 -- no --> no3
+    c4 -- yes --> ok
+    c3 -- no --> c5
+    c5 -- no --> no4
+    c5 -- yes --> ok
+```
+
 Run against the real manifest, `closureproto` reports the rule refusing
 **176 of 3,685 source runs**: 2 for `status:truncated` (the 177,296 postings
 above), 8 for `status:failed`, and 166 for `empty-streak-too-short`. Every other
@@ -261,6 +296,39 @@ published `open/` tree, and is archived under `closed/` with
 `closed_reason: "lapsed"` — **never** with a closing date, because nobody
 observed one. This distinction has to survive into the UI: "we do not know" is a
 different answer from "it closed".
+
+```mermaid
+stateDiagram-v2
+    classDef good fill:#dafbe1,stroke:#1a7f37,color:#116329
+    classDef warn fill:#fff8c5,stroke:#9a6700,color:#7d4e00
+    classDef bad fill:#ffebe9,stroke:#cf222e,color:#82071e
+    classDef neutral fill:#f6f8fa,stroke:#57606a,color:#24292f
+
+    [*] --> open: first_seen
+
+    open --> stale: freshness target missed
+    stale --> open: qualifying run sees it
+
+    open --> closed: missing >= MissingRuns
+    stale --> closed: missing >= MissingRuns
+    closed --> open: qualifying run sees it again
+
+    open --> lapsed: no qualifying run in 90d
+    stale --> lapsed: no qualifying run in 90d
+
+    open: open — present in the most recent qualifying run
+    stale: stale — no qualifying run within its freshness target
+    closed: closed — two independent qualifying runs agree it's gone
+    lapsed: lapsed — "we don't know," never "it closed"
+
+    class open good
+    class stale warn
+    class closed bad
+    class lapsed neutral
+```
+
+Only a **qualifying run** (§2.2) moves a row along these edges; a `truncated`,
+`failed`, or volume-dropped run leaves the state exactly where it was.
 
 The row's own fields are `first_seen`, `missing`, and an optional closure. State
 is computed, not stored:
@@ -702,7 +770,32 @@ Apply(base, run):
 ```
 
 Step 5's "base only, source unqualified -> untouched" is the whole safety
-property, in one line, in one place.
+property, in one line, in one place:
+
+```mermaid
+flowchart LR
+    classDef good fill:#dafbe1,stroke:#1a7f37,color:#116329
+    classDef warn fill:#fff8c5,stroke:#9a6700,color:#7d4e00
+    classDef bad fill:#ffebe9,stroke:#cf222e,color:#82071e
+    classDef data fill:#f6f8fa,stroke:#57606a,color:#24292f
+
+    row(["row present in base,<br/>observed this run?"]):::data
+    both(["both"]):::data
+    runonly(["run only"]):::data
+    baseonly(["base only"]):::data
+    qual{"source qualified<br/>this run? (§2.2)"}
+
+    r1(["reset missing;<br/>rewrite if changed"]):::good
+    r2(["new row,<br/>first_seen = RunAt"]):::good
+    r3(["missing++,<br/>close at MissingRuns"]):::warn
+    r4(["untouched —<br/>the safety property"]):::good
+
+    row --> both --> r1
+    row --> runonly --> r2
+    row --> baseonly --> qual
+    qual -- yes --> r3
+    qual -- no --> r4
+```
 
 ### 7.2 Cost, measured
 

@@ -19,31 +19,35 @@ feed. Read that first; come here for the "why" behind a specific one.
 
 ```mermaid
 flowchart LR
-    subgraph pub["Public — importable, no internal/ dependency"]
-        jp["jobposting"]
-        q["query"]
-    end
-    subgraph planned["Proposed by package-taxonomy.md — not yet extracted"]
-        src["source"]
-        snap["snapshot"]
-        pio["postingio"]
-        stor["storage"]
+    classDef impl fill:#ddf4ff,stroke:#0969da,color:#0969da
+    classDef proposed fill:#fff8c5,stroke:#9a6700,color:#7d4e00
+    classDef surface fill:#dafbe1,stroke:#1a7f37,color:#116329
+
+    subgraph surf["Surfaces — architecture-roadmap.md"]
+        cli["CLI"]:::surface
+        mcp["MCP (internal/mcp)"]:::surface
+        tui["TUI (proposed)"]:::surface
     end
     subgraph priv["internal/ — crawler, adapters, corpus"]
-        corpus["corpus\n(.jhtc, corpus-format.md)"]
-        sched["schedule\n(budget-scheduler.md)"]
-        services["services\n(22 ATS adapters)"]
+        corpus["corpus — .jhtc,<br/>corpus-format.md"]:::impl
+        sched["schedule —<br/>budget-scheduler.md"]:::impl
+        services["services —<br/>22 ATS adapters"]:::impl
     end
-    subgraph surf["Surfaces — architecture-roadmap.md §Product shape"]
-        cli["CLI"]
-        mcp["MCP (internal/mcp)"]
-        tui["TUI (proposed)"]
+    subgraph pub["Public — stdlib-only, enforced by test"]
+        q["query"]:::impl
+        jp["jobposting"]:::impl
+    end
+    subgraph planned["Proposed by package-taxonomy.md"]
+        src["source"]:::proposed
+        snap["snapshot"]:::proposed
+        pio["postingio"]:::proposed
+        stor["storage"]:::proposed
     end
 
-    q --> jp
-    priv -.->|would import| planned
     surf --> priv
     surf --> pub
+    q --> jp
+    priv -. "extraction path" .-> planned
 ```
 
 Solid arrows are real imports today; the dashed one is what

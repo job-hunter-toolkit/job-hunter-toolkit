@@ -1,5 +1,9 @@
 # The storage engine
 
+> **Status: format implemented** — the `.jhtc` container this document argues
+> for is [`internal/corpus`](../../internal/corpus) (`table.go`, `row.go`).
+> The `storage.Backend` interface in §4 is still proposed.
+
 `docs/architecture-roadmap.md` Phase 3 says "Start with SQLite through a pure-Go
 driver." This document argues, with measurements, that it should not — and that
 the right engine for this corpus is not a database at all.
@@ -79,6 +83,24 @@ part of the assignment:
 
 `mattn/go-sqlite3` and DuckDB are excluded a priori by invariant: "the default
 binary stays portable and has no CGO requirement." I did not benchmark them.
+
+```mermaid
+flowchart TD
+    classDef good fill:#dafbe1,stroke:#1a7f37,color:#116329
+    classDef bad fill:#ffebe9,stroke:#cf222e,color:#82071e
+    classDef data fill:#f6f8fa,stroke:#57606a,color:#24292f
+
+    all(["7 candidates"]):::data
+    cgo{"excluded a priori:<br/>needs CGO?"}
+    build{"CGO_ENABLED=0 build:<br/>js/wasm + wasip1/wasm?"}
+
+    all --> cgo
+    cgo -- "mattn/go-sqlite3, DuckDB —<br/>not benchmarked" --> exclA(["excluded"]):::bad
+    cgo -- no --> build
+
+    build -- "modernc.org/sqlite (libc has\nno js/wasip1 package),<br/>bbolt (mmap), pebble (rawalloc)" --> failB(["fails the gate"]):::bad
+    build -- "parquet-go,<br/>ncruces/go-sqlite3,<br/>stdlib only" --> survive(["3 survivors → §3"]):::good
+```
 
 Two survivors, plus the option of writing the format.
 
@@ -337,6 +359,29 @@ Implementations, in the order they earn their place:
 | `storage/corpus` | the corpus | `.jhtc`; two read modes, below |
 | `storage/ndjson` | the snapshots that already exist | read-only, streaming, never loads 780k rows to answer one query |
 | `storage/remote` | thin clients against a service | later; the service stays optional |
+
+```mermaid
+flowchart LR
+    classDef iface fill:#ddf4ff,stroke:#0969da,color:#0969da
+    classDef now fill:#dafbe1,stroke:#1a7f37,color:#116329
+    classDef later fill:#fff8c5,stroke:#9a6700,color:#7d4e00
+
+    backend["storage.Backend\nPut · Query · Aggregate · Stats"]:::iface
+
+    mem["storage/memory\ndefault, no file"]:::now
+    corpus["storage/corpus\n.jhtc — streaming or resident"]:::now
+    ndjson["storage/ndjson\nread-only over snapshots"]:::now
+    remote["storage/remote\nthin client over a service"]:::later
+
+    mem -.implements.-> backend
+    corpus -.implements.-> backend
+    ndjson -.implements.-> backend
+    remote -.implements.-> backend
+```
+
+No caller ever imports `storage/corpus` directly; every surface — CLI, TUI,
+MCP, browser — depends on `storage.Backend` and is handed whichever
+implementation its environment supports.
 
 `storage/corpus` has two read modes behind the same `Backend`:
 

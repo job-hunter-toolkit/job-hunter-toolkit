@@ -1,5 +1,8 @@
 # The budget-aware scheduler
 
+> **Status: implemented** — [`internal/schedule`](../../internal/schedule)
+> (`Build`, `Fold`, the state file, the dispatch gate).
+
 `docs/crawl-budget-model.md` decides that a run is a bounded amount of work
 against a corpus rather than an attempt at a complete pass. It specifies the
 model and names three properties the mechanism must have — bounded and
@@ -48,20 +51,31 @@ source count is now four times stronger than the measurement that motivated it.
 
 Three functions and one file.
 
-```
-        sources.jsonl ──────┐
-                            ▼
-  registry ──▶ schedule.Build(sources, store, opts) ──▶ Plan (ordered work list)
-                            │                            │
-                            │                            ├─▶ shard.Build(...)   [optional]
-                            │                            ▼
-                            │                     execute with a dispatch gate
-                            │                            │
-                            │                            ▼
-                            └──── schedule.Fold(store, manifest) ◀── manifest.json
-                                            │
-                                            ▼
-                                     sources.jsonl
+```mermaid
+flowchart LR
+    classDef impl fill:#ddf4ff,stroke:#0969da,color:#0969da
+    classDef proposed fill:#fff8c5,stroke:#9a6700,color:#7d4e00
+    classDef data fill:#f6f8fa,stroke:#57606a,color:#24292f
+
+    reg["registry"]:::data
+    state["sources.jsonl\n(prior state)"]:::data
+    build["schedule.Build\n(sources, store, opts)"]:::impl
+    plan["Plan\n(ordered work list)"]:::data
+    shard["shard.Build(...)\noptional"]:::impl
+    exec["execute with\na dispatch gate"]:::impl
+    manifest["manifest.json"]:::data
+    fold["schedule.Fold\n(store, manifest)"]:::impl
+    state2["sources.jsonl\n(next state)"]:::data
+
+    reg --> build
+    state --> build
+    build --> plan
+    plan --> shard
+    plan --> exec
+    shard --> exec
+    exec --> manifest
+    manifest --> fold
+    fold --> state2
 ```
 
 `Build` is a pure function. `Fold` is a pure function. The only impure parts are
@@ -657,6 +671,31 @@ Per `services.SourceRun.Status`:
 | `deferred` | — | — | — | — | — |
 | `planned` / `running` | — | — | — | — | — |
 
+```mermaid
+stateDiagram-v2
+    classDef good fill:#dafbe1,stroke:#1a7f37,color:#116329
+    classDef bad fill:#ffebe9,stroke:#cf222e,color:#82071e
+    classDef neutral fill:#f6f8fa,stroke:#57606a,color:#24292f
+
+    [*] --> planned
+    planned --> running
+    running --> complete
+    running --> failed
+    running --> truncated
+    running --> stopped
+    planned --> deferred: gate declines (§5.2)
+
+    complete: complete — LastSuccess advances, Failures reset
+    failed: failed — Failures +1, no posting count pushed
+    truncated: truncated — duration counts, not a failure
+    stopped: stopped — duration counts, not a failure
+    deferred: deferred — nothing changes, not even LastAttempt
+
+    class complete good
+    class failed bad
+    class truncated,stopped,deferred neutral
+```
+
 Three rules worth their own sentences:
 
 - **Our impatience is not the board's fault.** `truncated` and `stopped` mean we
@@ -738,14 +777,14 @@ func (p Plan) Refs() []shard.SourceRef            // the selected sources
 func (p Plan) Costs() map[shard.SourceRef]int64   // this plan's predictions
 ```
 
-```
-schedule.Build(registry, state, opts) ──▶ Plan
-                                           │
-                    shard.Build(plan.Sources(registry), shard.Options{
-                        ShardCount: n,
-                        Costs:      plan.Costs(),
-                        SourceSetID: shard.SourceSetID(registry),  // always the whole registry
-                    })
+```go
+schedule.Build(registry, state, opts) // -> Plan
+
+shard.Build(plan.Sources(registry), shard.Options{
+    ShardCount:  n,
+    Costs:       plan.Costs(),
+    SourceSetID: shard.SourceSetID(registry), // always the whole registry
+})
 ```
 
 Why this order and not the other:
@@ -777,7 +816,46 @@ change. Add `--state`; keep `--prior` working; where both are given, state wins
 for the sources it covers.
 
 **`shard merge --state-out`** folds every shard manifest into the next state, in
-the merge job, single-writer.
+the merge job, single-writer. The three-phase Actions workflow
+(`docs/architecture-roadmap.md`'s plan → crawl matrix → merge) looks like this
+end to end, including the two places a run stops cleanly rather than
+corrupting state — the dispatch gate declining a source in §5.2, and the merge
+refusing to write state when a shard is missing, truncated, or from the wrong
+commit or schema:
+
+```mermaid
+sequenceDiagram
+    participant St as sources.jsonl
+    participant Sc as schedule.Build
+    participant Sh as shard.Build
+    participant R1 as shard run — job 1
+    participant RN as shard run — job N
+    participant Mg as shard merge
+
+    St->>Sc: prior state (absent = cold start)
+    activate Sc
+    Sc->>Sc: score, admit, order → Plan
+    deactivate Sc
+    Sc->>Sh: Plan.Refs(), Plan.Costs()
+    Sh->>R1: shard-1.json (sources, budget)
+    Sh->>RN: shard-N.json
+
+    par crawl matrix
+        R1->>R1: execute — the dispatch gate declines<br/>what cannot finish → deferred
+    and
+        RN->>RN: execute — the dispatch gate declines<br/>what cannot finish → deferred
+    end
+
+    R1-->>Mg: shard-1.ndjson + manifest<br/>(uploaded even on failure)
+    RN-->>Mg: shard-N.ndjson + manifest
+
+    Mg->>Mg: verify plan covered exactly once,<br/>dedupe postings globally
+    alt any shard missing, truncated, or off-commit/schema
+        Mg--xSt: fail closed — no state written
+    else coverage verified
+        Mg->>St: FoldAll(manifests) — single writer
+    end
+```
 
 A measured side effect worth naming: budget-aware selection **makes shard
 packing easier**. Because the scheduler caps each group at
