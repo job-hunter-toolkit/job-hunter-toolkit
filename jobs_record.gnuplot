@@ -67,6 +67,45 @@ partial_sources = "($# >= 4 && strcol(4) eq \"partial\" ? real(strcol(3)) : NaN)
 if (!exists("datafile")) datafile = "jobs_record.txt"
 if (!exists("outputfile")) outputfile = "jobs_record.png"
 
+# Y-TICS ARE DERIVED FROM THE DATA, NOT HARDCODED. The per-ATS rewrite grew the
+# posting ceiling 10x and the source ceiling 17x overnight; a fixed tic
+# increment (formerly `set ytics 300` on the source panel) turned into thirty
+# overlapping labels, and "%.0s%c" rendered 1.0M/1.1M/1.2M all as "1M". Instead:
+# measure each series' max, pick a 1/2/2.5/5×10^n step that yields ~5 tics, and
+# print each label with %g so 250k stays "250k" and 1.25M stays "1.25M".
+#
+# stats MUST run before `set xdata time`: with time mode on, stats refuses the
+# datafile even when the analysed column is not the time column. Every *_max is
+# read through exists() because stats DELETES its whole name-prefix and then
+# defines nothing when a series is all-NaN (e.g. a record with no partial rows
+# yet) — an unguarded reference would abort the render.
+stats datafile using (@postings) nooutput name "P"
+stats datafile using (@partial_postings) nooutput name "PP"
+stats datafile using (@sources) nooutput name "S"
+stats datafile using (@partial_sources) nooutput name "SP"
+pmax = exists("P_max") ? P_max : 0
+pmax = (exists("PP_max") && PP_max > pmax) ? PP_max : pmax
+smax = exists("S_max") ? S_max : 0
+smax = (exists("SP_max") && SP_max > smax) ? SP_max : smax
+if (pmax <= 0) { pmax = 1 }
+if (smax <= 0) { smax = 1 }
+
+nicestep(m) = (raw = m / 6.0, p = 10.0 ** floor(log10(raw)), r = raw / p, \
+    r <= 1 ? p : r <= 2 ? 2*p : r <= 2.5 ? 2.5*p : r <= 5 ? 5*p : 10*p)
+fmtval(v) = v >= 1e6 ? sprintf("%gM", v/1e6) : \
+            v >= 1e3 ? sprintf("%gk", v/1e3) : sprintf("%g", v)
+ticlist(m) = (step = nicestep(m), out = "", n = int(m/step) + 1, \
+    sum [i=0:n] (out = out . (i > 0 ? ", " : "") \
+        . sprintf('"%s" %d', fmtval(i*step), i*step), 0), out)
+
+# The headline stat is the latest complete measurement, printed top-right so
+# the current number needs no squinting at the y-axis. awk, not gnuplot,
+# because "last complete row" is a scan the stats command cannot express, and
+# the digit grouping is hand-rolled because printf's %'d flag is a no-op in the
+# C locale CI runs under. Empty (e.g. on a platform without awk) degrades to no
+# stat line, never to an error.
+latest = system("awk 'function c(n, s,o){s=sprintf(\"%d\",n); o=\"\"; while (length(s) > 3) { o=\",\" substr(s,length(s)-2) o; s=substr(s,1,length(s)-3) } return s o} $2 != \"?\" && $4 != \"partial\" { d=$1; p=$2; s=$3 } END { if (d != \"\") printf \"%s postings from %s sources (%s)\", c(p), c(s), d }' " . datafile)
+
 set output outputfile
 # noenhanced: without it, gnuplot reads "_" as a subscript marker and renders
 # "jobs_record.txt" as "jobs" + subscript "r" + "ecord.txt".
@@ -105,15 +144,19 @@ set label 1 "Job postings tracked over time" at screen 0.075, 0.963 \
     font ",25" textcolor rgb '#0b0b0b' front
 set label 2 "Daily totals from job boards crawled directly. Diamonds are deadline snapshots; shaded spans are missing counts." \
     at screen 0.075, 0.928 font ",14" textcolor rgb '#52514e' front
+# The latest-crawl stat mirrors the title line, right-aligned, so it reads as
+# the dashboard's headline number without competing with the subtitle.
+if (latest ne "") \
+    set label 3 latest at screen 0.978, 0.963 right font ",16" \
+        textcolor rgb '#2a78d6' front
 
 # ---- panel 1: postings -------------------------------------------------------
 set tmargin at screen 0.880
 set bmargin at screen 0.395
 
 set ylabel "Postings" font ",14" textcolor rgb '#52514e' offset 1,0
-set format y "%.0s%c"
 set yrange [0:*]                # autoscale: the rewrite raises the ceiling sharply
-set ytics font ",13"
+eval("set ytics (" . ticlist(pmax) . ") font ',13'")
 
 set format x ""
 unset xlabel
@@ -162,9 +205,8 @@ set tmargin at screen 0.305
 set bmargin at screen 0.115
 
 set ylabel "Sources" font ",14" textcolor rgb '#52514e' offset 1,0
-set format y "%.0f"
 set yrange [0:*]
-set ytics 300 font ",13"
+eval("set ytics (" . ticlist(smax) . ") font ',13'")
 
 set format x "%Y"
 set xtics 31557600 font ",13"
