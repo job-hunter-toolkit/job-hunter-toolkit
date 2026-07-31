@@ -15,7 +15,13 @@ cd "$(dirname "$0")/.."
 out="${1:-web/dist}"
 mkdir -p "$out"
 
-cp web/index.html web/style.css web/app.js web/config.js web/corpus-store.js "$out/"
+cp web/index.html web/style.css web/app.js web/config.js web/corpus-store.js \
+   web/rollup.js web/manifest.webmanifest web/icon.svg web/icon-maskable.svg "$out/"
+
+# The service worker's precache name is stamped per deploy: new bytes mean a
+# fresh install, which is how every shell update reaches installed apps.
+stamp="$(git rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)"
+sed "s/__BUILD__/${stamp}/" web/sw.js > "$out/sw.js"
 
 # wasm_exec.js must come from the same toolchain that compiles the wasm; a
 # committed copy would drift from the Go version CI builds with.

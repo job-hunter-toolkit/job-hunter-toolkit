@@ -7,6 +7,20 @@
 
 import { resolveCorpusBase } from "./config.js";
 import { createStore } from "./corpus-store.js";
+import {
+  SAVED_KEY,
+  VISIT_KEY,
+  STREAK_KEY,
+  MAX_SAVED,
+  searchName,
+  sameRequest,
+  isEmptyRequest,
+  countNewSince,
+  nextStreak,
+  greeting,
+  sinceLabel,
+  storage,
+} from "./rollup.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -14,8 +28,11 @@ const els = {
   banner: $("banner"),
   stage: $("stage"),
   loading: $("loading"),
+  rollup: $("rollup"),
+  saved: $("saved"),
   form: $("filters"),
   go: $("go"),
+  save: $("save"),
   results: $("results"),
   count: $("count"),
   list: $("list"),
@@ -27,6 +44,12 @@ let store;
 let corpusURL = "";
 let offset = 0;
 let lastRequest = null;
+
+// The service worker makes the shell installable and offline-capable. Its
+// failure is never the page's problem.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
 
 boot();
 
@@ -67,7 +90,12 @@ async function boot() {
     els.form.hidden = false;
     els.results.hidden = false;
     wireForm();
+    renderSavedChips();
     await search(true);
+
+    // The rollup runs after the first results paint: it re-queries the corpus
+    // once per saved search, and nothing about it should delay first light.
+    renderRollup().catch(() => {});
   } catch (err) {
     showError(err);
   }
@@ -168,6 +196,181 @@ function wireForm() {
     haptic();
     runSearch(false);
   });
+
+  els.save.addEventListener("click", () => {
+    haptic();
+    saveCurrentSearch();
+  });
+}
+
+// --- saved searches ---------------------------------------------------------
+
+function savedSearches() {
+  const saved = storage.load(SAVED_KEY, []);
+
+  return Array.isArray(saved) ? saved : [];
+}
+
+function saveCurrentSearch() {
+  const request = buildRequest();
+
+  if (isEmptyRequest(request)) {
+    flashButton(els.save, "Add a filter first");
+    return;
+  }
+
+  const saved = savedSearches();
+
+  if (saved.some((s) => sameRequest(s.request, request))) {
+    flashButton(els.save, "Already saved");
+    return;
+  }
+
+  saved.unshift({ id: crypto.randomUUID(), name: searchName(request), request, createdAt: new Date().toISOString() });
+  storage.save(SAVED_KEY, saved.slice(0, MAX_SAVED));
+  renderSavedChips();
+  flashButton(els.save, "Saved");
+}
+
+function removeSavedSearch(id) {
+  storage.save(
+    SAVED_KEY,
+    savedSearches().filter((s) => s.id !== id),
+  );
+  renderSavedChips();
+}
+
+function renderSavedChips() {
+  const saved = savedSearches();
+  els.saved.replaceChildren();
+  els.saved.hidden = saved.length === 0;
+
+  for (const entry of saved) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+
+    const run = document.createElement("button");
+    run.type = "button";
+    run.className = "chip-run";
+    run.textContent = entry.name;
+    run.title = "Run this saved search";
+    run.addEventListener("click", () => {
+      haptic();
+      applyRequest(entry.request);
+      runSearch(true);
+    });
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "chip-x";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Remove saved search ${entry.name}`);
+    remove.addEventListener("click", () => removeSavedSearch(entry.id));
+
+    chip.append(run, remove);
+    els.saved.append(chip);
+  }
+}
+
+// applyRequest writes a saved request back into the form, so a chip click and
+// a hand-filled form are the same code path from here on.
+function applyRequest(request) {
+  $("f-title").value = (request.titles ?? []).join(", ");
+  $("f-exclude").value = (request.exclude_titles ?? []).join(", ");
+  $("f-location").value = (request.locations ?? []).join(", ");
+  $("f-company").value = (request.companies ?? []).join(", ");
+  $("f-department").value = (request.departments ?? []).join(", ");
+  $("f-minpay").value = request.min_annual > 0 ? request.min_annual : "";
+  $("f-remote").checked = Boolean(request.remote);
+  $("f-haspay").checked = Boolean(request.has_compensation);
+  $("f-closed").checked = Boolean(request.include_closed);
+  $("f-employment").value = request.employment_types?.[0] ?? "";
+  $("f-workplace").value = request.workplace_types?.[0] ?? "";
+  $("f-since").value = request.posted_since_days > 0 ? String(request.posted_since_days) : "";
+}
+
+function flashButton(button, text) {
+  const original = button.textContent;
+  button.textContent = text;
+  button.disabled = true;
+  setTimeout(() => {
+    button.textContent = original;
+    button.disabled = false;
+  }, 1300);
+}
+
+// --- the rollup -------------------------------------------------------------
+
+// renderRollup computes "what changed since you were last here" for each saved
+// search and says it in one card. Pull-only: rendered at open, sent nowhere.
+async function renderRollup() {
+  const now = new Date();
+  const nowISO = now.toISOString();
+  const prevVisit = storage.load(VISIT_KEY, "");
+  const streak = nextStreak(storage.load(STREAK_KEY, null), nowISO);
+
+  storage.save(VISIT_KEY, nowISO);
+  storage.save(STREAK_KEY, streak);
+
+  const saved = savedSearches();
+
+  if (saved.length === 0 || !prevVisit) {
+    return; // nothing to summarize on a first or searchless visit
+  }
+
+  const counts = [];
+  for (const entry of saved) {
+    const request = { ...entry.request, offset: 0, limit: 400 };
+    const response = JSON.parse(await jhtEngine.search(JSON.stringify(request)));
+    counts.push({ entry, total: response.matched, fresh: countNewSince(response.items, prevVisit) });
+  }
+
+  els.rollup.replaceChildren();
+
+  const head = document.createElement("p");
+  head.className = "rollup-head";
+  const streakNote = streak.n >= 2 ? ` Day ${streak.n} in a row.` : "";
+  head.textContent = `${greeting(now.getHours())}. ${sinceLabel(prevVisit, nowISO)}:${streakNote}`;
+  els.rollup.append(head);
+
+  const items = document.createElement("div");
+  items.className = "rollup-items";
+
+  for (const { entry, total, fresh } of counts) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = fresh > 0 ? "rollup-item fresh" : "rollup-item";
+    item.textContent =
+      fresh > 0 ? `${entry.name}: ${fresh.toLocaleString()} new` : `${entry.name}: nothing new`;
+    item.title = `${total.toLocaleString()} total matches`;
+    item.addEventListener("click", () => {
+      haptic();
+      applyRequest(entry.request);
+      runSearch(true);
+    });
+    items.append(item);
+  }
+
+  els.rollup.append(items);
+
+  if (counts.every((c) => c.fresh === 0)) {
+    const quiet = document.createElement("p");
+    quiet.className = "rollup-quiet";
+    quiet.textContent = "All quiet. Your searches are up to date.";
+    els.rollup.append(quiet);
+  }
+
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "rollup-dismiss";
+  dismiss.textContent = "×";
+  dismiss.setAttribute("aria-label", "Dismiss summary");
+  dismiss.addEventListener("click", () => {
+    els.rollup.hidden = true;
+  });
+  els.rollup.append(dismiss);
+
+  els.rollup.hidden = false;
 }
 
 // runSearch wraps search with a busy state on whichever button drove it, so a

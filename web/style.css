@@ -401,6 +401,151 @@ button[disabled] {
   background: var(--surface-2);
 }
 
+button.secondary {
+  background: var(--surface);
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+
+button.secondary:hover {
+  background: var(--surface-2);
+  border-color: var(--faint);
+}
+
+/* --- saved searches --------------------------------------------------------- */
+
+.saved {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.9rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.15s ease;
+  animation: rise 0.25s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.chip:hover {
+  border-color: var(--faint);
+}
+
+.chip-run,
+.chip-x {
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--fg);
+  font-size: 0.8125rem;
+  font-weight: 550;
+  padding: 0.3rem 0.35rem 0.3rem 0.8rem;
+  cursor: pointer;
+}
+
+.chip-run:hover,
+.chip-x:hover {
+  background: var(--surface-2);
+}
+
+.chip-run:active,
+.chip-x:active {
+  transform: none;
+}
+
+.chip-x {
+  color: var(--faint);
+  padding: 0.3rem 0.7rem 0.3rem 0.25rem;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.chip-x:hover {
+  color: var(--old-fg);
+}
+
+/* --- the rollup ------------------------------------------------------------- */
+
+.rollup {
+  position: relative;
+  margin-top: 1rem;
+  padding: 0.9rem 2.4rem 0.9rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.rollup-head {
+  margin: 0 0 0.6rem;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  letter-spacing: -0.01em;
+}
+
+.rollup-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.rollup-item {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  padding: 0.3rem 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.rollup-item:hover {
+  background: var(--badge-bg);
+  color: var(--fg);
+}
+
+.rollup-item.fresh {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.rollup-item.fresh:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+}
+
+.rollup-quiet {
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.rollup-dismiss {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  background: none;
+  border: none;
+  color: var(--faint);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.3rem 0.45rem;
+  border-radius: var(--radius-sm);
+}
+
+.rollup-dismiss:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
 /* --- results --------------------------------------------------------------- */
 
 .count {
