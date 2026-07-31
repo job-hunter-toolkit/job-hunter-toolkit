@@ -63,20 +63,18 @@ boot();
 
 async function boot() {
   try {
+    // The scaffold — form, skeleton results, placeholder banner — is static
+    // HTML, painted from the first frame; scripts only replace content inside
+    // boxes that already exist. Only the saved chips render here, because
+    // localStorage is script territory.
     setStage("Fetching snapshot metadata…");
+    wireForm();
+    renderSavedChips();
+
     corpusURL = await resolveCorpusBase();
 
     const summary = await engine.open(corpusURL);
     renderBanner(summary);
-
-    // The form is live from here: typing during the load queues one search
-    // that fires the moment the rows land. Skeleton cards hold the space so
-    // the page reads as "results are coming", not "blank".
-    els.form.hidden = false;
-    els.results.hidden = false;
-    wireForm();
-    renderSavedChips();
-    renderSkeletons();
 
     // While rows stream, the stage line names real employers going by: the
     // data is genuinely arriving, so the page shows it arriving. The worker
@@ -139,25 +137,6 @@ async function boot() {
   }
 }
 
-// renderSkeletons fills the list with placeholder cards while rows stream in.
-function renderSkeletons() {
-  els.count.textContent = "";
-  els.list.replaceChildren();
-
-  for (let i = 0; i < 5; i++) {
-    const li = document.createElement("li");
-    li.className = "card skeleton";
-    li.style.setProperty("--stagger", `${i * 60}ms`);
-    const bar1 = document.createElement("div");
-    bar1.className = "bone title-bone";
-    const bar2 = document.createElement("div");
-    bar2.className = "bone where-bone";
-    const bar3 = document.createElement("div");
-    bar3.className = "bone meta-bone";
-    li.append(bar1, bar2, bar3);
-    els.list.append(li);
-  }
-}
 
 // --- honesty banner ---------------------------------------------------------
 
@@ -384,13 +363,14 @@ async function renderRollup() {
     counts.push({ entry, total: response.matched, fresh: countNewSince(response.items, prevVisit) });
   }
 
-  els.rollup.replaceChildren();
+  const card = els.rollup.firstElementChild;
+  card.replaceChildren();
 
   const head = document.createElement("p");
   head.className = "rollup-head";
   const streakNote = streak.n >= 2 ? ` Day ${streak.n} in a row.` : "";
   head.textContent = `${greeting(now.getHours())}. ${sinceLabel(prevVisit, nowISO)}:${streakNote}`;
-  els.rollup.append(head);
+  card.append(head);
 
   const items = document.createElement("div");
   items.className = "rollup-items";
@@ -399,8 +379,10 @@ async function renderRollup() {
     const item = document.createElement("button");
     item.type = "button";
     item.className = fresh > 0 ? "rollup-item fresh" : "rollup-item";
-    item.textContent =
-      fresh > 0 ? `${entry.name}: ${fresh.toLocaleString()} new` : `${entry.name}: nothing new`;
+    // 400 is the sample cap, so a full sample means "at least", and the label
+    // says so instead of pretending precision.
+    const freshLabel = fresh >= 400 ? "400+ new" : `${fresh.toLocaleString()} new`;
+    item.textContent = fresh > 0 ? `${entry.name}: ${freshLabel}` : `${entry.name}: nothing new`;
     item.title = `${total.toLocaleString()} total matches`;
     item.addEventListener("click", () => {
       haptic();
@@ -410,13 +392,13 @@ async function renderRollup() {
     items.append(item);
   }
 
-  els.rollup.append(items);
+  card.append(items);
 
   if (counts.every((c) => c.fresh === 0)) {
     const quiet = document.createElement("p");
     quiet.className = "rollup-quiet";
     quiet.textContent = "All quiet. Your searches are up to date.";
-    els.rollup.append(quiet);
+    card.append(quiet);
   }
 
   const dismiss = document.createElement("button");
@@ -425,11 +407,15 @@ async function renderRollup() {
   dismiss.textContent = "×";
   dismiss.setAttribute("aria-label", "Dismiss summary");
   dismiss.addEventListener("click", () => {
-    els.rollup.hidden = true;
+    els.rollup.classList.remove("open");
+    els.rollup.addEventListener("transitionend", () => (els.rollup.hidden = true), { once: true });
   });
-  els.rollup.append(dismiss);
+  card.append(dismiss);
 
+  // Unhide collapsed, then open on the next frame: the card glides in and the
+  // results below move with the transition instead of jumping.
   els.rollup.hidden = false;
+  requestAnimationFrame(() => els.rollup.classList.add("open"));
 }
 
 // runSearch wraps search with feedback proportional to how it was driven: a
@@ -557,10 +543,40 @@ function renderCount(response) {
     .map(([state, n]) => `${n.toLocaleString()} ${state}`)
     .join(" · ");
 
-  els.count.textContent =
-    response.matched === 0
-      ? "No postings match. Loosen a filter and try again."
-      : `${response.matched.toLocaleString()} matches (${states}), newest first, showing ${Math.min(offset, response.matched).toLocaleString()}`;
+  if (response.matched === 0) {
+    els.count.textContent = "No postings match.";
+    renderEmptyState();
+    return;
+  }
+
+  els.count.textContent = `${response.matched.toLocaleString()} matches (${states}), newest first, showing ${Math.min(offset, response.matched).toLocaleString()}`;
+}
+
+// renderEmptyState replaces a bare "no results" sentence with the one action
+// that helps: start over.
+function renderEmptyState() {
+  const empty = document.createElement("li");
+  empty.className = "empty";
+
+  const message = document.createElement("p");
+  message.append("Nothing matches ");
+  const emphasis = document.createElement("strong");
+  emphasis.textContent = "all";
+  message.append(emphasis, " of these filters at once. Loosen one, or start over.");
+  empty.append(message);
+
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "secondary";
+  clear.textContent = "Clear filters";
+  clear.addEventListener("click", () => {
+    haptic();
+    applyRequest({});
+    runSearch(true);
+  });
+  empty.append(clear);
+
+  els.list.replaceChildren(empty);
 }
 
 function renderItem(item) {
@@ -637,8 +653,19 @@ function setStage(text) {
 function showError(err) {
   console.error(err);
   els.loading.hidden = true;
+
+  // Skeletons promise results; an error must not leave that promise shimmering.
+  if (els.list.querySelector(".skeleton")) {
+    els.list.replaceChildren();
+  }
+
   els.error.hidden = false;
+
+  // Offline is a state, not a bug; say so before the technical detail.
+  const offline = navigator.onLine === false ? "You appear to be offline, and this data is not cached yet. " : "";
+
   els.error.textContent =
+    offline +
     `${err.message ?? err}. ` +
     `Corpus URL: ${corpusURL || "(unresolved)"}. ` +
     "If no corpus is published there yet, pass ?corpus=<url> to point elsewhere.";

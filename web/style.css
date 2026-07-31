@@ -172,7 +172,9 @@ body::before {
 }
 
 .banner:empty {
-  display: none;
+  /* Height is reserved before content arrives so the metadata filling in
+     cannot push the page. */
+  min-height: 2.55rem;
 }
 
 .banner::before {
@@ -248,6 +250,11 @@ body::before {
   margin: 0.5rem 0 0;
   font-variant-numeric: tabular-nums;
   transition: opacity 0.25s ease;
+  /* The marquee must never wrap: a second line every 600 ms is a page that
+     twitches. Long lines fade out at the edge instead. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .error {
@@ -554,6 +561,24 @@ button.secondary:hover {
 
 /* --- the rollup ------------------------------------------------------------- */
 
+/* The shell animates its row from 0fr to 1fr so the summary glides open and
+   the content below moves with it. Popping to full height was a measured
+   layout shift right as the reader reached the results. */
+.rollup-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.rollup-shell.open {
+  grid-template-rows: 1fr;
+}
+
+.rollup-shell > .rollup {
+  overflow: hidden;
+  min-height: 0;
+}
+
 .rollup {
   position: relative;
   margin-top: 1rem;
@@ -562,7 +587,6 @@ button.secondary:hover {
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-card);
-  animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .rollup-head {
@@ -635,6 +659,7 @@ button.secondary:hover {
   font-size: 0.85rem;
   font-variant-numeric: tabular-nums;
   margin: 0 0 0.75rem;
+  min-height: 1.3em; /* reserved before the first count lands: no shift */
 }
 
 .list {
@@ -843,16 +868,58 @@ footer a {
 /* --- small screens --------------------------------------------------------- */
 
 @media (max-width: 30rem) {
+  /* Input takes the full first row; Search and Save share the second. Two
+     stacked full-width buttons read as a form, not a tool. */
   .search-row {
-    flex-direction: column;
+    flex-wrap: wrap;
+  }
+
+  .search-box {
+    flex-basis: 100%;
   }
 
   .search-row button {
-    width: 100%;
-    padding-block: 0.65rem;
+    flex: 1;
+    padding-block: 0.6rem;
   }
 
   .card {
     padding: 0.75rem 0.85rem;
   }
+}
+
+/* Touch devices have no "/" key to hint at, and the reserved space is better
+   spent on the query. */
+@media (pointer: coarse) {
+  .key-hint {
+    display: none;
+  }
+
+  .search-input {
+    padding-right: 2.4rem;
+  }
+
+  .spin {
+    right: 0.9rem;
+  }
+}
+
+/* The empty state earns a designed moment: what happened, and one useful
+   action, not a bare sentence. */
+.empty {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  animation: rise 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.empty p {
+  margin: 0 0 0.9rem;
+}
+
+.empty strong {
+  color: var(--fg);
+  font-weight: 600;
 }

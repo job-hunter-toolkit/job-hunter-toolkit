@@ -17,7 +17,8 @@ mkdir -p "$out"
 
 cp web/index.html web/style.css web/app.js web/config.js web/corpus-store.js \
    web/rollup.js web/worker.js web/engine-client.js \
-   web/manifest.webmanifest web/icon.svg web/icon-maskable.svg "$out/"
+   web/manifest.webmanifest web/icon.svg web/icon-maskable.svg \
+   web/apple-touch-icon.png "$out/"
 
 # The service worker's precache name is stamped per deploy: new bytes mean a
 # fresh install, which is how every shell update reaches installed apps.

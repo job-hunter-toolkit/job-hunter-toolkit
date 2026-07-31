@@ -35,6 +35,7 @@ const SHELL = [
   "manifest.webmanifest",
   "icon.svg",
   "icon-maskable.svg",
+  "apple-touch-icon.png",
 ];
 
 self.addEventListener("install", (event) => {

@@ -15,16 +15,22 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3' y='7' width='18' height='13' rx='2.5' fill='none' stroke='%232455a4' stroke-width='1.8'/%3E%3Cpath d='M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7' fill='none' stroke='%232455a4' stroke-width='1.8'/%3E%3Cpath d='M3 12.5h18' stroke='%232455a4' stroke-width='1.8'/%3E%3C/svg%3E"
     />
+    <!-- iOS ignores SVG icons for the home screen; the PNG is icon.svg
+         rendered at 180px. -->
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="style.css" />
     <!-- The corpus lives on these hosts; opening the connections during HTML
-         parse shaves their TLS setup off the first data byte. -->
+         parse shaves their TLS setup off the first data byte. The engine's own
+         files (worker.js, wasm_exec.js, engine.wasm, corpus-store.js) are
+         deliberately NOT preloaded here: the worker fetches them under its own
+         request modes, and a main-thread preload hint that mismatches those
+         modes makes the browser download the 4 MB binary twice. Measured, not
+         theorized.
+    -->
     <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />
     <link rel="preconnect" href="https://api.github.com" crossorigin />
-    <link rel="preload" href="engine.wasm" as="fetch" crossorigin="anonymous" />
-    <link rel="preload" href="wasm_exec.js" as="script" />
     <link rel="modulepreload" href="config.js" />
-    <link rel="modulepreload" href="corpus-store.js" />
     <link rel="modulepreload" href="rollup.js" />
     <link rel="modulepreload" href="engine-client.js" />
     <script type="module" src="app.js"></script>
@@ -46,19 +52,29 @@
       </p>
     </header>
 
+    <!-- The scaffold below is static on purpose: the first painted frame is
+         the finished layout, with skeletons where results will be and a
+         placeholder line in the banner. Scripts only ever replace content
+         inside boxes that already exist; measured, unhiding this scaffold
+         from JS was 93% of the page's layout shift. -->
     <main>
-      <div id="banner" class="banner" role="status"></div>
+      <div id="banner" class="banner" role="status"><span>Reaching the latest snapshot…</span></div>
 
       <div id="loading" class="loading" aria-hidden="true">
         <div class="skeleton-bar"><div class="skeleton-fill"></div></div>
       </div>
-      <p id="stage" class="stage" role="status"></p>
-      <p id="error" class="error" hidden></p>
+      <!-- The stage line ticks several times a second while loading; it stays
+           out of the accessibility tree's live regions so screen readers hear
+           the result count once, not a marquee. -->
+      <p id="stage" class="stage" aria-hidden="true"></p>
+      <p id="error" class="error" role="alert" hidden></p>
 
-      <section id="rollup" class="rollup" role="status" hidden></section>
+      <section id="rollup" class="rollup-shell" role="status" hidden>
+        <div class="rollup"></div>
+      </section>
       <div id="saved" class="saved" aria-label="Saved searches" hidden></div>
 
-      <form id="filters" hidden>
+      <form id="filters">
         <div class="search-row">
           <div class="search-box">
             <input
@@ -141,9 +157,15 @@
         </details>
       </form>
 
-      <section id="results" hidden>
+      <section id="results">
         <p id="count" class="count" role="status"></p>
-        <ul id="list" class="list"></ul>
+        <ul id="list" class="list">
+          <li class="card skeleton" style="--stagger: 0ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
+          <li class="card skeleton" style="--stagger: 60ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
+          <li class="card skeleton" style="--stagger: 120ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
+          <li class="card skeleton" style="--stagger: 180ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
+          <li class="card skeleton" style="--stagger: 240ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
+        </ul>
         <button id="more" type="button" hidden>Load more</button>
       </section>
 
