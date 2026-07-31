@@ -668,6 +668,12 @@ button.secondary:hover {
   animation: none;
 }
 
+/* While a search runs, the stale results say so by stepping back. */
+.list.searching {
+  opacity: 0.55;
+  transition: opacity 0.15s ease 0.1s;
+}
+
 /* Skeleton cards hold the layout while the rows stream in. */
 .card.skeleton {
   pointer-events: none;

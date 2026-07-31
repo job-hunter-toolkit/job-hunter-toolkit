@@ -488,15 +488,28 @@ async function runSearch(reset, { fromButton = false } = {}) {
   const button = fromButton ? (reset ? els.go : els.more) : null;
   if (button) button.disabled = true;
   els.spin.classList.add("busy");
+  els.list.classList.add("searching");
 
   try {
+    // The wasm scan runs on the main thread, so without an explicit yield the
+    // busy affordances above would never reach the screen: the browser would
+    // sit frozen on the old frame for the whole search. Two frames guarantee
+    // a paint first.
+    await nextPaint();
     await search(reset);
   } catch (err) {
     showError(err);
   } finally {
     if (button) button.disabled = false;
     els.spin.classList.remove("busy");
+    els.list.classList.remove("searching");
   }
+}
+
+function nextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
 }
 
 // haptic gives a single soft tick on devices that support it. Guarded: vibrate

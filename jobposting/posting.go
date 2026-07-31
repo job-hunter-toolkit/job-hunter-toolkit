@@ -176,11 +176,17 @@ func (j *JobPosting) IsRemote() bool {
 		return *j.Remote
 	}
 
-	location := strings.ToLower(j.Location)
-	title := strings.ToLower(j.Title)
+	return LooksRemote(strings.ToLower(j.Location), strings.ToLower(j.Title))
+}
 
+// LooksRemote is [JobPosting.IsRemote]'s text heuristic over strings the
+// caller has already lowercased. It exists for resident readers that fold
+// every field once at load: calling IsRemote per row would re-lower two
+// strings a million times over, and duplicating the term list would drift.
+// Note it is only the heuristic half; a structured remote flag outranks it.
+func LooksRemote(foldedLocation, foldedTitle string) bool {
 	for _, term := range remoteTerms {
-		if strings.Contains(location, term) || strings.Contains(title, term) {
+		if strings.Contains(foldedLocation, term) || strings.Contains(foldedTitle, term) {
 			return true
 		}
 	}
@@ -196,8 +202,13 @@ func (j *JobPosting) IsHybrid() bool {
 		return false
 	}
 
-	return strings.Contains(strings.ToLower(j.Location), "hybrid") ||
-		strings.Contains(strings.ToLower(j.Title), "hybrid")
+	return LooksHybrid(strings.ToLower(j.Location), strings.ToLower(j.Title))
+}
+
+// LooksHybrid is [JobPosting.IsHybrid] over prefolded strings, for the same
+// resident readers [LooksRemote] serves.
+func LooksHybrid(foldedLocation, foldedTitle string) bool {
+	return strings.Contains(foldedLocation, "hybrid") || strings.Contains(foldedTitle, "hybrid")
 }
 
 // EmploymentType is the normalized shape of an engagement: full-time,

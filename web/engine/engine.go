@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -73,6 +74,23 @@ type record struct {
 	posting   jobposting.JobPosting
 	firstSeen time.Time
 	state     corpus.State
+
+	// The fields below are folded once at load so that a search is a scan,
+	// not 1.3 million ToLower allocations. Measured before this existed:
+	// `remote: true` cost 3.1 s per query and a title term 1.3 s, which on
+	// the browser's main thread is a frozen page; after, both are scans over
+	// prefolded bytes. TestSearchMatchesQueryMatch pins these to the shared
+	// vocabulary's semantics row for row.
+	foldTitle      string
+	foldLocation   string
+	foldCompany    string
+	foldDepartment string
+	foldTeam       string
+	isRemote       bool
+	isHybrid       bool
+	hasComp        bool
+	hasAnnual      bool
+	annualMax      float64
 }
 
 // Summary is what the UI must show before it shows a single posting: which
@@ -468,6 +486,30 @@ func (e *Engine) loadStates(table *corpus.Table, rows []record) error {
 		rows[i].state = e.corpus.State(synthetic, e.now)
 	}
 
+	// Fold every string a predicate reads and settle every derived flag,
+	// once. This pass must run last: it reads compensation and the remote
+	// heuristic, which the loops above only just finished assembling.
+	for i := range rows {
+		r := &rows[i]
+		r.foldTitle = strings.ToLower(r.posting.Title)
+		r.foldLocation = strings.ToLower(r.posting.Location)
+		r.foldCompany = strings.ToLower(r.posting.Company)
+		r.foldDepartment = strings.ToLower(r.posting.Department)
+		r.foldTeam = strings.ToLower(r.posting.Team)
+
+		// The structured flag outranks the heuristic, exactly as IsRemote
+		// decides; the folds above feed the heuristic so nothing lowercases
+		// twice.
+		if r.posting.Remote != nil {
+			r.isRemote = *r.posting.Remote
+		} else {
+			r.isRemote = jobposting.LooksRemote(r.foldLocation, r.foldTitle)
+		}
+		r.isHybrid = jobposting.LooksHybrid(r.foldLocation, r.foldTitle)
+		r.hasComp = !r.posting.Compensation.IsZero()
+		r.annualMax, r.hasAnnual = r.posting.Compensation.AnnualMax()
+	}
+
 	return nil
 }
 
@@ -498,6 +540,8 @@ func (e *Engine) Search(req SearchRequest) (SearchResponse, error) {
 		Items:  []Item{},
 	}
 
+	c := compileQuery(q)
+
 	for _, i := range e.order {
 		row := &e.rows[i]
 
@@ -505,7 +549,7 @@ func (e *Engine) Search(req SearchRequest) (SearchResponse, error) {
 			continue
 		}
 
-		if !q.Match(&row.posting) {
+		if !c.match(row) {
 			continue
 		}
 
@@ -518,6 +562,165 @@ func (e *Engine) Search(req SearchRequest) (SearchResponse, error) {
 	}
 
 	return resp, nil
+}
+
+// compiledQuery is [query.Query] with every term folded once, evaluated
+// against the folds and flags [Engine.Load] precomputed per record.
+//
+// This exists because [query.Query.Match] lowercases the haystack and every
+// term per posting, which is correct for a streaming crawl and ruinous for a
+// resident scan: over 1.3 million rows a remote-only query measured 3.1 s and
+// a title term 1.3 s of pure refolding, all of it on the browser's main
+// thread. The semantics here must be exactly Match's, no more and no less;
+// TestSearchMatchesQueryMatch holds the two together row for row.
+type compiledQuery struct {
+	remote      bool
+	hasComp     bool
+	minAnnual   float64
+	postedSince time.Time
+
+	titles        []string
+	excludeTitles []string
+	locations     []string
+	companies     []string
+	departments   []string
+
+	employment []jobposting.EmploymentType
+	workplace  []jobposting.WorkplaceType
+}
+
+func compileQuery(q query.Query) compiledQuery {
+	return compiledQuery{
+		remote:        q.Remote,
+		hasComp:       q.HasCompensation,
+		minAnnual:     q.MinAnnual,
+		postedSince:   q.PostedSince,
+		titles:        foldTerms(q.Titles),
+		excludeTitles: foldTerms(q.ExcludeTitles),
+		locations:     foldTerms(q.Locations),
+		companies:     foldTerms(q.Companies),
+		departments:   foldTerms(q.Departments),
+		employment:    usableEnums(q.EmploymentTypes),
+		workplace:     usableEnums(q.WorkplaceTypes),
+	}
+}
+
+// foldTerms lowercases and trims once, dropping blanks — the same treatment
+// containsAny gives each term per row, hoisted to per query. A list that folds
+// to nothing is no constraint, mirroring hasUsableTerm.
+func foldTerms(terms []string) []string {
+	out := make([]string, 0, len(terms))
+
+	for _, term := range terms {
+		if folded := strings.ToLower(strings.TrimSpace(term)); folded != "" {
+			out = append(out, folded)
+		}
+	}
+
+	return out
+}
+
+// usableEnums drops zero values, mirroring hasUsableEnum: an empty entry is a
+// mistake to ignore, not a filter for postings whose board said nothing.
+func usableEnums[T ~string](values []T) []T {
+	out := make([]T, 0, len(values))
+
+	for _, v := range values {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+
+	return out
+}
+
+// match mirrors [query.Query.Match] clause for clause over the precomputed
+// record. Any semantic change to Match belongs there first; the parity test
+// will fail here until this follows.
+func (c *compiledQuery) match(r *record) bool {
+	if c.remote && !r.isRemote {
+		return false
+	}
+
+	if c.hasComp && !r.hasComp {
+		return false
+	}
+
+	if c.minAnnual > 0 && (!r.hasAnnual || r.annualMax < c.minAnnual) {
+		return false
+	}
+
+	if len(c.titles) > 0 && !anyContains(r.foldTitle, c.titles) {
+		return false
+	}
+
+	if len(c.excludeTitles) > 0 && anyContains(r.foldTitle, c.excludeTitles) {
+		return false
+	}
+
+	if len(c.locations) > 0 && !anyContains(r.foldLocation, c.locations) {
+		return false
+	}
+
+	if len(c.companies) > 0 && !anyContains(r.foldCompany, c.companies) {
+		return false
+	}
+
+	if len(c.departments) > 0 &&
+		!anyContains(r.foldDepartment, c.departments) &&
+		!anyContains(r.foldTeam, c.departments) {
+		return false
+	}
+
+	if len(c.employment) > 0 {
+		if r.posting.EmploymentType == jobposting.EmploymentTypeUnknown ||
+			!slices.Contains(c.employment, r.posting.EmploymentType) {
+			return false
+		}
+	}
+
+	if len(c.workplace) > 0 && !c.matchesWorkplace(r) {
+		return false
+	}
+
+	if !c.postedSince.IsZero() {
+		if r.posting.PostedAt.IsZero() || r.posting.PostedAt.Before(c.postedSince) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (c *compiledQuery) matchesWorkplace(r *record) bool {
+	if r.posting.WorkplaceType != jobposting.WorkplaceTypeUnknown {
+		return slices.Contains(c.workplace, r.posting.WorkplaceType)
+	}
+
+	for _, want := range c.workplace {
+		switch want {
+		case jobposting.WorkplaceTypeRemote:
+			if r.isRemote {
+				return true
+			}
+		case jobposting.WorkplaceTypeHybrid:
+			if r.isHybrid {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func anyContains(value string, terms []string) bool {
+	for _, term := range terms {
+		if strings.Contains(value, term) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // SearchJSON is [Engine.Search] with JSON at both ends, which is the shape the
