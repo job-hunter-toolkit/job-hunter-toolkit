@@ -142,14 +142,6 @@ body::before {
   letter-spacing: -0.02em;
 }
 
-.wordmark span {
-  background: linear-gradient(100deg, var(--fg) 40%, var(--accent) 130%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
 .wordmark .mark {
   color: var(--accent);
   flex: none;

@@ -58,9 +58,21 @@ nightly pipeline stays the only writer. Sequenced:
    be queried straight from the browser for just the companies matching
    saved searches; the seam is marked in web/app.js. Requires re-measuring
    the CORS table from a real browser first.
-4. **Map and visual layers**: needs a geocoding pass in internal/enrich
+4. **Trend lines from retained visits**: each rollup run appends
+   {date, matched} per saved search to localStorage; after a week the rollup
+   chips carry 7-day sparklines of the user's own searches, and longer
+   retention earns richer market-trend views. Client-side accumulation only;
+   corpus generations plus the jobs_record series are the server-side data
+   if a global trend surface is ever wanted.
+5. **Map and visual layers**: needs a geocoding pass in internal/enrich
    (offline gazetteer, applied at crawl time, shipped as corpus columns)
    before any map UI is worth building.
 
 Constraints that outrank features: configurable, quiet by default, works
 offline, cheap on data and battery, no accounts, no tracking.
+
+Taste bar: modern professional tool, never tacky. No gradient text, no
+emojis, no gimmick animation; motion is brief, purposeful, and collapses
+under prefers-reduced-motion; haptics fire only on user gestures (Chromium
+blocks gestureless vibrate, and it was right to). Whimsy must be factual,
+like the loading line naming real employers as their postings stream in.
