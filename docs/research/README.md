@@ -1,5 +1,9 @@
 # Research notes
 
+Working notes, as distinct from [docs/design](../design), which argues
+decisions from measurements against this tree. These are surveys of the world
+outside it — job boards and data sources this project doesn't talk to yet.
+
 Working notes from the survey that produced [#29](https://github.com/job-hunter-toolkit/job-hunter-toolkit/pull/29).
 They are kept because the expensive part of adding a source is not writing the
 adapter, it is establishing which endpoint a platform actually serves, whether

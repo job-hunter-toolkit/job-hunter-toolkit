@@ -3,6 +3,7 @@
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/blob/master/LICENSE)
 [![CI](https://github.com/job-hunter-toolkit/job-hunter-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/actions/workflows/ci.yml)
 [![go report](https://goreportcard.com/badge/github.com/job-hunter-toolkit/job-hunter-toolkit)](https://goreportcard.com/report/github.com/job-hunter-toolkit/job-hunter-toolkit)
+[![Go Reference](https://pkg.go.dev/badge/github.com/job-hunter-toolkit/job-hunter-toolkit.svg)](https://pkg.go.dev/github.com/job-hunter-toolkit/job-hunter-toolkit)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/job-hunter-toolkit/job-hunter-toolkit/pulls)
 
 The job hunter's toolkit. Searches the job boards of nearly 8,000 companies
@@ -293,10 +294,6 @@ $ go build ./...
 $ go test ./...
 ```
 
-The staged direction for observable crawl sharding, historical storage, TUI,
-MCP, and optional service operation is documented in
-[docs/architecture-roadmap.md](docs/architecture-roadmap.md).
-
 ### How a crawl behaves
 
 Each company is an independently scheduled source, fetched concurrently up to
@@ -335,6 +332,16 @@ $ JHT_NETWORK_TESTS=1 go test ./internal/services/ -run TestGreenhouse
 ```
 
 Prefer `job-hunter-toolkit health` for checking source freshness.
+
+## Documentation
+
+| Doc | What it covers |
+| --- | --- |
+| [docs/architecture-roadmap.md](docs/architecture-roadmap.md) | Where this project is headed: sharding, historical storage, TUI, MCP, service mode, and what's shipped versus proposed |
+| [docs/design](docs/design) | The measured decisions behind the roadmap — corpus format, scheduler, query cost model, package layout |
+| [docs/research](docs/research) | Working notes on ATS platform coverage and public data sources, each finding labelled by confidence |
+| [docs/adding-a-source.md](docs/adding-a-source.md) | How to add a company or platform adapter |
+| [docs/jobs-record.md](docs/jobs-record.md) | How to read the chart above, including its known gaps |
 
 ## License
 
