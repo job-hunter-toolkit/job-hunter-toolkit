@@ -119,7 +119,7 @@ function renderBanner(summary) {
 
   const ageHours = summary.age_hours ?? 0;
   const crawled = summary.run_at
-    ? `crawled ${summary.run_at.replace("T", " ").replace(":00Z", " UTC")} (${formatAge(ageHours)})`
+    ? `crawled ${summary.run_at.replace("T", " ").replace(/(:\d{2})?Z$/, " UTC")} (${formatAge(ageHours)})`
     : "crawl date unknown";
 
   const freshness =
