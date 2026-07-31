@@ -28,6 +28,8 @@ const SHELL = [
   "config.js",
   "corpus-store.js",
   "rollup.js",
+  "worker.js",
+  "engine-client.js",
   "wasm_exec.js",
   "engine.wasm",
   "manifest.webmanifest",

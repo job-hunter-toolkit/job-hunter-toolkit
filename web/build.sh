@@ -16,7 +16,8 @@ out="${1:-web/dist}"
 mkdir -p "$out"
 
 cp web/index.html web/style.css web/app.js web/config.js web/corpus-store.js \
-   web/rollup.js web/manifest.webmanifest web/icon.svg web/icon-maskable.svg "$out/"
+   web/rollup.js web/worker.js web/engine-client.js \
+   web/manifest.webmanifest web/icon.svg web/icon-maskable.svg "$out/"
 
 # The service worker's precache name is stamped per deploy: new bytes mean a
 # fresh install, which is how every shell update reaches installed apps.

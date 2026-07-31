@@ -6,7 +6,7 @@
 // cannot inject markup.
 
 import { resolveCorpusBase } from "./config.js";
-import { createStore } from "./corpus-store.js";
+import { EngineClient } from "./engine-client.js";
 import {
   SAVED_KEY,
   VISIT_KEY,
@@ -42,11 +42,15 @@ const els = {
   error: $("error"),
 };
 
-let store;
+// The engine lives in a worker so no scan ever blocks this thread: typing
+// stays instant no matter what a search costs. Constructing the client first
+// thing starts the wasm download before anything else on this page runs.
+const engine = new EngineClient();
+
 let corpusURL = "";
 let offset = 0;
 let lastRequest = null;
-let rowsLoaded = false; // search is legal only after jhtEngine.load()
+let rowsLoaded = false; // search is legal only after the worker loads the rows
 let searchSeq = 0; // stale async results must never paint over newer ones
 
 // The service worker makes the shell installable and offline-capable. Its
@@ -59,18 +63,10 @@ boot();
 
 async function boot() {
   try {
-    // The wasm download and compile overlap the corpus metadata fetch: they
-    // share no state until open(), and serializing them was pure wasted wait.
-    const engineReady = loadEngine();
-
     setStage("Fetching snapshot metadata…");
     corpusURL = await resolveCorpusBase();
-    store = await createStore(corpusURL);
 
-    setStage("Loading query engine…");
-    await engineReady;
-
-    const summary = JSON.parse(await jhtEngine.open(store));
+    const summary = await engine.open(corpusURL);
     renderBanner(summary);
 
     // The form is live from here: typing during the load queues one search
@@ -83,30 +79,28 @@ async function boot() {
     renderSkeletons();
 
     // While rows stream, the stage line names real employers going by: the
-    // data is genuinely arriving, so the page shows it arriving. Fetched
-    // through the store so the bytes count and the SW caches it; a failure
-    // just means a plainer loading line.
+    // data is genuinely arriving, so the page shows it arriving. The worker
+    // sends the names once sources.json lands; the biggest boards make the
+    // best marquee, and registry slugs too mangled to read as names stay out.
     let companies = [];
-    store
-      .whole("sources.json")
-      .then((bytes) => {
-        const parsed = JSON.parse(new TextDecoder().decode(bytes));
-        // The biggest boards make the best marquee: recognizable names, and
-        // registry slugs too mangled to read as names stay out of it.
-        companies = shuffle(
-          parsed
-            .filter((s) => s.company && s.company.length <= 14 && (s.open ?? 0) > 0)
-            .sort((a, b) => (b.open ?? 0) - (a.open ?? 0))
-            .slice(0, 400)
-            .map((s) => s.company),
-        );
-      })
-      .catch(() => {});
+    engine.onCompanies = (names) => {
+      companies = shuffle(
+        names
+          .filter((s) => s.company.length <= 14 && s.open > 0)
+          .sort((a, b) => b.open - a.open)
+          .slice(0, 400)
+          .map((s) => s.company),
+      );
+    };
 
     let tick = 0;
+    let bytesFetched = 0;
+    engine.onProgress = (stats) => {
+      bytesFetched = stats.bytesFetched;
+    };
+
     const ticker = setInterval(() => {
-      const mib = `${(store.stats.bytesFetched / (1024 * 1024)).toFixed(1)} MiB`;
-      let line = `Loading ${summary.rows.toLocaleString()} postings (${mib})`;
+      let line = `Loading ${summary.rows.toLocaleString()} postings (${(bytesFetched / (1024 * 1024)).toFixed(1)} MiB)`;
 
       if (companies.length) {
         const a = companies[(tick * 3) % companies.length];
@@ -121,7 +115,7 @@ async function boot() {
 
     let stats;
     try {
-      stats = JSON.parse(await jhtEngine.load());
+      stats = await engine.load();
     } finally {
       clearInterval(ticker);
     }
@@ -130,8 +124,8 @@ async function boot() {
     setStage(
       `Loaded ${stats.rows.toLocaleString()} rows in ` +
         `${(stats.elapsed_ms / 1000).toFixed(1)} s ` +
-        `(${(store.stats.bytesFetched / (1024 * 1024)).toFixed(1)} MiB, ` +
-        `${store.stats.requests} requests, ${store.stats.mode} mode)`,
+        `(${(stats.bytesFetched / (1024 * 1024)).toFixed(1)} MiB, ` +
+        `${stats.requests} requests, ${stats.mode} mode)`,
     );
     els.loading.hidden = true;
 
@@ -163,42 +157,6 @@ function renderSkeletons() {
     li.append(bar1, bar2, bar3);
     els.list.append(li);
   }
-}
-
-// loadEngine lazy-loads the wasm: the page paints and the metadata fetch
-// starts before the ~1 MiB (gzipped) binary is requested, and the two then
-// stream in parallel with a visible stage line instead of a blank tab.
-async function loadEngine() {
-  await injectScript("wasm_exec.js");
-
-  const go = new Go();
-  const ready = new Promise((resolve) => {
-    globalThis.jhtEngineReady = resolve;
-  });
-
-  const result = await WebAssembly.instantiateStreaming(
-    fetch("engine.wasm"),
-    go.importObject,
-  ).catch(async () => {
-    // instantiateStreaming requires Content-Type: application/wasm; fall back
-    // for hosts that mislabel it.
-    const response = await fetch("engine.wasm");
-
-    return WebAssembly.instantiate(await response.arrayBuffer(), go.importObject);
-  });
-
-  go.run(result.instance); // resolves only if the engine exits; not awaited
-  await ready;
-}
-
-function injectScript(src) {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = src;
-    script.onload = resolve;
-    script.onerror = () => reject(new Error(`failed to load ${src}`));
-    document.head.append(script);
-  });
 }
 
 // --- honesty banner ---------------------------------------------------------
@@ -422,8 +380,7 @@ async function renderRollup() {
 
   const counts = [];
   for (const entry of saved) {
-    const request = { ...entry.request, offset: 0, limit: 400 };
-    const response = JSON.parse(await jhtEngine.search(JSON.stringify(request)));
+    const response = await engine.search({ ...entry.request, offset: 0, limit: 400 });
     counts.push({ entry, total: response.matched, fresh: countNewSince(response.items, prevVisit) });
   }
 
@@ -491,11 +448,6 @@ async function runSearch(reset, { fromButton = false } = {}) {
   els.list.classList.add("searching");
 
   try {
-    // The wasm scan runs on the main thread, so without an explicit yield the
-    // busy affordances above would never reach the screen: the browser would
-    // sit frozen on the old frame for the whole search. Two frames guarantee
-    // a paint first.
-    await nextPaint();
     await search(reset);
   } catch (err) {
     showError(err);
@@ -504,12 +456,6 @@ async function runSearch(reset, { fromButton = false } = {}) {
     els.spin.classList.remove("busy");
     els.list.classList.remove("searching");
   }
-}
-
-function nextPaint() {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(resolve));
-  });
 }
 
 // haptic gives a single soft tick on devices that support it. Guarded: vibrate
@@ -576,8 +522,7 @@ async function search(reset) {
     lastRequest = buildRequest();
   }
 
-  const request = { ...lastRequest, offset, limit: 100 };
-  const response = JSON.parse(await jhtEngine.search(JSON.stringify(request)));
+  const response = await engine.search({ ...lastRequest, offset, limit: 100 });
 
   // A newer search finished the race while this one was in flight; painting
   // these rows now would show stale results under fresh filters.
