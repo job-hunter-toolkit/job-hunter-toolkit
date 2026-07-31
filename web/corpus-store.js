@@ -66,23 +66,51 @@ class CorpusStore {
       return (await this.whole(name)).byteLength;
     }
 
-    // Probe with a 1-byte range. 206 tells us the host ranges and the
-    // Content-Range header tells us the total size, all for one byte; 200
-    // hands us the whole object, which we keep instead of re-fetching.
+    // HEAD first: Content-Length is a CORS-safelisted response header, so a
+    // browser can always read it. Content-Range is NOT safelisted, and
+    // raw.githubusercontent.com sends no Access-Control-Expose-Headers, so a
+    // 206's Content-Range is invisible to cross-origin JS even though curl
+    // sees it. The launch-day outage was exactly this: a host that ranges
+    // perfectly, and a probe that trusted a header the browser withholds.
+    try {
+      const head = await this.request(name, {}, "HEAD");
+      if (head.ok) {
+        const total = Number(head.headers.get("Content-Length"));
+
+        if (Number.isFinite(total) && total > 0) {
+          // Whether ranged reads actually work is decided by the first real
+          // read in readAt: a 206 keeps range mode, a 200 degrades to
+          // whole-file. Nothing here depends on Content-Range.
+          this.ranged.set(name, { size: total });
+          this.stats.mode = "range";
+
+          return total;
+        }
+      }
+    } catch {
+      // Fall through to the GET probe.
+    }
+
+    // GET probe with a 1-byte range, for hosts that refuse HEAD. 206 with a
+    // readable Content-Range gives the size for one byte; 200 hands us the
+    // whole object, which we keep instead of re-fetching.
     const response = await this.request(name, { Range: "bytes=0-0" });
 
     if (response.status === 206) {
       const total = parseContentRange(response.headers.get("Content-Range"));
-      if (total === null) {
-        throw new Error(`${name}: 206 without a parseable Content-Range`);
+
+      if (total !== null) {
+        await response.arrayBuffer(); // drain the byte
+        this.stats.bytesFetched += 1;
+        this.ranged.set(name, { size: total });
+        this.stats.mode = "range";
+
+        return total;
       }
 
-      await response.arrayBuffer(); // drain the byte
-      this.stats.bytesFetched += 1;
-      this.ranged.set(name, { size: total });
-      this.stats.mode = "range";
-
-      return total;
+      // 206 with an unreadable Content-Range: the host ranges but exposes
+      // nothing. Fetch the object whole rather than fail.
+      return (await this.whole(name)).byteLength;
     }
 
     if (response.status === 200) {
@@ -167,10 +195,10 @@ class CorpusStore {
     return bytes;
   }
 
-  async request(name, headers) {
+  async request(name, headers, method = "GET") {
     this.stats.requests += 1;
 
-    const response = await this.fetch(this.url(name), { headers });
+    const response = await this.fetch(this.url(name), { method, headers });
 
     return response;
   }
