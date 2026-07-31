@@ -17,6 +17,15 @@
     />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="style.css" />
+    <!-- The corpus lives on these hosts; opening the connections during HTML
+         parse shaves their TLS setup off the first data byte. -->
+    <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />
+    <link rel="preconnect" href="https://api.github.com" crossorigin />
+    <link rel="preload" href="engine.wasm" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="wasm_exec.js" as="script" />
+    <link rel="modulepreload" href="config.js" />
+    <link rel="modulepreload" href="corpus-store.js" />
+    <link rel="modulepreload" href="rollup.js" />
     <script type="module" src="app.js"></script>
   </head>
   <body>
@@ -50,14 +59,18 @@
 
       <form id="filters" hidden>
         <div class="search-row">
-          <input
-            id="f-title"
-            type="text"
-            class="search-input"
-            placeholder="Search titles: engineer, designer, nurse"
-            autocomplete="off"
-            aria-label="Title contains"
-          />
+          <div class="search-box">
+            <input
+              id="f-title"
+              type="text"
+              class="search-input"
+              placeholder="Search titles: engineer, designer, nurse"
+              autocomplete="off"
+              aria-label="Title contains"
+            />
+            <span id="spin" class="spin" aria-hidden="true"></span>
+            <kbd class="key-hint" aria-hidden="true">/</kbd>
+          </div>
           <button type="submit" id="go">Search</button>
           <button type="button" id="save" class="secondary" title="Save this search; new matches are summarized next time you open the page">Save</button>
         </div>

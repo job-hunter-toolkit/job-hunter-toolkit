@@ -116,6 +116,35 @@ export function sinceLabel(sinceISO, nowISO) {
   return `In the last ${Math.round(hours / 24)} days`;
 }
 
+// timeAgo renders a timestamp the way a person says it. The exact date
+// belongs in a tooltip; the card says "3 hours ago". Falls back to the bare
+// date beyond a year, where relative time stops meaning anything.
+export function timeAgo(iso, nowISO) {
+  const then = Date.parse(iso);
+  const now = Date.parse(nowISO);
+
+  if (!Number.isFinite(then) || !Number.isFinite(now) || then > now) return "";
+
+  const minutes = Math.floor((now - then) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? "1 month ago" : `${months} months ago`;
+
+  return iso.slice(0, 10);
+}
+
 // storage wraps localStorage so a refusal (private mode, disabled storage)
 // reads as "nothing saved" and writes are silently dropped.
 export const storage = {

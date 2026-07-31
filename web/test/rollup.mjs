@@ -10,6 +10,7 @@ import {
   nextStreak,
   greeting,
   sinceLabel,
+  timeAgo,
 } from "../rollup.js";
 import { exit } from "node:process";
 
@@ -104,6 +105,21 @@ check("greeting: small hours", greeting(2), "Up late");
 check("since: hours", sinceLabel("2026-07-31T00:00:00Z", "2026-07-31T09:00:00Z"), "In the last 9 hours");
 check("since: days", sinceLabel("2026-07-27T09:00:00Z", "2026-07-31T09:00:00Z"), "In the last 4 days");
 check("since: fresh", sinceLabel("2026-07-31T08:30:00Z", "2026-07-31T09:00:00Z"), "Since your last visit");
+
+const now = "2026-07-31T12:00:00Z";
+check("ago: just now", timeAgo("2026-07-31T11:59:40Z", now), "just now");
+check("ago: one minute", timeAgo("2026-07-31T11:58:30Z", now), "1 minute ago");
+check("ago: minutes", timeAgo("2026-07-31T11:15:00Z", now), "45 minutes ago");
+check("ago: one hour", timeAgo("2026-07-31T10:30:00Z", now), "1 hour ago");
+check("ago: hours", timeAgo("2026-07-31T02:00:00Z", now), "10 hours ago");
+check("ago: yesterday", timeAgo("2026-07-30T06:00:00Z", now), "yesterday");
+check("ago: days", timeAgo("2026-07-27T12:00:00Z", now), "4 days ago");
+check("ago: one week", timeAgo("2026-07-22T12:00:00Z", now), "1 week ago");
+check("ago: weeks", timeAgo("2026-07-10T12:00:00Z", now), "3 weeks ago");
+check("ago: months", timeAgo("2026-04-15T12:00:00Z", now), "3 months ago");
+check("ago: beyond a year falls back to the date", timeAgo("2024-06-01T00:00:00Z", now), "2024-06-01");
+check("ago: future is refused", timeAgo("2026-08-02T00:00:00Z", now), "");
+check("ago: garbage is refused", timeAgo("not a date", now), "");
 
 if (failures > 0) {
   console.error(`${failures} failure(s)`);

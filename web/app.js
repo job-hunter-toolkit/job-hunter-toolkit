@@ -19,6 +19,7 @@ import {
   nextStreak,
   greeting,
   sinceLabel,
+  timeAgo,
   storage,
 } from "./rollup.js";
 
@@ -33,6 +34,7 @@ const els = {
   form: $("filters"),
   go: $("go"),
   save: $("save"),
+  spin: $("spin"),
   results: $("results"),
   count: $("count"),
   list: $("list"),
@@ -44,6 +46,8 @@ let store;
 let corpusURL = "";
 let offset = 0;
 let lastRequest = null;
+let rowsLoaded = false; // search is legal only after jhtEngine.load()
+let searchSeq = 0; // stale async results must never paint over newer ones
 
 // The service worker makes the shell installable and offline-capable. Its
 // failure is never the page's problem.
@@ -55,22 +59,65 @@ boot();
 
 async function boot() {
   try {
+    // The wasm download and compile overlap the corpus metadata fetch: they
+    // share no state until open(), and serializing them was pure wasted wait.
+    const engineReady = loadEngine();
+
     setStage("Fetching snapshot metadata…");
     corpusURL = await resolveCorpusBase();
     store = await createStore(corpusURL);
 
     setStage("Loading query engine…");
-    await loadEngine();
+    await engineReady;
 
     const summary = JSON.parse(await jhtEngine.open(store));
     renderBanner(summary);
 
+    // The form is live from here: typing during the load queues one search
+    // that fires the moment the rows land. Skeleton cards hold the space so
+    // the page reads as "results are coming", not "blank".
+    els.form.hidden = false;
+    els.results.hidden = false;
+    wireForm();
+    renderSavedChips();
+    renderSkeletons();
+
+    // While rows stream, the stage line names real employers going by: the
+    // data is genuinely arriving, so the page shows it arriving. Fetched
+    // through the store so the bytes count and the SW caches it; a failure
+    // just means a plainer loading line.
+    let companies = [];
+    store
+      .whole("sources.json")
+      .then((bytes) => {
+        const parsed = JSON.parse(new TextDecoder().decode(bytes));
+        // The biggest boards make the best marquee: recognizable names, and
+        // registry slugs too mangled to read as names stay out of it.
+        companies = shuffle(
+          parsed
+            .filter((s) => s.company && s.company.length <= 14 && (s.open ?? 0) > 0)
+            .sort((a, b) => (b.open ?? 0) - (a.open ?? 0))
+            .slice(0, 400)
+            .map((s) => s.company),
+        );
+      })
+      .catch(() => {});
+
+    let tick = 0;
     const ticker = setInterval(() => {
-      setStage(
-        `Loading ${summary.rows.toLocaleString()} postings… ` +
-          `${(store.stats.bytesFetched / (1024 * 1024)).toFixed(1)} MiB fetched`,
-      );
-    }, 250);
+      const mib = `${(store.stats.bytesFetched / (1024 * 1024)).toFixed(1)} MiB`;
+      let line = `Loading ${summary.rows.toLocaleString()} postings (${mib})`;
+
+      if (companies.length) {
+        const a = companies[(tick * 3) % companies.length];
+        const b = companies[(tick * 3 + 1) % companies.length];
+        const c = companies[(tick * 3 + 2) % companies.length];
+        line += ` · reading ${displayCompany(a)}, ${displayCompany(b)}, ${displayCompany(c)}…`;
+      }
+
+      setStage(line);
+      tick += 1;
+    }, 600);
 
     let stats;
     try {
@@ -79,6 +126,7 @@ async function boot() {
       clearInterval(ticker);
     }
 
+    rowsLoaded = true;
     setStage(
       `Loaded ${stats.rows.toLocaleString()} rows in ` +
         `${(stats.elapsed_ms / 1000).toFixed(1)} s ` +
@@ -87,10 +135,6 @@ async function boot() {
     );
     els.loading.hidden = true;
 
-    els.form.hidden = false;
-    els.results.hidden = false;
-    wireForm();
-    renderSavedChips();
     await search(true);
 
     // The rollup runs after the first results paint: it re-queries the corpus
@@ -98,6 +142,26 @@ async function boot() {
     renderRollup().catch(() => {});
   } catch (err) {
     showError(err);
+  }
+}
+
+// renderSkeletons fills the list with placeholder cards while rows stream in.
+function renderSkeletons() {
+  els.count.textContent = "";
+  els.list.replaceChildren();
+
+  for (let i = 0; i < 5; i++) {
+    const li = document.createElement("li");
+    li.className = "card skeleton";
+    li.style.setProperty("--stagger", `${i * 60}ms`);
+    const bar1 = document.createElement("div");
+    bar1.className = "bone title-bone";
+    const bar2 = document.createElement("div");
+    bar2.className = "bone where-bone";
+    const bar3 = document.createElement("div");
+    bar3.className = "bone meta-bone";
+    li.append(bar1, bar2, bar3);
+    els.list.append(li);
   }
 }
 
@@ -189,18 +253,56 @@ function wireForm() {
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
     haptic();
-    runSearch(true);
+    runSearch(true, { fromButton: true });
   });
 
   els.more.addEventListener("click", () => {
     haptic();
-    runSearch(false);
+    runSearch(false, { fromButton: true });
   });
 
   els.save.addEventListener("click", () => {
     haptic();
     saveCurrentSearch();
   });
+
+  // Search-as-you-type. Text and number inputs debounce so the engine sees
+  // the pause, not every keystroke; selects and checkboxes are single
+  // deliberate acts and search immediately.
+  const debounced = debounce(() => runSearch(true), 160);
+
+  for (const input of els.form.querySelectorAll('input[type="text"], input[type="number"]')) {
+    input.addEventListener("input", debounced);
+  }
+
+  for (const control of els.form.querySelectorAll("select, input[type='checkbox']")) {
+    control.addEventListener("change", () => runSearch(true));
+  }
+
+  // "/" focuses search from anywhere; Escape clears it. The muscle memory
+  // every fast search product shares.
+  document.addEventListener("keydown", (event) => {
+    const inField = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName ?? "");
+
+    if (event.key === "/" && !inField) {
+      event.preventDefault();
+      $("f-title").focus();
+    }
+
+    if (event.key === "Escape" && document.activeElement === $("f-title") && $("f-title").value) {
+      $("f-title").value = "";
+      runSearch(true);
+    }
+  });
+}
+
+function debounce(fn, ms) {
+  let timer;
+
+  return () => {
+    clearTimeout(timer);
+    timer = setTimeout(fn, ms);
+  };
 }
 
 // --- saved searches ---------------------------------------------------------
@@ -373,18 +475,27 @@ async function renderRollup() {
   els.rollup.hidden = false;
 }
 
-// runSearch wraps search with a busy state on whichever button drove it, so a
-// slow query reads as working rather than ignored.
-async function runSearch(reset) {
-  const button = reset ? els.go : els.more;
-  button.disabled = true;
+// runSearch wraps search with feedback proportional to how it was driven: a
+// button press gets a busy state, a keystroke gets only the input spinner.
+// Before the rows finish loading it queues exactly one follow-up search.
+async function runSearch(reset, { fromButton = false } = {}) {
+  if (!rowsLoaded) {
+    // Typing during the load is fine: boot's first search reads the form as
+    // it stands the moment the rows land, so nothing typed is lost.
+    return;
+  }
+
+  const button = fromButton ? (reset ? els.go : els.more) : null;
+  if (button) button.disabled = true;
+  els.spin.classList.add("busy");
 
   try {
     await search(reset);
   } catch (err) {
     showError(err);
   } finally {
-    button.disabled = false;
+    if (button) button.disabled = false;
+    els.spin.classList.remove("busy");
   }
 }
 
@@ -396,6 +507,25 @@ function haptic() {
   } catch {
     /* not supported */
   }
+}
+
+// displayCompany turns a registry slug into something a person reads:
+// "mayo-clinic" becomes "Mayo Clinic". Imperfect for brand casing, honest
+// enough for a loading line.
+function displayCompany(slug) {
+  return slug
+    .split(/[-_ ]+/)
+    .map((word) => (word.length > 1 ? word[0].toUpperCase() + word.slice(1) : word.toUpperCase()))
+    .join(" ");
+}
+
+function shuffle(list) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+
+  return list;
 }
 
 function terms(id) {
@@ -426,17 +556,32 @@ function buildRequest() {
 }
 
 async function search(reset) {
+  const seq = ++searchSeq;
+
   if (reset) {
     offset = 0;
     lastRequest = buildRequest();
-    els.list.replaceChildren();
   }
 
   const request = { ...lastRequest, offset, limit: 100 };
   const response = JSON.parse(await jhtEngine.search(JSON.stringify(request)));
 
-  // Stagger the first dozen cards of a batch by 25 ms each; beyond that the
-  // delay would read as lag, not rhythm.
+  // A newer search finished the race while this one was in flight; painting
+  // these rows now would show stale results under fresh filters.
+  if (seq !== searchSeq) {
+    return;
+  }
+
+  // Entrance stagger belongs to fresh arrivals, not to every keystroke: the
+  // first real paint of the list gets rhythm, retyping gets immediacy.
+  const firstPaint = els.list.querySelector(".card:not(.skeleton)") === null;
+
+  if (reset) {
+    els.list.replaceChildren();
+  }
+
+  els.list.classList.toggle("instant", !firstPaint);
+
   response.items.forEach((item, i) => {
     const card = renderItem(item);
     card.style.setProperty("--stagger", `${Math.min(i, 12) * 25}ms`);
@@ -457,7 +602,7 @@ function renderCount(response) {
   els.count.textContent =
     response.matched === 0
       ? "No postings match. Loosen a filter and try again."
-      : `${response.matched.toLocaleString()} matches (${states}), showing ${Math.min(offset, response.matched).toLocaleString()}`;
+      : `${response.matched.toLocaleString()} matches (${states}), newest first, showing ${Math.min(offset, response.matched).toLocaleString()}`;
 }
 
 function renderItem(item) {
@@ -495,8 +640,16 @@ function renderItem(item) {
   }
   if (item.compensation) addBadge(meta, item.compensation, "pay");
   if (item.platform) addBadge(meta, item.platform, "platform");
-  if (item.posted_at) addBadge(meta, `posted ${item.posted_at.slice(0, 10)}`);
-  else if (item.first_seen) addBadge(meta, `first seen ${item.first_seen.slice(0, 10)}`);
+
+  // Dates read the way a person says them; the exact day sits in the tooltip.
+  const nowISO = new Date().toISOString();
+  if (item.posted_at) {
+    const badge = addBadge(meta, `posted ${timeAgo(item.posted_at, nowISO) || item.posted_at.slice(0, 10)}`);
+    badge.title = item.posted_at.slice(0, 10);
+  } else if (item.first_seen) {
+    const badge = addBadge(meta, `first seen ${timeAgo(item.first_seen, nowISO) || item.first_seen.slice(0, 10)}`);
+    badge.title = item.first_seen.slice(0, 10);
+  }
 
   li.append(meta);
 
@@ -546,6 +699,8 @@ function addBadge(parent, text, className = "") {
   span.className = `badge ${className}`.trim();
   span.textContent = text;
   parent.append(span);
+
+  return span;
 }
 
 // safeHTTPURL admits only http(s) targets for posting links. Corpus rows are
