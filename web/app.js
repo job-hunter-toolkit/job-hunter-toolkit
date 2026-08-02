@@ -604,7 +604,8 @@ function renderItem(item) {
   const meta = document.createElement("div");
   meta.className = "meta";
 
-  addBadge(meta, item.state, `state-${item.state}`);
+  const stateBadge = addBadge(meta, item.state, `state-${item.state}`);
+  if (STATE_TITLES[item.state]) stateBadge.title = STATE_TITLES[item.state];
   if (item.remote) addBadge(meta, "remote");
   if (item.workplace_type && item.workplace_type !== "remote") addBadge(meta, item.workplace_type);
   if (item.employment_type) addBadge(meta, item.employment_type.replace("_", " "));
@@ -678,6 +679,18 @@ function addSpan(parent, className, text) {
   span.textContent = text;
   parent.append(span);
 }
+
+// Lifecycle states in plain words. "Stale" says how old our evidence is,
+// not how old the posting is: the nightly crawl refreshes a budgeted slice
+// of ~10,000 boards, so a board can go a day or more between checks.
+const STATE_TITLES = {
+  open: "Listed on the company's board at its last check, within the past day.",
+  stale:
+    "Listed at the last check of the company's board, but that check is more than a day old. The posting was up then and is likely still up; it has not been re-confirmed today.",
+  closed: "Gone from the company's board: two later checks agreed it was removed.",
+  lapsed:
+    "The company's board has not had a successful check for so long that this posting's status is unknown.",
+};
 
 function addBadge(parent, text, className = "") {
   const span = document.createElement("span");
