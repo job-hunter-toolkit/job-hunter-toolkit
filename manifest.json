@@ -1,0 +1,22 @@
+{
+  "format_version": 1,
+  "min_reader_version": 1,
+  "identity_version": 1,
+  "generation": 9,
+  "run_at": "2026-08-07T10:30:11Z",
+  "writer": "corpus-apply@01e29a58087631543f93540e21fb24265d6f5794",
+  "policy": {
+    "EmptyStreak": 3,
+    "MinRatio": 0.25,
+    "MissingRuns": 2,
+    "LapseAfter": 7776000000000000,
+    "FreshnessTarget": 86400000000000
+  },
+  "content_digest": "d87c0d96be8a173e4c5e427895634272f726b77e00663c66022a7ba1d657efe0",
+  "rows": 1611326,
+  "sources": 9888,
+  "open": 1342578,
+  "stale": 33520,
+  "closed": 225897,
+  "lapsed": 9322
+}
