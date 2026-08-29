@@ -8,11 +8,14 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
 export function snapshotStatus(summary, now = new Date()) {
+  const generation = Number.isSafeInteger(summary?.generation) && summary.generation > 0
+    ? ` · generation ${summary.generation}`
+    : "";
   const collected = new Date(summary?.run_at ?? "");
   if (!Number.isFinite(collected.getTime())) {
     return {
       level: "unknown",
-      label: "Snapshot date unavailable",
+      label: `Snapshot date unavailable${generation}`,
       relative: "collection time unknown",
       exact: "Collection time unavailable",
       explanation: "Search results are available, but their collection time could not be verified.",
@@ -30,7 +33,7 @@ export function snapshotStatus(summary, now = new Date()) {
   if (age <= 36 * HOUR) {
     return {
       level: "fresh",
-      label: "Current snapshot",
+      label: `Current snapshot${generation}`,
       relative,
       exact,
       explanation: "A historical snapshot, not a live check. Listings were visible at their boards’ latest successful checks.",
@@ -40,7 +43,7 @@ export function snapshotStatus(summary, now = new Date()) {
   if (age <= 8 * DAY) {
     return {
       level: "aging",
-      label: "Snapshot update delayed",
+      label: `Snapshot update delayed${generation}`,
       relative,
       exact,
       explanation: "Updates are normally published daily. You can still search this snapshot, but availability may have changed since collection.",
@@ -49,7 +52,7 @@ export function snapshotStatus(summary, now = new Date()) {
 
   return {
     level: "old",
-    label: "Older snapshot",
+    label: `Older snapshot${generation}`,
     relative,
     exact,
     explanation: "Publication is delayed. You can still search this historical snapshot, but availability may have changed since collection.",

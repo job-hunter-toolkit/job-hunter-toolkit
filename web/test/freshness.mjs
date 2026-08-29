@@ -13,6 +13,11 @@ function check(name, got, want) {
 
 const now = new Date("2026-08-29T12:00:00Z");
 check("fresh level", snapshotStatus({ run_at: "2026-08-29T03:00:00Z" }, now).level, "fresh");
+check(
+  "fresh label names the generation",
+  snapshotStatus({ generation: 10, run_at: "2026-08-29T03:00:00Z" }, now).label,
+  "Current snapshot · generation 10",
+);
 check("aging boundary", snapshotStatus({ run_at: "2026-08-27T12:00:00Z" }, now).level, "aging");
 check("old level", snapshotStatus({ run_at: "2026-08-07T10:30:11Z" }, now).level, "old");
 check("old relative", snapshotStatus({ run_at: "2026-08-07T10:30:11Z" }, now).relative, "collected 3 weeks ago");
