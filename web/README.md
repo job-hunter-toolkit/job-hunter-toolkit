@@ -18,7 +18,7 @@ same closure semantics as the CLI because it runs the same code.
 | `index.html`, `style.css`, `app.js` | The DOM layer, kept thin: fetch, wire events, render via `textContent`. |
 | `corpus-store.js` | HTTP store for the engine: Range requests where the host honours them, whole-file fallback where it does not. |
 | `config.js` | **The single place the corpus location is configured.** |
-| `test/` | Node harnesses: `store.mjs` and `config.mjs` (unit, stubbed fetch), `smoke.mjs` (end-to-end against the real wasm), `measure.mjs` (scale measurement). |
+| `test/` | Node harnesses: store, config, loading/freshness and rollup units with deterministic clocks, `smoke.mjs` end-to-end against the real wasm, and `measure.mjs` for scale measurement. |
 | `build.sh` | Assembles the deployable site (default `web/dist`, untracked). |
 
 `.github/workflows/pages.yml` builds and deploys on pushes to master touching
@@ -30,11 +30,16 @@ same closure semantics as the CLI because it runs the same code.
    and pins every fetch to it — an atomic view across a publish that replaces
    the branch. Fallback: the branch-name URL, where a torn read is possible
    but `corpus.Open`'s cross-checks fail loudly rather than plausibly.
-2. `corpus-store.js` probes the host with a 1-byte `Range` request. 206 pins
+2. A corpus table larger than GitHub's 100 MB per-blob limit is published as
+   contiguous parts described by `manifest.json`. `corpus-store.js` presents
+   those parts to the engine as one logical file and can span a part boundary.
+   This is transport metadata only: verification and folding still operate on
+   the same `.jhtc` bytes and content digest.
+3. `corpus-store.js` probes the host with a 1-byte `Range` request. 206 pins
    range mode — the engine then fetches the table footer and exactly the
    columns it decodes, each one contiguous request. A 200 means the host sent
    the whole file; it is kept and served from memory. Degraded, never broken.
-3. The engine loads a deliberate projection of the table: the columns queries
+4. The engine loads a deliberate projection of the table: the columns queries
    and result cards read, and not the corpus's identity/audit columns
    (id, dedupe_key, closure timestamps, external ids). Measured under Node at
    800,000 rows, that cut load from 12.2 s to 3.4 s and wasm memory from
@@ -46,12 +51,15 @@ ranges are CORS-safelisted request headers that trigger none.
 
 ## Honesty rules the UI enforces
 
-- The banner names the generation, the crawl instant and its age before any
-  posting renders, colour-coded fresh (≤36 h) / aging (≤8 d) / old.
+- The banner names the collection instant in relative language, keeps the exact
+  UTC timestamp available, and updates its age while the page remains open.
+  Fresh (≤36 h), delayed (≤8 d), and older states use proportionate copy.
 - A `partial` manifest renders a "PARTIAL CRAWL — counts are a floor" warning.
 - Searches default to rows currently believed open (states `open` + `stale`);
-  closed and lapsed rows appear only behind an explicit checkbox, and every
-  result card carries its state badge.
+  closed and lapsed rows appear only behind an explicit checkbox. Open is the
+  quiet default. "Stale" means a source was not recently checked, not that a
+  posting is known closed; an older snapshot explains that once globally
+  instead of repeating the same badge on every card.
 - Counts come from the manifest, which `internal/corpus` computes as a union,
   never a sum.
 

@@ -213,6 +213,22 @@ body::before {
   color: var(--old-fg);
 }
 
+.banner .context {
+  flex-basis: 100%;
+  color: var(--muted);
+}
+
+.banner .caution {
+  color: var(--aging-fg);
+  font-weight: 600;
+}
+
+.banner a {
+  color: var(--accent);
+  font-size: 0.8125rem;
+  text-underline-offset: 3px;
+}
+
 /* --- loading --------------------------------------------------------------- */
 
 .loading {
@@ -264,6 +280,10 @@ body::before {
   background: var(--old-bg);
   color: var(--fg);
   overflow-wrap: anywhere;
+}
+
+.error p {
+  margin: 0 0 0.65rem;
 }
 
 /* --- filters --------------------------------------------------------------- */

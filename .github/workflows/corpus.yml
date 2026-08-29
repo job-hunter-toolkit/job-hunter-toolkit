@@ -102,8 +102,24 @@ jobs:
           mkdir corpus-prev
           git archive FETCH_HEAD | tar -x -C corpus-prev
 
-          # verify recomputes the content digest over every column, so a torn
-          # or corrupted previous publish is refused here, not folded into.
+          # GitHub rejects individual Git blobs over 100 MB. Published corpus
+          # tables may therefore be split into transport parts. Reassemble the
+          # logical file before handing it to the format verifier and fold.
+          python3 - <<'PY'
+          import json, pathlib
+          root = pathlib.Path("corpus-prev")
+          manifest = json.loads((root / "manifest.json").read_text())
+          transport = manifest.get("transport", {}).get("corpus.jhtc")
+          if transport:
+              with (root / "corpus.jhtc").open("wb") as out:
+                  for part in transport["parts"]:
+                      out.write((root / part["name"]).read_bytes())
+              if (root / "corpus.jhtc").stat().st_size != transport["size"]:
+                  raise SystemExit("reassembled corpus.jhtc has the wrong size")
+          PY
+
+          # Verify after transport reassembly. This recomputes the content
+          # digest over every column, so corruption is refused before folding.
           ./job-hunter-toolkit corpus verify --corpus corpus-prev
 
           PREV_GENERATION=$(python3 -c "import json;print(json.load(open('corpus-prev/manifest.json'))['generation'])")
@@ -243,6 +259,38 @@ jobs:
         git config user.name "Job Hunter Toolkit Bot"
         git config user.email "job-hunter-toolkit@users.noreply.github.com"
 
+        # The corpus is one logical .jhtc file, but GitHub accepts no blob over
+        # 100 MB. Split at 90 MiB and describe the contiguous parts in the
+        # manifest. The browser store presents them as one ReaderAt; the next
+        # workflow run reassembles them before verify/apply.
+        SIZE=$(stat -c %s corpus-next/corpus.jhtc)
+        if [ "$SIZE" -gt $((90 * 1024 * 1024)) ]; then
+          split -b 90M -d -a 3 corpus-next/corpus.jhtc corpus-next/corpus.jhtc.part-
+          CORPUS_SIZE="$SIZE" python3 - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path("corpus-next")
+          manifest_path = root / "manifest.json"
+          manifest = json.loads(manifest_path.read_text())
+          offset = 0
+          parts = []
+          for path in sorted(root.glob("corpus.jhtc.part-*")):
+              size = path.stat().st_size
+              parts.append({"name": path.name, "offset": offset, "size": size})
+              offset += size
+          expected = int(os.environ["CORPUS_SIZE"])
+          if offset != expected:
+              raise SystemExit(f"transport parts total {offset}, want {expected}")
+          manifest["transport"] = {"corpus.jhtc": {"size": expected, "parts": parts}}
+          manifest_path.write_text(json.dumps(manifest, separators=(",", ":")) + "\n")
+          PY
+          rm corpus-next/corpus.jhtc
+        fi
+
+        if find corpus-next -type f -size +99999999c -print -quit | grep -q .; then
+          echo "::error::publication contains a blob over GitHub's 100 MB limit"
+          exit 1
+        fi
+
         for attempt in 1 2 3 4 5; do
           # Fetch-before-write, the authoritative check in the nightly's style:
           # if the branch already carries this generation or a newer one — a
@@ -266,8 +314,9 @@ jobs:
           TREE=$(
             export GIT_INDEX_FILE="$(mktemp -u)"
             git read-tree --empty
-            for name in corpus.jhtc sources.json runs.ndjson manifest.json; do
-              BLOB=$(git hash-object -w "corpus-next/$name")
+            for path in corpus-next/*; do
+              name=$(basename "$path")
+              BLOB=$(git hash-object -w "$path")
               git update-index --add --cacheinfo "100644,$BLOB,$name"
             done
             git write-tree

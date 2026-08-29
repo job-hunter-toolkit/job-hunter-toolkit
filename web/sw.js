@@ -27,6 +27,7 @@ const SHELL = [
   "app.js",
   "config.js",
   "corpus-store.js",
+  "freshness.js",
   "rollup.js",
   "worker.js",
   "engine-client.js",

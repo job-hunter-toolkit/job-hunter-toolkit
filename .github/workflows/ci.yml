@@ -98,6 +98,16 @@ jobs:
     - name: Test
       run: go test -race -shuffle=on ./...
 
+    - name: Test and build the browser app
+      run: |
+        node web/test/config.mjs
+        node web/test/store.mjs
+        node web/test/rollup.mjs
+        node web/test/freshness.mjs
+        go run ./web/fixture -dir "$RUNNER_TEMP/corpus"
+        ./web/build.sh "$RUNNER_TEMP/site"
+        node web/test/smoke.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/corpus"
+
   portability:
     name: Portable build
     runs-on: ubuntu-latest
