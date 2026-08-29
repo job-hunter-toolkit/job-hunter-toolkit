@@ -33,6 +33,9 @@ const els = {
   rollup: $("rollup"),
   saved: $("saved"),
   form: $("filters"),
+  refine: $("refine"),
+  filterSummary: $("filter-summary"),
+  clear: $("clear"),
   go: $("go"),
   save: $("save"),
   spin: $("spin"),
@@ -130,30 +133,42 @@ function renderBanner(summary) {
   const status = snapshotStatus(summary, new Date());
   els.banner.classList.add(status.level);
 
-  addSpan(els.banner, "strong", status.label);
+  const line = document.createElement("div");
+  line.className = "snapshot-line";
+  addSpan(line, "strong", status.label);
   const time = document.createElement("time");
   time.dateTime = summary.run_at || "";
   time.title = status.exact;
-  time.textContent = `${status.relative} · ${status.exact}`;
-  els.banner.append(time);
-  addSpan(els.banner, "", `${summary.open.toLocaleString()} believed open when collected · ${summary.sources.toLocaleString()} sources`);
-  addSpan(els.banner, "context", status.explanation);
+  time.textContent = status.relative;
+  line.append(time);
+  addSpan(line, "snapshot-counts", `${summary.open.toLocaleString()} believed open · ${summary.sources.toLocaleString()} sources`);
+  els.banner.append(line);
 
-  if (summary.partial) {
-    els.banner.classList.add("partial");
-    addSpan(
-      els.banner,
-      "context caution",
-      "This snapshot came from a partial crawl, so its counts are a floor rather than a complete total.",
-    );
-  }
-
+  const details = document.createElement("details");
+  details.className = "snapshot-details";
+  const disclosure = document.createElement("summary");
+  disclosure.textContent = "About this snapshot";
+  const exact = document.createElement("p");
+  exact.textContent = `Collected ${status.exact}. `;
   const statusLink = document.createElement("a");
   statusLink.href = "https://github.com/job-hunter-toolkit/job-hunter-toolkit/actions/workflows/corpus.yml";
   statusLink.target = "_blank";
   statusLink.rel = "noopener noreferrer";
   statusLink.textContent = "Publication status";
-  els.banner.append(statusLink);
+  exact.append(statusLink);
+  const explanation = document.createElement("p");
+  explanation.textContent = status.explanation;
+  details.append(disclosure, exact, explanation);
+
+  if (summary.partial) {
+    els.banner.classList.add("partial");
+    addSpan(
+      details,
+      "caution",
+      "This snapshot came from a partial crawl, so its counts are a floor rather than a complete total.",
+    );
+  }
+  els.banner.append(details);
 
   clearTimeout(freshnessTimer);
   freshnessTimer = setTimeout(() => renderBanner(summary), 60_000);
@@ -178,18 +193,32 @@ function wireForm() {
     saveCurrentSearch();
   });
 
+  els.clear.addEventListener("click", () => {
+    haptic();
+    applyRequest({ titles: terms("f-title") });
+    runSearch(true);
+  });
+
   // Search-as-you-type. Text and number inputs debounce so the engine sees
   // the pause, not every keystroke; selects and checkboxes are single
   // deliberate acts and search immediately.
   const debounced = debounce(() => runSearch(true), 160);
 
   for (const input of els.form.querySelectorAll('input[type="text"], input[type="number"]')) {
-    input.addEventListener("input", debounced);
+    input.addEventListener("input", () => {
+      updateFilterSummary();
+      debounced();
+    });
   }
 
   for (const control of els.form.querySelectorAll("select, input[type='checkbox']")) {
-    control.addEventListener("change", () => runSearch(true));
+    control.addEventListener("change", () => {
+      updateFilterSummary();
+      runSearch(true);
+    });
   }
+
+  updateFilterSummary();
 
   // "/" focuses search from anywhere; Escape clears it. The muscle memory
   // every fast search product shares.
@@ -301,6 +330,19 @@ function applyRequest(request) {
   $("f-employment").value = request.employment_types?.[0] ?? "";
   $("f-workplace").value = request.workplace_types?.[0] ?? "";
   $("f-since").value = request.posted_since_days > 0 ? String(request.posted_since_days) : "";
+  updateFilterSummary();
+}
+
+function updateFilterSummary() {
+  const request = buildRequest();
+  const active = Object.entries(request).reduce((count, [key, value]) => {
+    if (key === "titles") return count;
+    if (Array.isArray(value)) return count + (value.length > 0 ? 1 : 0);
+    return count + (value ? 1 : 0);
+  }, 0);
+
+  els.filterSummary.textContent = active === 0 ? "Optional" : `${active} active`;
+  els.clear.disabled = active === 0;
 }
 
 function flashButton(button, text) {
@@ -552,13 +594,15 @@ function renderItem(item) {
     title.href = url;
     title.target = "_blank";
     title.rel = "noopener noreferrer";
+    title.setAttribute("aria-label", `${item.title || "Untitled posting"} (opens in a new tab)`);
   }
 
   li.append(title);
 
   const where = document.createElement("div");
   where.className = "where";
-  where.textContent = [item.company, item.location].filter(Boolean).join(" · ");
+  if (item.company) addSpan(where, "company", item.company);
+  if (item.location) addSpan(where, "location", item.location);
   li.append(where);
 
   const meta = document.createElement("div");
@@ -573,6 +617,7 @@ function renderItem(item) {
     const stateBadge = addBadge(meta, label, `state-${item.state}`);
     stateBadge.title = STATE_TITLES[item.state];
   }
+  if (item.compensation) addBadge(meta, item.compensation, "pay");
   if (item.remote) addBadge(meta, "remote");
   if (item.workplace_type && item.workplace_type !== "remote") addBadge(meta, item.workplace_type);
   if (item.employment_type) addBadge(meta, item.employment_type.replace("_", " "));
@@ -580,7 +625,6 @@ function renderItem(item) {
   if (item.department || item.team) {
     addBadge(meta, [item.department, item.team].filter(Boolean).join(" / "));
   }
-  if (item.compensation) addBadge(meta, item.compensation, "pay");
   if (item.platform) addBadge(meta, item.platform, "platform");
 
   // Dates read the way a person says them; the exact day sits in the tooltip.
@@ -616,6 +660,7 @@ function renderItem(item) {
 
 function setStage(text) {
   els.stage.textContent = text;
+  els.loading.setAttribute("aria-valuetext", text);
 }
 
 function showError(err) {

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
@@ -82,7 +82,7 @@
               id="f-title"
               type="text"
               class="search-input"
-              placeholder="Search titles: engineer, designer, nurse"
+              placeholder="Job title or keywords"
               autocomplete="off"
               aria-label="Title contains"
             />
@@ -93,8 +93,12 @@
           <button type="button" id="save" class="secondary" title="Save this search; new matches are summarized next time you open the page">Save</button>
         </div>
 
-        <details class="refine" open>
-          <summary>Refine</summary>
+        <details id="refine" class="refine" open>
+          <summary><span>Filters</span><span id="filter-summary" class="filter-summary">Optional</span></summary>
+          <div class="refine-head">
+            <p>Combine any of these with the title search.</p>
+            <button type="button" id="clear" class="quiet" disabled>Clear filters</button>
+          </div>
           <div class="grid">
             <label
               >Title excludes
@@ -156,10 +160,19 @@
             </label>
           </div>
         </details>
+        <!-- Start with the wide-screen scaffold already expanded, then choose
+             the narrow-screen disclosure state while the parser is still in
+             the form. Doing this in the deferred module causes a visible
+             layout shift after first paint. -->
+        <script>
+          if (!globalThis.matchMedia("(min-width: 48rem)").matches) {
+            document.getElementById("refine").open = false;
+          }
+        </script>
       </form>
 
       <section id="results">
-        <p id="count" class="count" role="status"></p>
+        <p id="count" class="count" role="status" aria-live="polite"></p>
         <ul id="list" class="list" aria-busy="true" aria-label="Job search results">
           <li class="card skeleton" style="--stagger: 0ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
           <li class="card skeleton" style="--stagger: 60ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>

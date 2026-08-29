@@ -95,8 +95,12 @@ html {
 
 body {
   margin: 0 auto;
-  max-width: 62rem;
+  max-width: 68rem;
   padding: clamp(1.25rem, 3vw, 2.5rem) clamp(1rem, 3vw, 1.5rem) 4rem;
+  padding-top: max(clamp(1.25rem, 3vw, 2.5rem), env(safe-area-inset-top));
+  padding-right: max(clamp(1rem, 3vw, 1.5rem), env(safe-area-inset-right));
+  padding-bottom: max(4rem, env(safe-area-inset-bottom));
+  padding-left: max(clamp(1rem, 3vw, 1.5rem), env(safe-area-inset-left));
   background: var(--bg);
   color: var(--fg);
   line-height: 1.55;
@@ -158,16 +162,9 @@ body::before {
 /* --- honesty banner -------------------------------------------------------- */
 
 .banner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem 1.1rem;
-  align-items: baseline;
-  padding: 0.65rem 0.9rem;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface);
+  padding: 0.4rem 0 0.55rem;
+  border-bottom: 1px solid var(--border);
   font-size: 0.875rem;
-  box-shadow: var(--shadow-card);
   animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
@@ -177,7 +174,14 @@ body::before {
   min-height: 2.55rem;
 }
 
-.banner::before {
+.snapshot-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.75rem;
+  align-items: baseline;
+}
+
+.snapshot-line::before {
   content: "";
   align-self: center;
   width: 8px;
@@ -187,18 +191,18 @@ body::before {
   flex: none;
 }
 
-.banner.fresh::before {
+.banner.fresh .snapshot-line::before {
   background: var(--fresh-fg);
   box-shadow: 0 0 0 4px var(--fresh-bg);
 }
 
-.banner.aging::before {
+.banner.aging .snapshot-line::before {
   background: var(--aging-fg);
   box-shadow: 0 0 0 4px var(--aging-bg);
 }
 
-.banner.old::before,
-.banner.partial::before {
+.banner.old .snapshot-line::before,
+.banner.partial .snapshot-line::before {
   background: var(--old-fg);
   box-shadow: 0 0 0 4px var(--old-bg);
 }
@@ -207,14 +211,7 @@ body::before {
   font-weight: 650;
 }
 
-.banner .warn {
-  flex-basis: 100%;
-  font-weight: 600;
-  color: var(--old-fg);
-}
-
-.banner .context {
-  flex-basis: 100%;
+.snapshot-counts {
   color: var(--muted);
 }
 
@@ -227,6 +224,32 @@ body::before {
   color: var(--accent);
   font-size: 0.8125rem;
   text-underline-offset: 3px;
+}
+
+.snapshot-details {
+  margin: 0.15rem 0 0 1.25rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.snapshot-details summary {
+  width: fit-content;
+  cursor: pointer;
+  text-underline-offset: 3px;
+}
+
+.snapshot-details summary:hover {
+  color: var(--fg);
+}
+
+.snapshot-details p {
+  max-width: 50rem;
+  margin: 0.35rem 0 0;
+}
+
+.snapshot-details .caution {
+  display: block;
+  margin-top: 0.25rem;
 }
 
 /* --- loading --------------------------------------------------------------- */
@@ -289,7 +312,7 @@ body::before {
 /* --- filters --------------------------------------------------------------- */
 
 form {
-  margin: 1.25rem 0 1.75rem;
+  margin: 1rem 0 1.35rem;
   animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
@@ -374,6 +397,7 @@ select {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 0.45rem 0.65rem;
+  min-height: 2.45rem;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -402,19 +426,40 @@ summary:focus-visible {
 }
 
 .refine {
-  margin-top: 0.9rem;
+  margin-top: 0.65rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
 }
 
 .refine summary {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.5rem;
   cursor: pointer;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--fg);
+  font-size: 0.875rem;
   font-weight: 600;
   user-select: none;
-  width: fit-content;
-  padding: 0.15rem 0.3rem;
-  margin-left: -0.3rem;
+  width: 100%;
+  padding: 0.25rem 0;
   transition: color 0.15s ease;
+}
+
+.refine summary::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.refine[open] summary::before {
+  transform: rotate(45deg);
 }
 
 .refine summary:hover {
@@ -422,7 +467,26 @@ summary:focus-visible {
 }
 
 .refine .grid {
-  margin-top: 0.75rem;
+  margin-top: 0.45rem;
+}
+
+.filter-summary {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.refine-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.refine-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
 }
 
 .grid {
@@ -445,7 +509,7 @@ label {
   flex-wrap: wrap;
   gap: 0.6rem 1.4rem;
   align-items: center;
-  margin-top: 1rem;
+  margin: 0.75rem 0 0.65rem;
 }
 
 .check {
@@ -476,6 +540,7 @@ button {
   background: var(--accent);
   color: var(--accent-fg);
   cursor: pointer;
+  min-height: 2.45rem;
   transition:
     background 0.15s ease,
     transform 0.1s ease,
@@ -519,6 +584,27 @@ button.secondary {
 button.secondary:hover {
   background: var(--surface-2);
   border-color: var(--faint);
+}
+
+button.quiet {
+  min-height: auto;
+  padding: 0.25rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8125rem;
+}
+
+button.quiet:hover {
+  background: transparent;
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+button.quiet[disabled] {
+  color: var(--faint);
+  text-decoration: none;
 }
 
 /* --- saved searches --------------------------------------------------------- */
@@ -695,7 +781,7 @@ button.secondary:hover {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.8rem 1rem;
+  padding: 0.72rem 0.9rem;
   box-shadow: var(--shadow-card);
   transition:
     border-color 0.15s ease,
@@ -784,11 +870,28 @@ button.secondary:hover {
   text-underline-offset: 3px;
 }
 
+.card a.title::after {
+  content: " ↗";
+  color: var(--muted);
+  font-size: 0.78em;
+  font-weight: 500;
+}
+
 .card .where {
   color: var(--muted);
   font-size: 0.875rem;
-  margin: 0.15rem 0 0.5rem;
+  margin: 0.1rem 0 0.4rem;
   overflow-wrap: anywhere;
+}
+
+.card .company {
+  color: var(--fg);
+  font-weight: 550;
+}
+
+.card .location:not(:first-child)::before {
+  content: " · ";
+  color: var(--faint);
 }
 
 .meta {
@@ -800,9 +903,8 @@ button.secondary:hover {
 .badge {
   font-size: 0.72rem;
   font-weight: 500;
-  padding: 0.12rem 0.55rem;
-  border-radius: 999px;
-  background: var(--badge-bg);
+  padding: 0.08rem 0;
+  background: transparent;
   color: var(--muted);
   white-space: nowrap;
   max-width: 100%;
@@ -811,15 +913,22 @@ button.secondary:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.badge:not(:last-child):not(.pay):not([class*="state-"])::after {
+  content: " ·";
+  color: var(--faint);
+}
+
 .badge.pay {
   background: var(--pay-bg);
   color: var(--pay-fg);
   font-weight: 600;
+  padding: 0.08rem 0.5rem;
+  border-radius: 999px;
 }
 
 .badge.platform {
   background: transparent;
-  border: 1px solid var(--border);
+  color: var(--muted);
 }
 
 /* Lifecycle states: open is the quiet default; anything else must be seen. */
@@ -833,6 +942,8 @@ button.secondary:hover {
   background: var(--aging-bg);
   color: var(--aging-fg);
   font-weight: 600;
+  padding: 0.08rem 0.5rem;
+  border-radius: 999px;
 }
 
 .badge.state-closed,
@@ -840,6 +951,8 @@ button.secondary:hover {
   background: var(--old-bg);
   color: var(--old-fg);
   font-weight: 600;
+  padding: 0.08rem 0.5rem;
+  border-radius: 999px;
 }
 
 /* --- footer ---------------------------------------------------------------- */
@@ -906,6 +1019,15 @@ footer a {
   .card {
     padding: 0.75rem 0.85rem;
   }
+
+  .snapshot-counts {
+    flex-basis: calc(100% - 1.25rem);
+    margin-left: 1.25rem;
+  }
+
+  .snapshot-details {
+    margin-left: 1.25rem;
+  }
 }
 
 /* Touch devices have no "/" key to hint at, and the reserved space is better
@@ -921,6 +1043,47 @@ footer a {
 
   .spin {
     right: 0.9rem;
+  }
+
+  button,
+  .refine summary,
+  .snapshot-details summary,
+  .chip-run,
+  .chip-x {
+    min-height: 2.75rem;
+  }
+
+  input[type="text"],
+  input[type="number"],
+  select {
+    min-height: 2.75rem;
+  }
+
+  .check {
+    min-height: 2.75rem;
+  }
+
+  .check input {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}
+
+@media (min-width: 48rem) and (max-width: 63.99rem) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem 0.75rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.55rem 0.75rem;
+  }
+
+  .grid label {
+    min-width: 0;
   }
 }
 
