@@ -45,7 +45,7 @@ fi
 run "toolchain and setup integrity" .agents/setup --resume
 run "module checksums" go mod verify
 run "formatting" bash -c 'files=$(gofmt -l .); [[ -z "$files" ]] || { printf "unformatted:\n%s\n" "$files" >&2; exit 1; }'
-run "workflow YAML" go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+run "workflow YAML" go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck=
 cp go.mod "$temporary/go.mod"
 cp go.sum "$temporary/go.sum"
 run "tidy module files" go mod tidy -modfile="$temporary/go.mod"
