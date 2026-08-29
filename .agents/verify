@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+# shellcheck disable=SC1091
+source .agents/env
+
+mode="${1:-full}"
+case "$mode" in
+quick|full|release) ;;
+*) echo "usage: .agents/verify [quick|full|release]" >&2; exit 2 ;;
+esac
+
+temporary="$(mktemp -d .amp/tmp/verify.XXXXXX)"
+trap 'rm -rf "$temporary"' EXIT
+
+run() {
+  local label="$1"
+  shift
+  echo "[verify] $label"
+  "$@"
+}
+
+if [[ "$mode" == release ]]; then
+  mkdir -p "$temporary/one" "$temporary/two"
+  for pass in one two; do
+    for pair in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
+      goos="${pair%/*}"; goarch="${pair#*/}"; ext=""
+      [[ "$goos" == windows ]] && ext=.exe
+      CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+        go build -trimpath -ldflags '-s -w' \
+        -o "$temporary/$pass/toolkit-$goos-$goarch$ext" .
+      CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+        go build -trimpath -ldflags '-s -w -X main.version=v0.0.0-orb-verify' \
+        -o "$temporary/$pass/mcp-$goos-$goarch$ext" ./cmd/job-hunter-mcp
+    done
+    [[ "$pass" == one ]] && go clean -cache
+  done
+  run "release binaries are reproducible from a cold cache" diff -qr "$temporary/one" "$temporary/two"
+  run "release packaging tools" bash -c 'tar --version >/dev/null && gzip --version >/dev/null && zip -v >/dev/null && sha256sum --version >/dev/null'
+  exit
+fi
+
+run "toolchain and setup integrity" .agents/setup --resume
+run "module checksums" go mod verify
+run "formatting" bash -c 'files=$(gofmt -l .); [[ -z "$files" ]] || { printf "unformatted:\n%s\n" "$files" >&2; exit 1; }'
+cp go.mod "$temporary/go.mod"
+cp go.sum "$temporary/go.sum"
+run "tidy module files" go mod tidy -modfile="$temporary/go.mod"
+cmp go.mod "$temporary/go.mod"
+cmp go.sum "$temporary/go.sum"
+run "build" go build ./...
+run "vet" go vet ./...
+# Keep race-instrumented package builds within a small Orb's memory budget.
+# Test-level parallelism is unchanged, and CI still exercises Go's default
+# package fan-out on GitHub-hosted runners.
+run "tests" go test -p 1 -race -shuffle=on ./...
+
+if [[ "$mode" == quick ]]; then
+  exit
+fi
+
+run "portable builds" bash -c '
+  for pair in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
+    CGO_ENABLED=0 GOOS=${pair%/*} GOARCH=${pair#*/} go build ./...
+  done'
+run "staticcheck" staticcheck ./...
+run "govulncheck" govulncheck ./...
+run "Node config tests" node web/test/config.mjs
+run "Node store tests" node web/test/store.mjs
+run "Node rollup tests" node web/test/rollup.mjs
+
+site="$temporary/site"
+corpus="$temporary/corpus"
+run "site build" ./web/build.sh "$site"
+run "site fixture" go run ./web/fixture -dir "$corpus"
+run "site smoke test" node web/test/smoke.mjs "$site" "$corpus"
+
+run "historical chart" bash -c '
+  gnuplot -e "outputfile=\"$1/chart.png\"" jobs_record.gnuplot 2> "$1/gnuplot.err"
+  [[ ! -s "$1/gnuplot.err" ]]
+  [[ $(stat -c%s "$1/chart.png") -gt 10000 ]]' _ "$temporary"

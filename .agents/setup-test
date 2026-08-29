@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+.agents/setup >/dev/null
+# shellcheck disable=SC1091
+source .agents/env
+
+node_binary="$(command -v node)"
+expected="$(sha256sum "$node_binary" | awk '{print $1}')"
+trap '.agents/setup >/dev/null' EXIT
+printf 'corrupt\n' > "$node_binary"
+chmod +x "$node_binary"
+
+.agents/setup >/dev/null
+actual="$(sha256sum "$node_binary" | awk '{print $1}')"
+[[ "$actual" == "$expected" ]]
+[[ "$(node --version)" == v22.22.0 ]]
+trap - EXIT
+echo "setup repaired a corrupt Node installation"

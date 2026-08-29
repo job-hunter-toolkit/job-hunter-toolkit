@@ -294,6 +294,23 @@ $ go build ./...
 $ go test ./...
 ```
 
+Amp Orbs provision the exact Go and Node toolchains, CI analysis tools, and
+headless chart dependencies through `.agents/setup`. Downloads are pinned by
+SHA-256, Go dependencies are verified against `go.sum`, and damaged or drifted
+tool installations are replaced. For the same repository-scoped environment
+outside an Orb, run:
+
+```console
+$ .agents/setup
+$ source .agents/env
+$ .agents/verify full
+```
+
+`.agents/verify quick` runs the core Go workflow; `full` also runs portability,
+security, chart, Node, website, fixture, and Wasm smoke checks. Use
+`.agents/verify release` to reproduce the release cross-build twice with the
+second pass starting from a cold Go build cache.
+
 ### How a crawl behaves
 
 Each company is an independently scheduled source, fetched concurrently up to
