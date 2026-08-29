@@ -131,6 +131,13 @@ check(
 check("workplace type", (await search({ include_closed: true, workplace_types: ["remote"] })).matched, 2);
 check("department", (await search({ include_closed: true, departments: ["security"] })).matched, 1);
 
+const faceted = await search({ include_closed: true, include_facets: true, titles: ["engineer"] });
+check("facet count unit", faceted.count_unit, "rows");
+check("facets follow filters", faceted.facets.employment.reduce((sum, facet) => sum + facet.rows, 0), faceted.matched);
+check("employment facet", faceted.facets.employment.find((facet) => facet.value === "full_time").rows, 2);
+check("workplace facet", faceted.facets.workplace.find((facet) => facet.value === "remote").rows, 2);
+check("facets are omitted by default", Object.hasOwn(all, "facets"), false);
+
 const paged = await search({ include_closed: true, limit: 3, offset: 6 });
 check("paging window", paged.items.length, 2);
 check("paging total", paged.matched, 8);
