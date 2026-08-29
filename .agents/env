@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Source this file to use the repository-pinned Orb toolchain.
+
+jht_env_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+jht_env_tools="$HOME/.cache/amp/job-hunter-toolkit"
+jht_env_go_version="$(awk '$1 == "toolchain" { sub(/^go/, "", $2); print $2 }' "$jht_env_root/go.mod")"
+jht_env_node_version="22.22.0"
+
+export GOROOT="$jht_env_tools/toolchains/go-$jht_env_go_version"
+export GOPATH="$jht_env_tools/go"
+export GOBIN="$jht_env_tools/bin"
+export GOCACHE="$jht_env_tools/cache/go-build"
+export GOMODCACHE="$GOPATH/pkg/mod"
+export GOTOOLCHAIN=local
+export npm_config_cache="$jht_env_tools/cache/npm"
+export PATH="$GOBIN:$GOROOT/bin:$jht_env_tools/toolchains/node-v$jht_env_node_version-linux-x64/bin:$PATH"
+
+unset jht_env_root jht_env_tools jht_env_go_version jht_env_node_version
