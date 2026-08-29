@@ -11,6 +11,13 @@ import {
   greeting,
   sinceLabel,
   timeAgo,
+  SAVED_KEY,
+  LEGACY_SAVED_KEY,
+  SAVED_STATE_VERSION,
+  loadSavedSearches,
+  saveSavedSearches,
+  exportSavedSearches,
+  importSavedSearches,
 } from "../rollup.js";
 import { exit } from "node:process";
 
@@ -62,6 +69,56 @@ check(
 check("sameRequest: differing filters differ", sameRequest({ titles: ["go"] }, { titles: ["go"], remote: true }), false);
 check("isEmpty: blank request", isEmptyRequest({ titles: [""], min_annual: 0 }), true);
 check("isEmpty: any constraint counts", isEmptyRequest({ remote: true }), false);
+
+// --- durable saved-search state ---------------------------------------------
+
+function memoryStore(entries = {}) {
+  const values = new Map(Object.entries(entries));
+
+  return {
+    values,
+    load(key, fallback) {
+      return values.has(key) ? values.get(key) : fallback;
+    },
+    save(key, value) {
+      values.set(key, structuredClone(value));
+    },
+  };
+}
+
+const legacySearch = { id: "one", name: "go", request: { titles: ["go"] }, createdAt: "2026-07-31T09:00:00Z" };
+const legacyStore = memoryStore({ [LEGACY_SAVED_KEY]: [legacySearch] });
+check("saved state: migrates the v1 bare array", loadSavedSearches(legacyStore), [legacySearch]);
+check("saved state: writes a versioned envelope", legacyStore.values.get(SAVED_KEY), {
+  version: SAVED_STATE_VERSION,
+  searches: [legacySearch],
+});
+
+const currentStore = memoryStore();
+saveSavedSearches([legacySearch], currentStore);
+check("saved state: round trips v2", loadSavedSearches(currentStore), [legacySearch]);
+check(
+  "saved state: refuses an unknown future version",
+  loadSavedSearches(memoryStore({ [SAVED_KEY]: { version: 99, searches: [legacySearch] } })),
+  [],
+);
+check(
+  "saved state: drops malformed records",
+  loadSavedSearches(memoryStore({
+    [SAVED_KEY]: { version: SAVED_STATE_VERSION, searches: [{ name: "missing id", request: {} }, legacySearch] },
+  })),
+  [legacySearch],
+);
+
+const exported = exportSavedSearches([legacySearch]);
+check("saved state: export/import round trip", importSavedSearches(exported), [legacySearch]);
+check("saved state: imports the legacy array shape", importSavedSearches(JSON.stringify([legacySearch])), [legacySearch]);
+try {
+  importSavedSearches('{"version":99,"searches":[]}');
+  check("saved state: import refuses unknown versions", "accepted", "rejected");
+} catch (err) {
+  check("saved state: import refuses unknown versions", err.message, "Unsupported saved-search export");
+}
 
 // --- counting ----------------------------------------------------------------
 

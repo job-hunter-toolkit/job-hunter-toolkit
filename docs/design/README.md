@@ -12,6 +12,7 @@ feed. Read that first; come here for the "why" behind a specific one.
 | [`corpus-format.md`](corpus-format.md) | Posting identity, absence, and the `.jhtc` on-disk layout | Implemented — [`internal/corpus`](../../internal/corpus) |
 | [`budget-scheduler.md`](budget-scheduler.md) | Spending a time budget across sources by measured cost, not source count | Implemented — [`internal/schedule`](../../internal/schedule) |
 | [`index-and-query.md`](index-and-query.md) | The query language's cost model, ordering, and a proposed `index` command | Query language shipped ([`query`](../../query)); indexing/pagination proposed |
+| [`pwa-retention-roadmap.md`](pwa-retention-roadmap.md) | PWA audit, local return state, offline truthfulness, and historical-data phases | Small foundation implemented; medium and large phases proposed |
 | [`package-taxonomy.md`](package-taxonomy.md) | Which packages become public, and where they live in the module | Partially done — see `public-api-extraction.md` |
 | [`public-api-extraction.md`](public-api-extraction.md) | Status record for the taxonomy: what's extracted so far | Living status doc |
 
