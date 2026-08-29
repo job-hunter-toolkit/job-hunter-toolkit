@@ -79,6 +79,9 @@ jobs:
           exit 1
         fi
 
+    - name: Verify workflow YAML
+      run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+
     - name: Verify go.mod is tidy
       run: |
         go mod tidy
