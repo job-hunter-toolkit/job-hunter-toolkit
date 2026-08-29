@@ -9,10 +9,8 @@ import { resolveCorpusBase } from "./config.js";
 import { EngineClient } from "./engine-client.js";
 import { resultCountText, snapshotStatus } from "./freshness.js";
 import {
-  SAVED_KEY,
   VISIT_KEY,
   STREAK_KEY,
-  MAX_SAVED,
   searchName,
   sameRequest,
   isEmptyRequest,
@@ -21,6 +19,8 @@ import {
   greeting,
   sinceLabel,
   timeAgo,
+  loadSavedSearches,
+  saveSavedSearches,
   storage,
 } from "./rollup.js";
 
@@ -220,9 +220,7 @@ function debounce(fn, ms) {
 // --- saved searches ---------------------------------------------------------
 
 function savedSearches() {
-  const saved = storage.load(SAVED_KEY, []);
-
-  return Array.isArray(saved) ? saved : [];
+  return loadSavedSearches();
 }
 
 function saveCurrentSearch() {
@@ -241,16 +239,13 @@ function saveCurrentSearch() {
   }
 
   saved.unshift({ id: crypto.randomUUID(), name: searchName(request), request, createdAt: new Date().toISOString() });
-  storage.save(SAVED_KEY, saved.slice(0, MAX_SAVED));
+  saveSavedSearches(saved);
   renderSavedChips();
   flashButton(els.save, "Saved");
 }
 
 function removeSavedSearch(id) {
-  storage.save(
-    SAVED_KEY,
-    savedSearches().filter((s) => s.id !== id),
-  );
+  saveSavedSearches(savedSearches().filter((s) => s.id !== id));
   renderSavedChips();
 }
 
