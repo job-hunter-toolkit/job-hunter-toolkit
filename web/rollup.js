@@ -9,11 +9,13 @@
 // summary is computed from the corpus already in memory, at the moment the
 // person opens the page. Spam is structurally impossible.
 
-export const SAVED_KEY = "jht.saved.v1";
+export const SAVED_KEY = "jht.saved.v2";
+export const LEGACY_SAVED_KEY = "jht.saved.v1";
 export const VISIT_KEY = "jht.visit.v1";
 export const STREAK_KEY = "jht.streak.v1";
 
 export const MAX_SAVED = 8;
+export const SAVED_STATE_VERSION = 2;
 
 // searchName derives a short human name from a search request: the strongest
 // constraint leads, one qualifier follows. "security engineer, remote" beats
@@ -64,6 +66,118 @@ export function sameRequest(a, b) {
 
 export function isEmptyRequest(request) {
   return Object.keys(normalizeRequest(request)).length === 0;
+}
+
+// savedState is the durable boundary for saved searches. Version 1 stored a
+// bare array under jht.saved.v1; version 2 uses an envelope so later readers
+// can migrate deliberately instead of guessing which shape they received.
+function savedState(value) {
+  if (!value || value.version !== SAVED_STATE_VERSION || !Array.isArray(value.searches)) {
+    return null;
+  }
+
+  return { version: SAVED_STATE_VERSION, searches: validSearches(value.searches) };
+}
+
+function validSearches(searches) {
+  const valid = [];
+  for (const entry of searches) {
+    if (
+      !entry ||
+      typeof entry.id !== "string" ||
+      entry.id.length === 0 ||
+      entry.id.length > 128 ||
+      typeof entry.name !== "string" ||
+      entry.name.length === 0 ||
+      entry.name.length > 160 ||
+      !validRequestShape(entry.request)
+    ) continue;
+
+    let request;
+    try {
+      request = normalizeRequest(entry.request);
+    } catch {
+      continue;
+    }
+    if (isEmptyRequest(request)) continue;
+
+    valid.push({
+      id: entry.id,
+      name: entry.name,
+      request,
+      ...(typeof entry.createdAt === "string" ? { createdAt: entry.createdAt } : {}),
+    });
+    if (valid.length === MAX_SAVED) break;
+  }
+
+  return valid;
+}
+
+function validRequestShape(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) return false;
+
+  const lists = ["titles", "exclude_titles", "locations", "companies", "departments", "employment_types", "workplace_types"];
+  for (const key of lists) {
+    if (request[key] !== undefined && (!Array.isArray(request[key]) || request[key].some((value) => typeof value !== "string"))) {
+      return false;
+    }
+  }
+  for (const key of ["remote", "has_compensation", "include_closed"]) {
+    if (request[key] !== undefined && typeof request[key] !== "boolean") return false;
+  }
+  for (const key of ["min_annual", "posted_since_days"]) {
+    if (request[key] !== undefined && (typeof request[key] !== "number" || !Number.isFinite(request[key]))) return false;
+  }
+
+  return true;
+}
+
+export function loadSavedSearches(store = storage) {
+  const current = store.load(SAVED_KEY, null);
+  if (current !== null) {
+    return savedState(current)?.searches ?? [];
+  }
+
+  const legacy = store.load(LEGACY_SAVED_KEY, null);
+  if (!Array.isArray(legacy)) return [];
+
+  const migrated = { version: SAVED_STATE_VERSION, searches: validSearches(legacy) };
+  store.save(SAVED_KEY, migrated);
+
+  return migrated.searches;
+}
+
+export function saveSavedSearches(searches, store = storage) {
+  const current = store.load(SAVED_KEY, null);
+  if (current?.version > SAVED_STATE_VERSION) return false;
+
+  store.save(SAVED_KEY, {
+    version: SAVED_STATE_VERSION,
+    searches: Array.isArray(searches) ? validSearches(searches) : [],
+  });
+
+  return true;
+}
+
+// Export and import are data-only on purpose. A later UI can wire file or
+// clipboard controls without inventing another format or gaining access to
+// anything beyond the searches the user explicitly saved.
+export function exportSavedSearches(searches) {
+  return `${JSON.stringify({
+    version: SAVED_STATE_VERSION,
+    searches: Array.isArray(searches) ? validSearches(searches) : [],
+  }, null, 2)}\n`;
+}
+
+export function importSavedSearches(text) {
+  const decoded = JSON.parse(text);
+  const state = Array.isArray(decoded)
+    ? { version: SAVED_STATE_VERSION, searches: validSearches(decoded) }
+    : savedState(decoded);
+
+  if (!state) throw new Error("Unsupported saved-search export");
+
+  return state.searches;
 }
 
 // countNewSince counts postings first observed after `sinceISO`. first_seen is
