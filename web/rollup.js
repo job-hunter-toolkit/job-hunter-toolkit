@@ -82,7 +82,16 @@ function savedState(value) {
 function validSearches(searches) {
   const valid = [];
   for (const entry of searches) {
-    if (!entry || typeof entry.id !== "string" || typeof entry.name !== "string" || !entry.request) continue;
+    if (
+      !entry ||
+      typeof entry.id !== "string" ||
+      entry.id.length === 0 ||
+      entry.id.length > 128 ||
+      typeof entry.name !== "string" ||
+      entry.name.length === 0 ||
+      entry.name.length > 160 ||
+      !validRequestShape(entry.request)
+    ) continue;
 
     let request;
     try {
@@ -104,6 +113,25 @@ function validSearches(searches) {
   return valid;
 }
 
+function validRequestShape(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) return false;
+
+  const lists = ["titles", "exclude_titles", "locations", "companies", "departments", "employment_types", "workplace_types"];
+  for (const key of lists) {
+    if (request[key] !== undefined && (!Array.isArray(request[key]) || request[key].some((value) => typeof value !== "string"))) {
+      return false;
+    }
+  }
+  for (const key of ["remote", "has_compensation", "include_closed"]) {
+    if (request[key] !== undefined && typeof request[key] !== "boolean") return false;
+  }
+  for (const key of ["min_annual", "posted_since_days"]) {
+    if (request[key] !== undefined && (typeof request[key] !== "number" || !Number.isFinite(request[key]))) return false;
+  }
+
+  return true;
+}
+
 export function loadSavedSearches(store = storage) {
   const current = store.load(SAVED_KEY, null);
   if (current !== null) {
@@ -120,10 +148,15 @@ export function loadSavedSearches(store = storage) {
 }
 
 export function saveSavedSearches(searches, store = storage) {
+  const current = store.load(SAVED_KEY, null);
+  if (current?.version > SAVED_STATE_VERSION) return false;
+
   store.save(SAVED_KEY, {
     version: SAVED_STATE_VERSION,
     searches: Array.isArray(searches) ? validSearches(searches) : [],
   });
+
+  return true;
 }
 
 // Export and import are data-only on purpose. A later UI can wire file or

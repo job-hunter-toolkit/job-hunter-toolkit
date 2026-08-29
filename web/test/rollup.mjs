@@ -105,10 +105,20 @@ check(
 check(
   "saved state: drops malformed records",
   loadSavedSearches(memoryStore({
-    [SAVED_KEY]: { version: SAVED_STATE_VERSION, searches: [{ name: "missing id", request: {} }, legacySearch] },
+    [SAVED_KEY]: {
+      version: SAVED_STATE_VERSION,
+      searches: [
+        { id: "bad", name: "wrong scalar type", request: { min_annual: "100000" } },
+        { name: "missing id", request: {} },
+        legacySearch,
+      ],
+    },
   })),
   [legacySearch],
 );
+const futureStore = memoryStore({ [SAVED_KEY]: { version: 99, searches: [legacySearch] } });
+check("saved state: refuses to overwrite a future version", saveSavedSearches([legacySearch], futureStore), false);
+check("saved state: preserves a future version", futureStore.values.get(SAVED_KEY).version, 99);
 
 const exported = exportSavedSearches([legacySearch]);
 check("saved state: export/import round trip", importSavedSearches(exported), [legacySearch]);

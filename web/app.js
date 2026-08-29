@@ -239,7 +239,10 @@ function saveCurrentSearch() {
   }
 
   saved.unshift({ id: crypto.randomUUID(), name: searchName(request), request, createdAt: new Date().toISOString() });
-  saveSavedSearches(saved);
+  if (!saveSavedSearches(saved)) {
+    flashButton(els.save, "Update the app to save");
+    return;
+  }
   renderSavedChips();
   flashButton(els.save, "Saved");
 }
