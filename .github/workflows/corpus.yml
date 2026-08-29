@@ -106,17 +106,17 @@ jobs:
           # tables may therefore be split into transport parts. Reassemble the
           # logical file before handing it to the format verifier and fold.
           python3 - <<'PY'
-          import json, pathlib
-          root = pathlib.Path("corpus-prev")
-          manifest = json.loads((root / "manifest.json").read_text())
-          transport = manifest.get("transport", {}).get("corpus.jhtc")
-          if transport:
-              with (root / "corpus.jhtc").open("wb") as out:
-                  for part in transport["parts"]:
-                      out.write((root / part["name"]).read_bytes())
-              if (root / "corpus.jhtc").stat().st_size != transport["size"]:
-                  raise SystemExit("reassembled corpus.jhtc has the wrong size")
-          PY
+        import json, pathlib
+        root = pathlib.Path("corpus-prev")
+        manifest = json.loads((root / "manifest.json").read_text())
+        transport = manifest.get("transport", {}).get("corpus.jhtc")
+        if transport:
+            with (root / "corpus.jhtc").open("wb") as out:
+                for part in transport["parts"]:
+                    out.write((root / part["name"]).read_bytes())
+            if (root / "corpus.jhtc").stat().st_size != transport["size"]:
+                raise SystemExit("reassembled corpus.jhtc has the wrong size")
+        PY
 
           # Verify after transport reassembly. This recomputes the content
           # digest over every column, so corruption is refused before folding.
@@ -267,22 +267,22 @@ jobs:
         if [ "$SIZE" -gt $((90 * 1024 * 1024)) ]; then
           split -b 90M -d -a 3 corpus-next/corpus.jhtc corpus-next/corpus.jhtc.part-
           CORPUS_SIZE="$SIZE" python3 - <<'PY'
-          import json, os, pathlib
-          root = pathlib.Path("corpus-next")
-          manifest_path = root / "manifest.json"
-          manifest = json.loads(manifest_path.read_text())
-          offset = 0
-          parts = []
-          for path in sorted(root.glob("corpus.jhtc.part-*")):
-              size = path.stat().st_size
-              parts.append({"name": path.name, "offset": offset, "size": size})
-              offset += size
-          expected = int(os.environ["CORPUS_SIZE"])
-          if offset != expected:
-              raise SystemExit(f"transport parts total {offset}, want {expected}")
-          manifest["transport"] = {"corpus.jhtc": {"size": expected, "parts": parts}}
-          manifest_path.write_text(json.dumps(manifest, separators=(",", ":")) + "\n")
-          PY
+        import json, os, pathlib
+        root = pathlib.Path("corpus-next")
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        offset = 0
+        parts = []
+        for path in sorted(root.glob("corpus.jhtc.part-*")):
+            size = path.stat().st_size
+            parts.append({"name": path.name, "offset": offset, "size": size})
+            offset += size
+        expected = int(os.environ["CORPUS_SIZE"])
+        if offset != expected:
+            raise SystemExit(f"transport parts total {offset}, want {expected}")
+        manifest["transport"] = {"corpus.jhtc": {"size": expected, "parts": parts}}
+        manifest_path.write_text(json.dumps(manifest, separators=(",", ":")) + "\n")
+        PY
           rm corpus-next/corpus.jhtc
         fi
 
