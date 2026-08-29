@@ -53,6 +53,7 @@ let offset = 0;
 let lastRequest = null;
 let rowsLoaded = false; // search is legal only after the worker loads the rows
 let searchSeq = 0; // stale async results must never paint over newer ones
+let searchController = null; // a superseded scan should stop, not merely lose its paint race
 let summary = null;
 let freshnessTimer = null;
 
@@ -410,7 +411,7 @@ async function runSearch(reset, { fromButton = false } = {}) {
   try {
     await search(reset);
   } catch (err) {
-    showError(err);
+    if (err?.name !== "AbortError") showError(err);
   } finally {
     if (button) button.disabled = false;
     els.spin.classList.remove("busy");
@@ -459,11 +460,19 @@ async function search(reset) {
   const seq = ++searchSeq;
 
   if (reset) {
+    searchController?.abort();
     offset = 0;
     lastRequest = buildRequest();
   }
 
-  const response = await engine.search({ ...lastRequest, offset, limit: 100 });
+  const controller = new AbortController();
+  searchController = controller;
+  let response;
+  try {
+    response = await engine.search({ ...lastRequest, offset, limit: 100 }, { signal: controller.signal });
+  } finally {
+    if (searchController === controller) searchController = null;
+  }
 
   // A newer search finished the race while this one was in flight; painting
   // these rows now would show stale results under fresh filters.

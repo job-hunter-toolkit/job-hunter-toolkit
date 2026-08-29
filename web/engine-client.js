@@ -35,11 +35,27 @@ export class EngineClient {
     };
   }
 
-  call(op, args) {
+  call(op, args, { signal } = {}) {
     return new Promise((resolve, reject) => {
       const id = this.nextID++;
-      this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ id, op, args });
+      const abort = () => {
+        this.pending.delete(id);
+        this.worker.postMessage({ op: "cancel", args: { token: id } });
+        reject(new DOMException("The search was cancelled", "AbortError"));
+      };
+
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+
+      const settle = (fn) => (value) => {
+        signal?.removeEventListener("abort", abort);
+        fn(value);
+      };
+      this.pending.set(id, { resolve: settle(resolve), reject: settle(reject) });
+      signal?.addEventListener("abort", abort, { once: true });
+      this.worker.postMessage({ id, op, args: { ...args, token: id } });
     });
   }
 
@@ -51,7 +67,7 @@ export class EngineClient {
     return this.call("load");
   }
 
-  search(request) {
-    return this.call("search", { request });
+  search(request, options) {
+    return this.call("search", { request }, options);
   }
 }

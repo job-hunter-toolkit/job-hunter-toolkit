@@ -69,6 +69,7 @@ const queries = [
   ["employment type", { employment_types: ["full_time"] }],
   ["match everything", {}],
   ["deep page", { offset: 100000, limit: 100 }],
+  ["faceted overview", { include_facets: true }],
 ];
 
 for (const [name, request] of queries) {

@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/job-hunter-toolkit/job-hunter-toolkit/internal/corpus"
@@ -66,6 +67,83 @@ func TestSearchDefaultsToRowsCurrentlyBelievedOpen(t *testing.T) {
 	must.Eq(t, 8, all.Matched)
 	must.Eq(t, 1, all.States["closed"])
 	must.Eq(t, 1, all.States["lapsed"])
+}
+
+func TestSearchFacetsCountMatchedRowsExactly(t *testing.T) {
+	e := open(t)
+
+	resp := search(t, e, engine.SearchRequest{IncludeFacets: true})
+	must.Eq(t, "rows", resp.CountUnit)
+	must.NotNil(t, resp.Facets)
+	must.Eq(t, resp.Matched, facetTotal(resp.Facets.Employment))
+	must.Eq(t, resp.Matched, facetTotal(resp.Facets.Workplace))
+	must.Eq(t, resp.Matched, facetTotal(resp.Facets.Compensation))
+	must.Eq(t, resp.Matched, facetTotal(resp.Facets.PostedAge))
+	must.Eq(t, resp.Matched, facetTotal(resp.Facets.FirstSeenAge))
+
+	must.Eq(t, 2, facetRows(resp.Facets.Employment, "full_time"))
+	must.Eq(t, 1, facetRows(resp.Facets.Employment, "contract"))
+	must.Eq(t, 3, facetRows(resp.Facets.Employment, "unknown"))
+	must.Eq(t, 2, facetRows(resp.Facets.Workplace, "remote"))
+	must.Eq(t, 1, facetRows(resp.Facets.Workplace, "hybrid"))
+	must.Eq(t, 1, facetRows(resp.Facets.Workplace, "onsite"))
+	must.Eq(t, 2, facetRows(resp.Facets.Workplace, "unknown"))
+	must.Eq(t, 2, facetRows(resp.Facets.Compensation, "annual"))
+	must.Eq(t, 4, facetRows(resp.Facets.Compensation, "undisclosed"))
+	must.Eq(t, 2, facetRows(resp.Facets.PostedAge, "7d"))
+	must.Eq(t, 2, facetRows(resp.Facets.PostedAge, "30d"))
+	must.Eq(t, 2, facetRows(resp.Facets.PostedAge, "unknown"))
+}
+
+func TestSearchFacetsRespectFiltersAndLifecycle(t *testing.T) {
+	e := open(t)
+
+	filtered := search(t, e, engine.SearchRequest{
+		Titles: []string{"engineer"}, IncludeFacets: true,
+	})
+	must.Eq(t, 3, filtered.Matched)
+	must.Eq(t, 2, facetRows(filtered.Facets.Employment, "full_time"))
+	must.Eq(t, 1, facetRows(filtered.Facets.Employment, "unknown"))
+
+	all := search(t, e, engine.SearchRequest{IncludeClosed: true, IncludeFacets: true})
+	must.Eq(t, 8, all.Matched)
+	for _, dimension := range [][]engine.Facet{
+		all.Facets.Employment, all.Facets.Workplace, all.Facets.Compensation,
+		all.Facets.PostedAge, all.Facets.FirstSeenAge,
+	} {
+		must.Eq(t, all.Matched, facetTotal(dimension))
+	}
+}
+
+func TestSearchFacetsAreOptInAndCancellationStopsScan(t *testing.T) {
+	e := open(t)
+
+	resp := search(t, e, engine.SearchRequest{})
+	must.Nil(t, resp.Facets)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := e.SearchContext(ctx, engine.SearchRequest{IncludeFacets: true})
+	must.ErrorIs(t, err, context.Canceled)
+}
+
+func facetRows(values []engine.Facet, value string) int {
+	for _, facet := range values {
+		if facet.Value == value {
+			return facet.Rows
+		}
+	}
+
+	return -1
+}
+
+func facetTotal(values []engine.Facet) int {
+	total := 0
+	for _, facet := range values {
+		total += facet.Rows
+	}
+
+	return total
 }
 
 func TestSearchSpeaksTheSharedQueryVocabulary(t *testing.T) {

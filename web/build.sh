@@ -38,3 +38,11 @@ raw=$(wc -c <"$out/engine.wasm")
 gz=$(gzip -9 -c "$out/engine.wasm" | wc -c)
 echo "site assembled in $out"
 echo "engine.wasm: ${raw} bytes raw, ${gz} bytes gzipped"
+
+# Startup network budget. The browser cannot search until this payload starts,
+# and generation-10 already spends tens of seconds loading corpus columns. Keep
+# additive engine work from quietly taxing every cold visit.
+if [ "$gz" -gt 1180000 ]; then
+  echo "engine.wasm exceeds the 1,180,000-byte gzip budget" >&2
+  exit 1
+fi

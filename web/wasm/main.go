@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"syscall/js"
 	"time"
 
@@ -39,6 +40,7 @@ func main() {
 		"open":   promiseFunc(bridge.open),
 		"load":   promiseFunc(bridge.load),
 		"search": promiseFunc(bridge.search),
+		"cancel": promiseFunc(bridge.cancel),
 	}))
 
 	// Signal readiness only after the functions exist, so the page cannot race
@@ -52,7 +54,9 @@ func main() {
 }
 
 type bridge struct {
-	engine *engine.Engine
+	engine   *engine.Engine
+	mu       sync.Mutex
+	searches map[int]context.CancelFunc
 }
 
 // open connects the engine to the JS store and reads the generation's metadata.
@@ -100,12 +104,69 @@ func (b *bridge) search(args []js.Value) (any, error) {
 		return nil, errors.New("search: expected a JSON request string")
 	}
 
-	out, err := b.engine.SearchJSON([]byte(args[0].String()))
+	ctx := context.Background()
+	token := 0
+	if len(args) > 1 && args[1].Type() == js.TypeNumber {
+		token = args[1].Int()
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		b.mu.Lock()
+		if b.searches == nil {
+			b.searches = make(map[int]context.CancelFunc)
+		}
+		b.searches[token] = cancel
+		b.mu.Unlock()
+		defer func() {
+			b.mu.Lock()
+			delete(b.searches, token)
+			b.mu.Unlock()
+			cancel()
+		}()
+	}
+
+	out, err := b.engine.SearchJSONYielding(ctx, []byte(args[0].String()), yieldToEvents)
 	if err != nil {
 		return nil, err
 	}
 
 	return string(out), nil
+}
+
+// yieldToEvents gives the worker one task turn to receive cancellation. A
+// resolved Promise only runs microtasks and cannot deliver a message event, so
+// this deliberately waits on a zero-delay timer.
+func yieldToEvents() error {
+	executor := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		resolve := args[0]
+		var callback js.Func
+		callback = js.FuncOf(func(_ js.Value, _ []js.Value) any {
+			defer callback.Release()
+			resolve.Invoke()
+			return nil
+		})
+		js.Global().Call("setTimeout", callback, 0)
+		return nil
+	})
+	promise := js.Global().Get("Promise").New(executor)
+	executor.Release()
+
+	_, err := await(promise)
+	return err
+}
+
+func (b *bridge) cancel(args []js.Value) (any, error) {
+	if len(args) < 1 || args[0].Type() != js.TypeNumber {
+		return nil, errors.New("cancel: expected a numeric search token")
+	}
+
+	b.mu.Lock()
+	cancel := b.searches[args[0].Int()]
+	b.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+
+	return nil, nil
 }
 
 func marshal(v any) (any, error) {

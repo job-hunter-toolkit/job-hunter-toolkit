@@ -64,13 +64,18 @@ const ops = {
     }
   },
 
-  async search({ request }) {
-    return JSON.parse(await jhtEngine.search(JSON.stringify(request)));
+  async search({ request, token }) {
+    return JSON.parse(await jhtEngine.search(JSON.stringify(request), token));
   },
 };
 
 onmessage = async (event) => {
   const { id, op, args } = event.data;
+
+  if (op === "cancel") {
+    void jhtEngine.cancel(args.token);
+    return;
+  }
 
   try {
     const value = await ops[op](args ?? {});

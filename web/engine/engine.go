@@ -139,6 +139,11 @@ type SearchRequest struct {
 	// roles would be lying.
 	IncludeClosed bool `json:"include_closed,omitempty"`
 
+	// IncludeFacets asks the scan to count a bounded set of point-in-time
+	// dimensions over every matching row. It adds no columns or second pass and
+	// is opt-in so saved-search rollups and paging do not pay for unused counts.
+	IncludeFacets bool `json:"include_facets,omitempty"`
+
 	// Offset and Limit page the matched set in presentation order. Limit is
 	// clamped to [1, MaxLimit]; zero means MaxLimit.
 	Offset int `json:"offset,omitempty"`
@@ -153,15 +158,39 @@ const MaxLimit = 100
 // SearchResponse is one page of matches plus the totals the UI needs to say
 // what the page is a window into.
 type SearchResponse struct {
-	// Matched counts every row satisfying the query, not just the page.
-	Matched int `json:"matched"`
+	// Matched counts every corpus row satisfying the query, not just the page.
+	// It is not a deduplicated listing count: historical rows can share a
+	// dedupe key. The manifest Summary.Open is the deduplicated believed-open
+	// listing count for the whole generation.
+	Matched   int    `json:"matched"`
+	CountUnit string `json:"count_unit"`
 
 	// States counts the matched rows by lifecycle state, so "1,204 matches"
 	// can honestly read "1,180 open, 24 stale".
 	States map[string]int `json:"states"`
 
-	Offset int    `json:"offset"`
-	Items  []Item `json:"items"`
+	Offset int     `json:"offset"`
+	Items  []Item  `json:"items"`
+	Facets *Facets `json:"facets,omitempty"`
+}
+
+// Facet is one stable machine value and its exact matching row count.
+type Facet struct {
+	Value string `json:"value"`
+	Rows  int    `json:"rows"`
+}
+
+// Facets is a compact point-in-time overview of the matched rows. Every
+// dimension has fixed cardinality, including an explicit unknown bucket, so
+// malformed or unexpectedly diverse source data cannot grow query memory.
+// Age buckets are mutually exclusive and measured against the engine's pinned
+// clock: 7d means [now-7d, now], 30d means older than 7d through 30d.
+type Facets struct {
+	Employment   []Facet `json:"employment"`
+	Workplace    []Facet `json:"workplace"`
+	Compensation []Facet `json:"compensation"`
+	PostedAge    []Facet `json:"posted_age"`
+	FirstSeenAge []Facet `json:"first_seen_age"`
 }
 
 // Item is one posting as the results list renders it.
@@ -518,6 +547,22 @@ func (e *Engine) Loaded() bool { return e.rows != nil }
 
 // Search evaluates a request against the loaded rows.
 func (e *Engine) Search(req SearchRequest) (SearchResponse, error) {
+	return e.SearchContext(context.Background(), req)
+}
+
+// SearchContext evaluates a request and stops promptly when ctx is cancelled.
+func (e *Engine) SearchContext(ctx context.Context, req SearchRequest) (SearchResponse, error) {
+	return e.searchContext(ctx, req, nil)
+}
+
+// SearchYielding evaluates a request while calling yield between bounded
+// chunks. The Wasm bridge uses it to return control to the worker event loop,
+// where a cancellation message can run; native callers should use SearchContext.
+func (e *Engine) SearchYielding(ctx context.Context, req SearchRequest, yield func() error) (SearchResponse, error) {
+	return e.searchContext(ctx, req, yield)
+}
+
+func (e *Engine) searchContext(ctx context.Context, req SearchRequest, yield func() error) (SearchResponse, error) {
 	if e.rows == nil {
 		return SearchResponse{}, fmt.Errorf("engine: Search before Load")
 	}
@@ -535,14 +580,34 @@ func (e *Engine) Search(req SearchRequest) (SearchResponse, error) {
 	offset := max(req.Offset, 0)
 
 	resp := SearchResponse{
-		States: map[string]int{},
-		Offset: offset,
-		Items:  []Item{},
+		States:    map[string]int{},
+		Offset:    offset,
+		Items:     []Item{},
+		CountUnit: "rows",
+	}
+	if req.IncludeFacets {
+		resp.Facets = newFacets()
 	}
 
 	c := compileQuery(q)
 
-	for _, i := range e.order {
+	for n, i := range e.order {
+		if n&1023 == 0 {
+			select {
+			case <-ctx.Done():
+				return SearchResponse{}, ctx.Err()
+			default:
+			}
+		}
+		if yield != nil && n > 0 && n&32767 == 0 {
+			if err := yield(); err != nil {
+				return SearchResponse{}, err
+			}
+			if err := ctx.Err(); err != nil {
+				return SearchResponse{}, err
+			}
+		}
+
 		row := &e.rows[i]
 
 		if !req.IncludeClosed && row.state != corpus.StateOpen && row.state != corpus.StateStale {
@@ -559,9 +624,87 @@ func (e *Engine) Search(req SearchRequest) (SearchResponse, error) {
 
 		resp.Matched++
 		resp.States[row.state.String()]++
+		if resp.Facets != nil {
+			resp.Facets.add(row, e.now)
+		}
 	}
 
 	return resp, nil
+}
+
+func newFacets() *Facets {
+	values := func(raw ...string) []Facet {
+		out := make([]Facet, len(raw))
+		for i, value := range raw {
+			out[i].Value = value
+		}
+		return out
+	}
+
+	return &Facets{
+		Employment:   values("full_time", "part_time", "contract", "internship", "temporary", "volunteer", "unknown"),
+		Workplace:    values("remote", "hybrid", "onsite", "unknown"),
+		Compensation: values("annual", "other", "undisclosed"),
+		PostedAge:    values("7d", "30d", "older", "unknown"),
+		FirstSeenAge: values("7d", "30d", "older", "unknown"),
+	}
+}
+
+func increment(values []Facet, value string) {
+	for i := range values {
+		if values[i].Value == value {
+			values[i].Rows++
+			return
+		}
+	}
+
+	values[len(values)-1].Rows++
+}
+
+func (f *Facets) add(row *record, now time.Time) {
+	employment := string(row.posting.EmploymentType)
+	if employment == "" {
+		employment = "unknown"
+	}
+	increment(f.Employment, employment)
+
+	workplace := string(row.posting.WorkplaceType)
+	if workplace == "" {
+		switch {
+		case row.isHybrid:
+			workplace = "hybrid"
+		case row.isRemote:
+			workplace = "remote"
+		default:
+			workplace = "unknown"
+		}
+	}
+	increment(f.Workplace, workplace)
+
+	compensation := "undisclosed"
+	if row.hasAnnual {
+		compensation = "annual"
+	} else if row.hasComp {
+		compensation = "other"
+	}
+	increment(f.Compensation, compensation)
+	increment(f.PostedAge, ageBucket(row.posting.PostedAt, now))
+	increment(f.FirstSeenAge, ageBucket(row.firstSeen, now))
+}
+
+func ageBucket(value, now time.Time) string {
+	if value.IsZero() || value.After(now) {
+		return "unknown"
+	}
+
+	age := now.Sub(value)
+	if age <= 7*24*time.Hour {
+		return "7d"
+	}
+	if age <= 30*24*time.Hour {
+		return "30d"
+	}
+	return "older"
 }
 
 // compiledQuery is [query.Query] with every term folded once, evaluated
@@ -726,12 +869,26 @@ func anyContains(value string, terms []string) bool {
 // SearchJSON is [Engine.Search] with JSON at both ends, which is the shape the
 // wasm bridge wants: one string in, one string out, no per-field JS traffic.
 func (e *Engine) SearchJSON(data []byte) ([]byte, error) {
+	return e.SearchJSONContext(context.Background(), data)
+}
+
+// SearchJSONContext is SearchJSON with cancellation for the worker bridge.
+func (e *Engine) SearchJSONContext(ctx context.Context, data []byte) ([]byte, error) {
+	return e.searchJSON(ctx, data, nil)
+}
+
+// SearchJSONYielding is SearchJSONContext with bounded yielding for Wasm.
+func (e *Engine) SearchJSONYielding(ctx context.Context, data []byte, yield func() error) ([]byte, error) {
+	return e.searchJSON(ctx, data, yield)
+}
+
+func (e *Engine) searchJSON(ctx context.Context, data []byte, yield func() error) ([]byte, error) {
 	var req SearchRequest
 	if err := json.Unmarshal(data, &req); err != nil {
 		return nil, fmt.Errorf("engine: decode search request: %w", err)
 	}
 
-	resp, err := e.Search(req)
+	resp, err := e.SearchYielding(ctx, req, yield)
 	if err != nil {
 		return nil, err
 	}
