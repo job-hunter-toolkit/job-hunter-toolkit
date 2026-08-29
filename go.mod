@@ -2,7 +2,7 @@ module github.com/job-hunter-toolkit/job-hunter-toolkit
 
 go 1.25.0
 
-toolchain go1.26.5
+toolchain go1.26.7
 
 require (
 	github.com/picatz/iters v0.0.0-20251109224751-795446c40192

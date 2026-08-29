@@ -29,3 +29,6 @@
 
 # Assembled site (web/build.sh output); pages.yml builds it fresh.
 web/dist/
+
+# Repository-scoped Orb toolchains, caches, and temporary verification output.
+.amp/

@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+tool_root="$HOME/.cache/amp/job-hunter-toolkit"
+
+if [[ "$(uname -s)/$(uname -m)" != "Linux/x86_64" ]]; then
+  echo ".agents/setup supports the linux-amd64 Amp Orb platform only" >&2
+  exit 1
+fi
+
+go_version="$(awk '$1 == "toolchain" { sub(/^go/, "", $2); print $2 }' go.mod)"
+node_version="22.22.0"
+staticcheck_version="v0.8.0-rc.1"
+govulncheck_version="v1.1.4"
+
+# These checksums come from go.dev/dl and nodejs.org/dist respectively. A pin
+# update must update its checksum in the same review; setup never trusts live
+# metadata to authenticate a download.
+go_sha256="ffb5f8de10c62550dfddab66b36b57030721e0a44a3218e9e1181d7b59f121ca"
+node_sha256="9aa8e9d2298ab68c600bd6fb86a6c13bce11a4eca1ba9b39d79fa021755d7c37"
+
+if [[ "$go_version" != "1.26.7" ]]; then
+  echo "go.mod pins Go $go_version; add its official linux-amd64 checksum to .agents/setup" >&2
+  exit 1
+fi
+
+mkdir -p .amp/tmp "$tool_root"/{bin,cache/downloads,cache/go-build,go,tmp,toolchains}
+
+install_profile_hook() {
+  local marker="# job-hunter-toolkit Orb environment"
+  local profile="$HOME/.bash_profile"
+  touch "$profile"
+  if ! grep -Fqx "$marker" "$profile"; then
+    cat >> "$profile" <<EOF
+
+$marker
+if [[ "\$PWD/" == "$repo_root/"* ]] && [[ -f "$repo_root/.agents/env" ]]; then
+  source "$repo_root/.agents/env"
+fi
+EOF
+  fi
+}
+
+verify_install() {
+  local directory="$1"
+  [[ -f "$directory/.orb-checksums" ]] || return 1
+  (cd "$directory" && sha256sum --check --status .orb-checksums)
+}
+
+download() {
+  local url="$1" output="$2" checksum="$3"
+  if [[ -f "$output" ]] && ! echo "$checksum  $output" | sha256sum --check --status; then
+    rm -f "$output"
+  fi
+  if [[ ! -f "$output" ]]; then
+    local temporary="$output.part"
+    rm -f "$temporary"
+    curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+      --output "$temporary" "$url"
+    echo "$checksum  $temporary" | sha256sum --check --status
+    mv "$temporary" "$output"
+  fi
+}
+
+install_go() {
+  local destination="$tool_root/toolchains/go-$go_version"
+  if verify_install "$destination" &&
+     [[ "$($destination/bin/go version)" == "go version go$go_version linux/amd64" ]]; then
+    return
+  fi
+
+  local archive="$tool_root/cache/downloads/go$go_version.linux-amd64.tar.gz"
+  local temporary="$tool_root/tmp/go-$go_version.$$.new"
+  download "https://go.dev/dl/go$go_version.linux-amd64.tar.gz" "$archive" "$go_sha256"
+  rm -rf "$temporary"
+  mkdir -p "$temporary"
+  tar -xzf "$archive" --strip-components=1 -C "$temporary"
+  (cd "$temporary" && sha256sum bin/go bin/gofmt > .orb-checksums)
+  rm -rf "$destination"
+  mv "$temporary" "$destination"
+}
+
+install_node() {
+  local name="node-v$node_version-linux-x64"
+  local destination="$tool_root/toolchains/$name"
+  if verify_install "$destination" && [[ "$($destination/bin/node --version)" == "v$node_version" ]]; then
+    return
+  fi
+
+  local archive="$tool_root/cache/downloads/$name.tar.xz"
+  local temporary="$tool_root/tmp/$name.$$.new"
+  download "https://nodejs.org/dist/v$node_version/$name.tar.xz" "$archive" "$node_sha256"
+  rm -rf "$temporary"
+  mkdir -p "$temporary"
+  tar -xJf "$archive" --strip-components=1 -C "$temporary"
+  (cd "$temporary" && sha256sum bin/node lib/node_modules/npm/bin/npm-cli.js > .orb-checksums)
+  rm -rf "$destination"
+  mv "$temporary" "$destination"
+}
+
+verify_go_binary() {
+  local binary="$1" module="$2" version="$3"
+  [[ -x "$binary" ]] &&
+    "$GOROOT/bin/go" version -m "$binary" 2>/dev/null |
+      grep -Fq $'mod\t'"$module"$'\t'"$version"$'\t'
+}
+
+install_go_tool() {
+  local name="$1" module="$2" version="$3"
+  if verify_go_binary "$GOBIN/$name" "$module" "$version"; then
+    return
+  fi
+  rm -f "$GOBIN/$name"
+  "$GOROOT/bin/go" install "$module/cmd/$name@$version"
+}
+
+install_system_packages() {
+  local packages=(ca-certificates curl gnuplot-nox xz-utils zip)
+  local missing=() package
+  for package in "${packages[@]}"; do
+    dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -Fqx installed || missing+=("$package")
+  done
+  if (( ${#missing[@]} )); then
+    sudo apt-get update
+    sudo apt-get install -y --no-install-recommends "${missing[@]}"
+  fi
+}
+
+verify_runtime() {
+  # shellcheck disable=SC1091
+  source .agents/env
+  [[ "$(go version)" == "go version go$go_version linux/amd64" ]]
+  [[ "$(node --version)" == "v$node_version" ]]
+  verify_install "$GOROOT"
+  verify_install "$tool_root/toolchains/node-v$node_version-linux-x64"
+  verify_go_binary "$GOBIN/staticcheck" honnef.co/go/tools "$staticcheck_version"
+  verify_go_binary "$GOBIN/govulncheck" golang.org/x/vuln "$govulncheck_version"
+}
+
+install_profile_hook
+
+if [[ "${1:-}" == "--resume" ]]; then
+  verify_runtime
+  exit
+fi
+
+SECONDS=0
+echo "[setup] system packages"
+install_system_packages
+echo "[setup] Go $go_version and Node $node_version"
+install_go
+install_node
+
+# shellcheck disable=SC1091
+source .agents/env
+echo "[setup] locked Go modules"
+go mod download
+go mod verify
+echo "[setup] CI tools"
+install_go_tool staticcheck honnef.co/go/tools "$staticcheck_version"
+install_go_tool govulncheck golang.org/x/vuln "$govulncheck_version"
+verify_runtime
+echo "[setup] ready in ${SECONDS}s"
