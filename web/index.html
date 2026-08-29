@@ -31,6 +31,7 @@
     <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />
     <link rel="preconnect" href="https://api.github.com" crossorigin />
     <link rel="modulepreload" href="config.js" />
+    <link rel="modulepreload" href="freshness.js" />
     <link rel="modulepreload" href="rollup.js" />
     <link rel="modulepreload" href="engine-client.js" />
     <script type="module" src="app.js"></script>
@@ -60,14 +61,14 @@
     <main>
       <div id="banner" class="banner" role="status"><span>Reaching the latest snapshot…</span></div>
 
-      <div id="loading" class="loading" aria-hidden="true">
+      <div id="loading" class="loading" role="progressbar" aria-label="Preparing snapshot for search">
         <div class="skeleton-bar"><div class="skeleton-fill"></div></div>
       </div>
       <!-- The stage line ticks several times a second while loading; it stays
            out of the accessibility tree's live regions so screen readers hear
            the result count once, not a marquee. -->
       <p id="stage" class="stage" aria-hidden="true"></p>
-      <p id="error" class="error" role="alert" hidden></p>
+      <div id="error" class="error" role="alert" hidden></div>
 
       <section id="rollup" class="rollup-shell" role="status" hidden>
         <div class="rollup"></div>
@@ -88,7 +89,7 @@
             <span id="spin" class="spin" aria-hidden="true"></span>
             <kbd class="key-hint" aria-hidden="true">/</kbd>
           </div>
-          <button type="submit" id="go">Search</button>
+          <button type="submit" id="go" disabled>Search</button>
           <button type="button" id="save" class="secondary" title="Save this search; new matches are summarized next time you open the page">Save</button>
         </div>
 
@@ -159,29 +160,28 @@
 
       <section id="results">
         <p id="count" class="count" role="status"></p>
-        <ul id="list" class="list">
+        <ul id="list" class="list" aria-busy="true" aria-label="Job search results">
           <li class="card skeleton" style="--stagger: 0ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
           <li class="card skeleton" style="--stagger: 60ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
           <li class="card skeleton" style="--stagger: 120ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
-          <li class="card skeleton" style="--stagger: 180ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
-          <li class="card skeleton" style="--stagger: 240ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
         </ul>
         <button id="more" type="button" hidden>Load more</button>
       </section>
 
       <noscript>
         <p class="error">
-          This page runs its query engine in your browser and needs JavaScript
-          and WebAssembly. The same data is queryable from the command line:
-          see the repository below.
+          Search needs JavaScript and WebAssembly because the private, local
+          query engine runs in your browser. No search terms have been sent
+          anywhere. You can use the command-line tool from the repository below.
         </p>
       </noscript>
     </main>
 
     <footer>
       <p>
-        Every number on this page comes from the snapshot named in the banner.
-        Nothing here is live, and postings may have closed since the crawl.
+        Every number on this page comes from the historical snapshot named above.
+        The collection time, rather than the current availability of a listing,
+        is the freshness guarantee.
         Built from
         <a href="https://github.com/job-hunter-toolkit/job-hunter-toolkit" rel="noopener noreferrer">job-hunter-toolkit</a>;
         the crawler, the file format and this page's query engine are the same

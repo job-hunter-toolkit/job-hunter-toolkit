@@ -35,7 +35,13 @@ export async function createStore(baseURL, fetchImpl = globalThis.fetch.bind(glo
 
   // Fail fast and clearly: a missing manifest is "no corpus is published
   // here", and that message beats a wasm stack trace from a half-open table.
-  await store.whole("manifest.json");
+  const manifestBytes = await store.whole("manifest.json");
+  try {
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+    store.setTransports(manifest.transport ?? {});
+  } catch (err) {
+    throw new Error(`manifest.json: ${err.message}`);
+  }
 
   return store;
 }
@@ -46,7 +52,28 @@ class CorpusStore {
     this.fetch = fetchImpl;
     this.buffers = new Map(); // name -> Uint8Array, whole objects only
     this.ranged = new Map(); // name -> { size } for objects in range mode
+    this.virtual = new Map(); // logical name -> bounded transport parts
     this.stats = { requests: 0, bytesFetched: 0, mode: "probing" };
+  }
+
+  setTransports(transports) {
+    for (const [name, transport] of Object.entries(transports)) {
+      const parts = transport?.parts;
+      if (!Array.isArray(parts) || !Number.isSafeInteger(transport.size) || transport.size < 1) {
+        throw new Error(`manifest.json: invalid transport for ${name}`);
+      }
+      let offset = 0;
+      const valid = parts.every((part) => {
+        const ok = typeof part.name === "string" && part.name &&
+          Number.isSafeInteger(part.size) && part.size > 0 && part.offset === offset;
+        offset += part.size ?? 0;
+        return ok;
+      });
+      if (!valid || offset !== transport.size) {
+        throw new Error(`manifest.json: non-contiguous transport for ${name}`);
+      }
+      this.virtual.set(name, { size: transport.size, parts });
+    }
   }
 
   url(name) {
@@ -54,6 +81,10 @@ class CorpusStore {
   }
 
   async size(name) {
+    if (this.virtual.has(name)) {
+      return this.virtual.get(name).size;
+    }
+
     if (this.buffers.has(name)) {
       return this.buffers.get(name).byteLength;
     }
@@ -130,6 +161,10 @@ class CorpusStore {
       return new Uint8Array(0);
     }
 
+    if (this.virtual.has(name)) {
+      return this.readVirtual(name, off, len);
+    }
+
     if (!this.buffers.has(name) && !this.ranged.has(name)) {
       await this.size(name); // establishes the object's mode
     }
@@ -176,6 +211,37 @@ class CorpusStore {
     }
 
     return bytes;
+  }
+
+  async readVirtual(name, off, len) {
+    const transport = this.virtual.get(name);
+    if (off < 0 || len < 0 || off + len > transport.size) {
+      throw new Error(`${name}: read [${off}, +${len}) beyond ${transport.size} bytes`);
+    }
+
+    const chunks = [];
+    let remaining = len;
+    let position = off;
+    for (const part of transport.parts) {
+      const partEnd = part.offset + part.size;
+      if (position >= partEnd || position + remaining <= part.offset) continue;
+      const partOffset = Math.max(0, position - part.offset);
+      const take = Math.min(remaining, part.size - partOffset);
+      chunks.push(await this.readAt(part.name, partOffset, take));
+      position += take;
+      remaining -= take;
+      if (remaining === 0) break;
+    }
+
+    if (remaining !== 0) throw new Error(`${name}: transport parts ended ${remaining} bytes short`);
+    if (chunks.length === 1) return chunks[0];
+    const result = new Uint8Array(len);
+    let cursor = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, cursor);
+      cursor += chunk.byteLength;
+    }
+    return result;
   }
 
   async whole(name) {

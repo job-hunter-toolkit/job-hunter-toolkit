@@ -26,7 +26,7 @@ function check(what, got, want) {
 const body = new Uint8Array(1000);
 for (let i = 0; i < body.length; i++) body[i] = i % 251;
 
-const manifest = new TextEncoder().encode(`{"format_version":1}`);
+let manifest = new TextEncoder().encode(`{"format_version":1}`);
 
 function respond(bytes, status, headers = {}) {
   return {
@@ -170,6 +170,56 @@ check("content-range garbage is refused", parseContentRange("chunks 1-2/3"), nul
 
   await store.size("manifest.json");
   check("manifest fetched without Range", log.every((r) => r.range === null || r.url.endsWith(".jhtc")), true);
+}
+
+// --- a logical corpus split below GitHub's blob limit reads as one file -----
+
+{
+  manifest = new TextEncoder().encode(JSON.stringify({
+    format_version: 1,
+    transport: {
+      "corpus.jhtc": {
+        size: 1000,
+        parts: [
+          { name: "corpus.jhtc.part-000", offset: 0, size: 600 },
+          { name: "corpus.jhtc.part-001", offset: 600, size: 400 },
+        ],
+      },
+    },
+  }));
+  const log = [];
+  const fetch = async (url, options = {}) => {
+    if (url.toString().endsWith("manifest.json")) return respond(manifest, 200);
+    const second = url.toString().endsWith("part-001");
+    const source = second ? body.subarray(600) : body.subarray(0, 600);
+    if (options.method === "HEAD") return respond(new Uint8Array(), 200, { "Content-Length": String(source.length) });
+    const match = /^bytes=(\d+)-(\d+)$/.exec(options.headers?.Range ?? "");
+    log.push({ second, range: options.headers?.Range });
+    return respond(source.subarray(Number(match[1]), Number(match[2]) + 1), 206);
+  };
+  const store = await createStore("https://host.example/corpus/", fetch);
+  check("split: logical size", await store.size("corpus.jhtc"), 1000);
+  check("split: cross-part read", Array.from(await store.readAt("corpus.jhtc", 590, 20)), Array.from(body.subarray(590, 610)));
+  check("split: one range per touched part", log.length, 2);
+}
+
+{
+  manifest = new TextEncoder().encode(JSON.stringify({
+    transport: {
+      "corpus.jhtc": {
+        size: 10,
+        parts: [{ name: "corpus.jhtc.part-000", offset: 1, size: 10 }],
+      },
+    },
+  }));
+  const invalid = await createStore(
+    "https://host.example/corpus/",
+    async () => respond(manifest, 200),
+  ).then(
+    () => "no error",
+    (err) => err.message,
+  );
+  check("split: version mismatch fails clearly", invalid.includes("non-contiguous transport"), true);
 }
 
 if (failures > 0) {

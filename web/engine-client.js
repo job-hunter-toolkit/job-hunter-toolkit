@@ -1,8 +1,7 @@
 // engine-client.js — the page's async handle on the worker-hosted engine.
 //
 // The surface mirrors the wasm bridge (open, load, search) as promises, plus
-// two callbacks for the messages the worker volunteers during load: progress
-// stats and the company names for the loading marquee. Every call is
+// a callback for the progress stats the worker volunteers during load. Every call is
 // request/response matched by id; the worker crashing rejects everything
 // in flight rather than leaving the page waiting forever.
 
@@ -12,18 +11,12 @@ export class EngineClient {
     this.pending = new Map();
     this.nextID = 1;
     this.onProgress = null;
-    this.onCompanies = null;
 
     this.worker.onmessage = (event) => {
       const message = event.data;
 
       if (message.op === "progress") {
         this.onProgress?.(message);
-        return;
-      }
-
-      if (message.op === "companies") {
-        this.onCompanies?.(message.names);
         return;
       }
 

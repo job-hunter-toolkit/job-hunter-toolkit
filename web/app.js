@@ -7,6 +7,7 @@
 
 import { resolveCorpusBase } from "./config.js";
 import { EngineClient } from "./engine-client.js";
+import { resultCountText, snapshotStatus } from "./freshness.js";
 import {
   SAVED_KEY,
   VISIT_KEY,
@@ -52,6 +53,8 @@ let offset = 0;
 let lastRequest = null;
 let rowsLoaded = false; // search is legal only after the worker loads the rows
 let searchSeq = 0; // stale async results must never paint over newer ones
+let summary = null;
+let freshnessTimer = null;
 
 // The service worker makes the shell installable and offline-capable. Its
 // failure is never the page's problem.
@@ -73,42 +76,21 @@ async function boot() {
 
     corpusURL = await resolveCorpusBase();
 
-    const summary = await engine.open(corpusURL);
+    summary = await engine.open(corpusURL);
     renderBanner(summary);
+    els.count.textContent = "Preparing the snapshot for search…";
+    els.list.setAttribute("aria-busy", "true");
 
-    // While rows stream, the stage line names real employers going by: the
-    // data is genuinely arriving, so the page shows it arriving. The worker
-    // sends the names once sources.json lands; the biggest boards make the
-    // best marquee, and registry slugs too mangled to read as names stay out.
-    let companies = [];
-    engine.onCompanies = (names) => {
-      companies = shuffle(
-        names
-          .filter((s) => s.company.length <= 14 && s.open > 0)
-          .sort((a, b) => b.open - a.open)
-          .slice(0, 400)
-          .map((s) => s.company),
-      );
-    };
-
-    let tick = 0;
     let bytesFetched = 0;
     engine.onProgress = (stats) => {
       bytesFetched = stats.bytesFetched;
     };
 
     const ticker = setInterval(() => {
-      let line = `Loading ${summary.rows.toLocaleString()} postings (${(bytesFetched / (1024 * 1024)).toFixed(1)} MiB)`;
-
-      if (companies.length) {
-        const a = companies[(tick * 3) % companies.length];
-        const b = companies[(tick * 3 + 1) % companies.length];
-        const c = companies[(tick * 3 + 2) % companies.length];
-        line += ` · reading ${displayCompany(a)}, ${displayCompany(b)}, ${displayCompany(c)}…`;
-      }
-
-      setStage(line);
-      tick += 1;
+      const transferred = bytesFetched > 0
+        ? ` · ${(bytesFetched / (1024 * 1024)).toFixed(1)} MiB transferred`
+        : "";
+      setStage(`Preparing ${summary.rows.toLocaleString()} listings for fast local search${transferred}`);
     }, 600);
 
     let stats;
@@ -119,12 +101,10 @@ async function boot() {
     }
 
     rowsLoaded = true;
-    setStage(
-      `Loaded ${stats.rows.toLocaleString()} rows in ` +
-        `${(stats.elapsed_ms / 1000).toFixed(1)} s ` +
-        `(${(stats.bytesFetched / (1024 * 1024)).toFixed(1)} MiB, ` +
-        `${stats.requests} requests, ${stats.mode} mode)`,
-    );
+    els.go.disabled = false;
+    els.list.setAttribute("aria-busy", "false");
+    const elapsed = stats.elapsed_ms < 100 ? "under 0.1 s" : `${(stats.elapsed_ms / 1000).toFixed(1)} s`;
+    setStage(`Ready · ${stats.rows.toLocaleString()} listings indexed locally in ${elapsed}`);
     els.loading.hidden = true;
 
     await search(true);
@@ -145,43 +125,37 @@ async function boot() {
 // a single posting.
 function renderBanner(summary) {
   els.banner.replaceChildren();
+  els.banner.className = "banner";
+  const status = snapshotStatus(summary, new Date());
+  els.banner.classList.add(status.level);
 
-  const ageHours = summary.age_hours ?? 0;
-  const crawled = summary.run_at
-    ? `crawled ${summary.run_at.replace("T", " ").replace(/(:\d{2})?Z$/, " UTC")} (${formatAge(ageHours)})`
-    : "crawl date unknown";
-
-  const freshness =
-    ageHours <= 0 || !summary.run_at ? "old" : ageHours <= 36 ? "fresh" : ageHours <= 8 * 24 ? "aging" : "old";
-  els.banner.classList.add(freshness);
-
-  addSpan(els.banner, "strong", `Snapshot, generation ${summary.generation}`);
-  addSpan(els.banner, "", crawled);
-  addSpan(
-    els.banner,
-    "",
-    `${summary.open.toLocaleString()} open postings from ${summary.sources.toLocaleString()} sources`,
-  );
+  addSpan(els.banner, "strong", status.label);
+  const time = document.createElement("time");
+  time.dateTime = summary.run_at || "";
+  time.title = status.exact;
+  time.textContent = `${status.relative} · ${status.exact}`;
+  els.banner.append(time);
+  addSpan(els.banner, "", `${summary.open.toLocaleString()} believed open when collected · ${summary.sources.toLocaleString()} sources`);
+  addSpan(els.banner, "context", status.explanation);
 
   if (summary.partial) {
     els.banner.classList.add("partial");
     addSpan(
       els.banner,
-      "warn",
-      "Partial crawl: the producing crawl did not finish, so counts are a floor, not a total",
+      "context caution",
+      "This snapshot came from a partial crawl, so its counts are a floor rather than a complete total.",
     );
   }
 
-  if (freshness === "old") {
-    addSpan(els.banner, "warn", "This data is not live. Postings may have closed since the crawl.");
-  }
-}
+  const statusLink = document.createElement("a");
+  statusLink.href = "https://github.com/job-hunter-toolkit/job-hunter-toolkit/actions/workflows/corpus.yml";
+  statusLink.target = "_blank";
+  statusLink.rel = "noopener noreferrer";
+  statusLink.textContent = "Publication status";
+  els.banner.append(statusLink);
 
-function formatAge(hours) {
-  if (hours < 1) return "under an hour ago";
-  if (hours < 48) return `${Math.round(hours)} hours ago`;
-
-  return `${Math.round(hours / 24)} days ago`;
+  clearTimeout(freshnessTimer);
+  freshnessTimer = setTimeout(() => renderBanner(summary), 60_000);
 }
 
 // --- search -----------------------------------------------------------------
@@ -454,25 +428,6 @@ function haptic() {
   }
 }
 
-// displayCompany turns a registry slug into something a person reads:
-// "mayo-clinic" becomes "Mayo Clinic". Imperfect for brand casing, honest
-// enough for a loading line.
-function displayCompany(slug) {
-  return slug
-    .split(/[-_ ]+/)
-    .map((word) => (word.length > 1 ? word[0].toUpperCase() + word.slice(1) : word.toUpperCase()))
-    .join(" ");
-}
-
-function shuffle(list) {
-  for (let i = list.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [list[i], list[j]] = [list[j], list[i]];
-  }
-
-  return list;
-}
-
 function terms(id) {
   return $(id)
     .value.split(",")
@@ -538,18 +493,14 @@ async function search(reset) {
 }
 
 function renderCount(response) {
-  const states = Object.entries(response.states ?? {})
-    .sort()
-    .map(([state, n]) => `${n.toLocaleString()} ${state}`)
-    .join(" · ");
-
   if (response.matched === 0) {
     els.count.textContent = "No postings match.";
     renderEmptyState();
     return;
   }
 
-  els.count.textContent = `${response.matched.toLocaleString()} matches (${states}), newest first, showing ${Math.min(offset, response.matched).toLocaleString()}`;
+  const level = snapshotStatus(summary, new Date()).level;
+  els.count.textContent = resultCountText(response, offset, level);
 }
 
 // renderEmptyState replaces a bare "no results" sentence with the one action
@@ -604,8 +555,15 @@ function renderItem(item) {
   const meta = document.createElement("div");
   meta.className = "meta";
 
-  const stateBadge = addBadge(meta, item.state, `state-${item.state}`);
-  if (STATE_TITLES[item.state]) stateBadge.title = STATE_TITLES[item.state];
+  const level = snapshotStatus(summary, new Date()).level;
+  if (item.state === "stale" && level !== "old") {
+    const stateBadge = addBadge(meta, "not recently checked", "state-stale");
+    stateBadge.title = STATE_TITLES.stale;
+  } else if (item.state === "closed" || item.state === "lapsed") {
+    const label = item.state === "closed" ? "closed in snapshot" : "source status unknown";
+    const stateBadge = addBadge(meta, label, `state-${item.state}`);
+    stateBadge.title = STATE_TITLES[item.state];
+  }
   if (item.remote) addBadge(meta, "remote");
   if (item.workplace_type && item.workplace_type !== "remote") addBadge(meta, item.workplace_type);
   if (item.employment_type) addBadge(meta, item.employment_type.replace("_", " "));
@@ -665,12 +623,20 @@ function showError(err) {
   // Offline is a state, not a bug; say so before the technical detail.
   const offline = navigator.onLine === false ? "You appear to be offline, and this data is not cached yet. " : "";
 
-  els.error.textContent =
-    offline +
-    `${err.message ?? err}. ` +
-    `Corpus URL: ${corpusURL || "(unresolved)"}. ` +
-    "If no corpus is published there yet, pass ?corpus=<url> to point elsewhere.";
-  setStage("");
+  els.error.replaceChildren();
+  const message = document.createElement("p");
+  message.textContent = offline + `The snapshot could not be prepared. ${err.message ?? err}`;
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "secondary";
+  retry.textContent = "Retry";
+  retry.addEventListener("click", () => globalThis.location.reload());
+  els.error.append(message, retry);
+  els.error.tabIndex = -1;
+  els.error.focus();
+  els.go.disabled = true;
+  els.list.setAttribute("aria-busy", "false");
+  setStage("Your filters are unchanged. Retry when the connection is available.");
 }
 
 function addSpan(parent, className, text) {
@@ -684,9 +650,8 @@ function addSpan(parent, className, text) {
 // not how old the posting is: the nightly crawl refreshes a budgeted slice
 // of ~10,000 boards, so a board can go a day or more between checks.
 const STATE_TITLES = {
-  open: "Listed on the company's board at its last check, within the past day.",
   stale:
-    "Listed at the last check of the company's board, but that check is more than a day old. The posting was up then and is likely still up; it has not been re-confirmed today.",
+    "Visible on the company's board at its last successful check, but that source has not been checked recently. This does not mean the posting is known to be closed.",
   closed: "Gone from the company's board: two later checks agreed it was removed.",
   lapsed:
     "The company's board has not had a successful check for so long that this posting's status is unknown.",

@@ -7,10 +7,8 @@
 // froze the keystrokes behind it; a search tool where typing lags is broken.
 //
 // Protocol: the page posts {id, op, args}; the worker answers {id, ok, value}
-// or {id, ok: false, error}. Two unsolicited message kinds flow page-ward
-// during load: {op: "progress", ...store stats} every 250 ms, and
-// {op: "companies", names} once sources.json has been read for the loading
-// marquee. This is a module worker so it can share corpus-store.js with the
+// or {id, ok: false, error}. Progress stats flow page-ward every 250 ms during
+// load. This is a module worker so it can share corpus-store.js with the
 // page verbatim; wasm_exec.js is a classic script, so it is fetched and
 // evaluated, the same way the Node smoke test loads it.
 
@@ -53,19 +51,6 @@ const ops = {
   },
 
   async load() {
-    // The marquee data rides along: names stream to the page as soon as
-    // sources.json lands, and a failure just means a plainer loading line.
-    store
-      .whole("sources.json")
-      .then((bytes) => {
-        const parsed = JSON.parse(new TextDecoder().decode(bytes));
-        postMessage({
-          op: "companies",
-          names: parsed.filter((s) => s.company).map((s) => ({ company: s.company, open: s.open ?? 0 })),
-        });
-      })
-      .catch(() => {});
-
     const ticker = setInterval(() => {
       postMessage({ op: "progress", ...store.stats });
     }, 250);
