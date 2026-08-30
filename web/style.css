@@ -525,6 +525,26 @@ label {
   margin: 0.75rem 0 0.65rem;
 }
 
+.lifecycle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: center;
+  min-width: 100%;
+  margin: 0.15rem 0 0;
+  padding: 0.65rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.lifecycle legend {
+  float: left;
+  margin-right: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
 .check {
   flex-direction: row;
   align-items: center;

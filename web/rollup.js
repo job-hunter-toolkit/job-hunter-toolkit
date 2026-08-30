@@ -9,13 +9,17 @@
 // summary is computed from the corpus already in memory, at the moment the
 // person opens the page. Spam is structurally impossible.
 
-export const SAVED_KEY = "jht.saved.v2";
+export const SAVED_KEY = "jht.saved.v3";
+export const LEGACY_V2_SAVED_KEY = "jht.saved.v2";
 export const LEGACY_SAVED_KEY = "jht.saved.v1";
 export const VISIT_KEY = "jht.visit.v1";
 export const STREAK_KEY = "jht.streak.v1";
 
 export const MAX_SAVED = 8;
-export const SAVED_STATE_VERSION = 2;
+export const SAVED_STATE_VERSION = 3;
+
+const LIFECYCLE_STATES = ["open", "stale", "closed", "lapsed"];
+const DEFAULT_STATES = ["open", "stale"];
 
 // searchName derives a short human name from a search request: the strongest
 // constraint leads, one qualifier follows. "security engineer, remote" beats
@@ -51,9 +55,10 @@ export function normalizeRequest(request) {
     const values = [...new Set((request[key] ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean))].sort();
     if (values.length) out[key] = values;
   }
+  const selected = request.states ?? (request.include_closed ? LIFECYCLE_STATES : DEFAULT_STATES);
+  out.states = LIFECYCLE_STATES.filter((state) => selected.includes(state));
   if (request.remote) out.remote = true;
   if (request.has_compensation) out.has_compensation = true;
-  if (request.include_closed) out.include_closed = true;
   if (request.min_annual > 0) out.min_annual = request.min_annual;
   if (request.posted_since_days > 0) out.posted_since_days = request.posted_since_days;
 
@@ -65,12 +70,13 @@ export function sameRequest(a, b) {
 }
 
 export function isEmptyRequest(request) {
-  return Object.keys(normalizeRequest(request)).length === 0;
+  const normalized = normalizeRequest(request);
+  return Object.keys(normalized).length === 1 && normalized.states.join(",") === DEFAULT_STATES.join(",");
 }
 
-// savedState is the durable boundary for saved searches. Version 1 stored a
-// bare array under jht.saved.v1; version 2 uses an envelope so later readers
-// can migrate deliberately instead of guessing which shape they received.
+// savedState is the durable boundary for saved searches. Version 3 records an
+// explicit lifecycle-state selection. Earlier booleans migrate without
+// changing meaning: false or absent becomes open+stale, true becomes all four.
 function savedState(value) {
   if (!value || value.version !== SAVED_STATE_VERSION || !Array.isArray(value.searches)) {
     return null;
@@ -79,7 +85,7 @@ function savedState(value) {
   return { version: SAVED_STATE_VERSION, searches: validSearches(value.searches) };
 }
 
-function validSearches(searches) {
+function validSearches(searches, { legacy = false } = {}) {
   const valid = [];
   for (const entry of searches) {
     if (
@@ -90,7 +96,7 @@ function validSearches(searches) {
       typeof entry.name !== "string" ||
       entry.name.length === 0 ||
       entry.name.length > 160 ||
-      !validRequestShape(entry.request)
+      !validRequestShape(entry.request, { legacy })
     ) continue;
 
     let request;
@@ -113,7 +119,7 @@ function validSearches(searches) {
   return valid;
 }
 
-function validRequestShape(request) {
+function validRequestShape(request, { legacy = false } = {}) {
   if (!request || typeof request !== "object" || Array.isArray(request)) return false;
 
   const lists = ["titles", "exclude_titles", "locations", "companies", "departments", "employment_types", "workplace_types"];
@@ -122,9 +128,19 @@ function validRequestShape(request) {
       return false;
     }
   }
-  for (const key of ["remote", "has_compensation", "include_closed"]) {
+  for (const key of ["remote", "has_compensation"]) {
     if (request[key] !== undefined && typeof request[key] !== "boolean") return false;
   }
+  if (request.include_closed !== undefined && (!legacy || typeof request.include_closed !== "boolean")) return false;
+  if (request.include_closed !== undefined && request.states !== undefined) return false;
+  if (request.states !== undefined && (
+    !Array.isArray(request.states) ||
+    request.states.length === 0 ||
+    request.states.length > LIFECYCLE_STATES.length ||
+    new Set(request.states).size !== request.states.length ||
+    request.states.some((state) => !LIFECYCLE_STATES.includes(state))
+  )) return false;
+  if (!legacy && request.include_closed !== undefined) return false;
   for (const key of ["min_annual", "posted_since_days"]) {
     if (request[key] !== undefined && (typeof request[key] !== "number" || !Number.isFinite(request[key]))) return false;
   }
@@ -138,10 +154,18 @@ export function loadSavedSearches(store = storage) {
     return savedState(current)?.searches ?? [];
   }
 
+  const v2 = store.load(LEGACY_V2_SAVED_KEY, null);
+  if (v2 !== null) {
+    if (!v2 || v2.version !== 2 || !Array.isArray(v2.searches)) return [];
+    const migrated = { version: SAVED_STATE_VERSION, searches: validSearches(v2.searches, { legacy: true }) };
+    store.save(SAVED_KEY, migrated);
+    return migrated.searches;
+  }
+
   const legacy = store.load(LEGACY_SAVED_KEY, null);
   if (!Array.isArray(legacy)) return [];
 
-  const migrated = { version: SAVED_STATE_VERSION, searches: validSearches(legacy) };
+  const migrated = { version: SAVED_STATE_VERSION, searches: validSearches(legacy, { legacy: true }) };
   store.save(SAVED_KEY, migrated);
 
   return migrated.searches;
@@ -150,6 +174,8 @@ export function loadSavedSearches(store = storage) {
 export function saveSavedSearches(searches, store = storage) {
   const current = store.load(SAVED_KEY, null);
   if (current?.version > SAVED_STATE_VERSION) return false;
+  const legacyV2 = store.load(LEGACY_V2_SAVED_KEY, null);
+  if (current === null && legacyV2?.version > SAVED_STATE_VERSION) return false;
 
   store.save(SAVED_KEY, {
     version: SAVED_STATE_VERSION,
@@ -171,9 +197,14 @@ export function exportSavedSearches(searches) {
 
 export function importSavedSearches(text) {
   const decoded = JSON.parse(text);
-  const state = Array.isArray(decoded)
-    ? { version: SAVED_STATE_VERSION, searches: validSearches(decoded) }
-    : savedState(decoded);
+  let state;
+  if (Array.isArray(decoded)) {
+    state = { version: SAVED_STATE_VERSION, searches: validSearches(decoded, { legacy: true }) };
+  } else if (decoded?.version === 2 && Array.isArray(decoded.searches)) {
+    state = { version: SAVED_STATE_VERSION, searches: validSearches(decoded.searches, { legacy: true }) };
+  } else {
+    state = savedState(decoded);
+  }
 
   if (!state) throw new Error("Unsupported saved-search export");
 

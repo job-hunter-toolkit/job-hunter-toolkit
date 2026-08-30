@@ -15,9 +15,9 @@
 //
 // [Summary] carries the generation's RunAt, Partial flag and state counts
 // precisely so the UI can put "this is a snapshot from <date>, <complete or
-// partial>" in front of every result. A search response never mixes states
-// silently: closed and lapsed rows are excluded unless the request asks for
-// them, and every returned item names its state.
+// partial>" in front of every result. A search response names its selected
+// lifecycle states and pinned as-of instant, and every returned item names its
+// derived state.
 package engine
 
 import (
@@ -195,9 +195,9 @@ type Summary struct {
 }
 
 // SearchRequest is the query vocabulary as it crosses the JS boundary. The
-// fields mirror query.Query one for one; the only additions are paging and the
-// closed-rows switch, which are presentation concerns the shared vocabulary
-// deliberately does not carry.
+// fields mirror query.Query one for one; lifecycle selection and paging are
+// presentation concerns the shared posting vocabulary deliberately does not
+// carry.
 type SearchRequest struct {
 	Titles          []string `json:"titles,omitempty"`
 	ExcludeTitles   []string `json:"exclude_titles,omitempty"`
@@ -214,10 +214,16 @@ type SearchRequest struct {
 	// the immutable generation RunAt. Zero means no bound.
 	PostedSinceDays int `json:"posted_since_days,omitempty"`
 
-	// IncludeClosed widens the search beyond rows currently believed open
-	// (states open and stale) to the corpus's whole history, closed and lapsed
-	// rows included. Off by default: a job board that quietly listed filled
-	// roles would be lying.
+	// States selects corpus lifecycle states with OR semantics. Nil preserves
+	// the human default of open and stale. An explicitly empty, duplicate, or
+	// unknown set is invalid.
+	States []string `json:"states,omitempty"`
+
+	// IncludeClosed is the legacy browser v1 switch. New callers use States.
+	// It remains only so saved-search v2 and older page clients can migrate
+	// without silently changing false to anything other than open and stale, or
+	// true to anything other than all four states. Combining it with States is
+	// invalid.
 	IncludeClosed bool `json:"include_closed,omitempty"`
 
 	// IncludeFacets asks the scan to count a bounded set of point-in-time
@@ -249,6 +255,13 @@ type SearchResponse struct {
 	// States counts the matched rows by lifecycle state, so "1,204 matches"
 	// can honestly read "1,180 open, 24 stale".
 	States map[string]int `json:"states"`
+
+	// SelectedStates names the request's effective OR selection in canonical
+	// order. AsOf is the engine's pinned observation instant used to derive each
+	// row's state, not a live employer-board check.
+	SelectedStates []string `json:"selected_states"`
+	AsOf           string   `json:"as_of"`
+	StateMethod    string   `json:"state_method"`
 
 	Offset int     `json:"offset"`
 	Items  []Item  `json:"items"`
@@ -816,6 +829,10 @@ func (e *Engine) searchContext(ctx context.Context, req SearchRequest, yield fun
 	if err != nil {
 		return SearchResponse{}, err
 	}
+	selected, selectedNames, err := lifecycleSelection(req)
+	if err != nil {
+		return SearchResponse{}, err
+	}
 
 	limit := req.Limit
 	if limit <= 0 || limit > MaxLimit {
@@ -825,10 +842,13 @@ func (e *Engine) searchContext(ctx context.Context, req SearchRequest, yield fun
 	offset := max(req.Offset, 0)
 
 	resp := SearchResponse{
-		States:    map[string]int{},
-		Offset:    offset,
-		Items:     []Item{},
-		CountUnit: "rows",
+		States:         map[string]int{},
+		SelectedStates: selectedNames,
+		AsOf:           e.now.Format(time.RFC3339Nano),
+		StateMethod:    "derived from corpus row and source observations at as_of; not a live employer-board check",
+		Offset:         offset,
+		Items:          []Item{},
+		CountUnit:      "rows",
 	}
 	if req.IncludeFacets {
 		resp.Facets = newFacets()
@@ -856,7 +876,7 @@ func (e *Engine) searchContext(ctx context.Context, req SearchRequest, yield fun
 
 		row := &e.rows[i]
 
-		if !req.IncludeClosed && row.state != corpus.StateOpen && row.state != corpus.StateStale {
+		if selected&(1<<row.state) == 0 {
 			continue
 		}
 
@@ -876,6 +896,58 @@ func (e *Engine) searchContext(ctx context.Context, req SearchRequest, yield fun
 	}
 
 	return resp, nil
+}
+
+func lifecycleSelection(req SearchRequest) (uint8, []string, error) {
+	states := req.States
+	if states == nil {
+		if req.IncludeClosed {
+			states = []string{"open", "stale", "closed", "lapsed"}
+		} else {
+			states = []string{"open", "stale"}
+		}
+	} else if req.IncludeClosed {
+		return 0, nil, fmt.Errorf("engine: states cannot be combined with legacy include_closed")
+	}
+	if len(states) == 0 {
+		return 0, nil, fmt.Errorf("engine: states must not be empty")
+	}
+
+	var selected uint8
+	for _, name := range states {
+		state, ok := lifecycleState(name)
+		if !ok {
+			return 0, nil, fmt.Errorf("engine: unknown lifecycle state %q", name)
+		}
+		bit := uint8(1 << state)
+		if selected&bit != 0 {
+			return 0, nil, fmt.Errorf("engine: duplicate lifecycle state %q", name)
+		}
+		selected |= bit
+	}
+
+	names := make([]string, 0, len(states))
+	for state := corpus.StateOpen; state <= corpus.StateLapsed; state++ {
+		if selected&(1<<state) != 0 {
+			names = append(names, state.String())
+		}
+	}
+	return selected, names, nil
+}
+
+func lifecycleState(name string) (corpus.State, bool) {
+	switch name {
+	case "open":
+		return corpus.StateOpen, true
+	case "stale":
+		return corpus.StateStale, true
+	case "closed":
+		return corpus.StateClosed, true
+	case "lapsed":
+		return corpus.StateLapsed, true
+	default:
+		return 0, false
+	}
 }
 
 func newFacets() *Facets {

@@ -298,6 +298,10 @@ function wireForm() {
 
   for (const control of els.form.querySelectorAll("select, input[type='checkbox']")) {
     control.addEventListener("change", () => {
+      if (control.dataset.lifecycleState && selectedStates().length === 0) {
+        control.checked = true;
+        return;
+      }
       updateFilterSummary();
       runSearch(true);
     });
@@ -409,7 +413,12 @@ function applyRequest(request) {
   $("f-minpay").value = request.min_annual > 0 ? request.min_annual : "";
   $("f-remote").checked = Boolean(request.remote);
   $("f-haspay").checked = Boolean(request.has_compensation);
-  $("f-closed").checked = Boolean(request.include_closed);
+  const states = request.states ?? (request.include_closed
+    ? ["open", "stale", "closed", "lapsed"]
+    : ["open", "stale"]);
+  for (const control of els.form.querySelectorAll("[data-lifecycle-state]")) {
+    control.checked = states.includes(control.dataset.lifecycleState);
+  }
   $("f-employment").value = request.employment_types?.[0] ?? "";
   $("f-workplace").value = request.workplace_types?.[0] ?? "";
   $("f-since").value = request.posted_since_days > 0 ? String(request.posted_since_days) : "";
@@ -420,6 +429,7 @@ function updateFilterSummary() {
   const request = buildRequest();
   const active = Object.entries(request).reduce((count, [key, value]) => {
     if (key === "titles") return count;
+    if (key === "states" && value.join(",") === "open,stale") return count;
     if (Array.isArray(value)) return count + (value.length > 0 ? 1 : 0);
     return count + (value ? 1 : 0);
   }, 0);
@@ -561,6 +571,11 @@ function terms(id) {
     .filter(Boolean);
 }
 
+function selectedStates() {
+  return [...els.form.querySelectorAll("[data-lifecycle-state]:checked")]
+    .map((control) => control.dataset.lifecycleState);
+}
+
 function buildRequest() {
   const request = {
     titles: terms("f-title"),
@@ -570,7 +585,7 @@ function buildRequest() {
     departments: terms("f-department"),
     remote: $("f-remote").checked,
     has_compensation: $("f-haspay").checked,
-    include_closed: $("f-closed").checked,
+    states: selectedStates(),
     min_annual: Number($("f-minpay").value) || 0,
     posted_since_days: Number($("f-since").value) || 0,
   };
