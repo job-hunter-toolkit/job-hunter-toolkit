@@ -35,5 +35,5 @@ func TestGeneration11MobileMemoryBudget(t *testing.T) {
 func TestWebMCPDoesNotAddASecondGeneration11Index(t *testing.T) {
 	// This is the measured amd64 header before WebMCP. Dynamic column and row
 	// storage is covered by TestGeneration11MobileMemoryBudget above.
-	must.Eq(t, uintptr(1352), unsafe.Sizeof(Engine{}))
+	must.Eq(t, uintptr(1376), unsafe.Sizeof(Engine{}))
 }

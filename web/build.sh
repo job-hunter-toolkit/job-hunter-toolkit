@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 out="${1:-web/dist}"
 mkdir -p "$out"
 
-cp web/index.html web/style.css web/app.js web/config.js web/snapshot.js web/corpus-store.js \
+cp web/index.html web/style.css web/app.js web/card.js web/config.js web/snapshot.js web/corpus-store.js \
    web/freshness.js \
    web/rollup.js web/worker.js web/engine-client.js web/webmcp.js \
    web/manifest.webmanifest web/icon.svg web/icon-maskable.svg \
