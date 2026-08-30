@@ -8,6 +8,7 @@
 import { resolveCorpusBases } from "./config.js";
 import { openSnapshot } from "./snapshot.js";
 import { EngineClient } from "./engine-client.js";
+import { renderCard } from "./card.js";
 import { resultCountText, snapshotStatus } from "./freshness.js";
 import {
   VISIT_KEY,
@@ -558,7 +559,11 @@ async function search(reset) {
   els.list.classList.toggle("instant", !firstPaint);
 
   response.items.forEach((item, i) => {
-    const card = renderItem(item);
+    const card = renderCard(document, item, {
+      snapshotLevel: snapshotStatus(summary, new Date()).level,
+      nowISO: new Date().toISOString(),
+      timeAgo,
+    });
     card.style.setProperty("--stagger", `${Math.min(i, 12) * 25}ms`);
     els.list.append(card);
   });
@@ -604,67 +609,6 @@ function renderEmptyState() {
   empty.append(clear);
 
   els.list.replaceChildren(empty);
-}
-
-function renderItem(item) {
-  const li = document.createElement("li");
-  li.className = "card";
-
-  const url = safeHTTPURL(item.url);
-  const title = document.createElement(url ? "a" : "span");
-  title.className = "title";
-  title.textContent = item.title || "(untitled posting)";
-
-  if (url) {
-    title.href = url;
-    title.target = "_blank";
-    title.rel = "noopener noreferrer";
-    title.setAttribute("aria-label", `${item.title || "Untitled posting"} (opens in a new tab)`);
-  }
-
-  li.append(title);
-
-  const where = document.createElement("div");
-  where.className = "where";
-  if (item.company) addSpan(where, "company", item.company);
-  if (item.location) addSpan(where, "location", item.location);
-  li.append(where);
-
-  const meta = document.createElement("div");
-  meta.className = "meta";
-
-  const level = snapshotStatus(summary, new Date()).level;
-  if (item.state === "stale" && level !== "old") {
-    const stateBadge = addBadge(meta, "not recently checked", "state-stale");
-    stateBadge.title = STATE_TITLES.stale;
-  } else if (item.state === "closed" || item.state === "lapsed") {
-    const label = item.state === "closed" ? "closed in snapshot" : "source status unknown";
-    const stateBadge = addBadge(meta, label, `state-${item.state}`);
-    stateBadge.title = STATE_TITLES[item.state];
-  }
-  if (item.compensation) addBadge(meta, item.compensation, "pay");
-  if (item.remote) addBadge(meta, "remote");
-  if (item.workplace_type && item.workplace_type !== "remote") addBadge(meta, item.workplace_type);
-  if (item.employment_type) addBadge(meta, item.employment_type.replace("_", " "));
-  if (item.seniority) addBadge(meta, item.seniority);
-  if (item.department || item.team) {
-    addBadge(meta, [item.department, item.team].filter(Boolean).join(" / "));
-  }
-  if (item.platform) addBadge(meta, item.platform, "platform");
-
-  // Dates read the way a person says them; the exact day sits in the tooltip.
-  const nowISO = new Date().toISOString();
-  if (item.posted_at) {
-    const badge = addBadge(meta, `posted ${timeAgo(item.posted_at, nowISO) || item.posted_at.slice(0, 10)}`);
-    badge.title = item.posted_at.slice(0, 10);
-  } else if (item.first_seen) {
-    const badge = addBadge(meta, `first seen ${timeAgo(item.first_seen, nowISO) || item.first_seen.slice(0, 10)}`);
-    badge.title = item.first_seen.slice(0, 10);
-  }
-
-  li.append(meta);
-
-  return li;
 }
 
 // ---------------------------------------------------------------------------
@@ -739,38 +683,4 @@ function addSpan(parent, className, text) {
   if (className) span.className = className;
   span.textContent = text;
   parent.append(span);
-}
-
-// Lifecycle states in plain words. "Stale" says how old our evidence is,
-// not how old the posting is: the nightly crawl refreshes a budgeted slice
-// of ~10,000 boards, so a board can go a day or more between checks.
-const STATE_TITLES = {
-  stale:
-    "Visible on the company's board at its last successful check, but that source has not been checked recently. This does not mean the posting is known to be closed.",
-  closed: "Gone from the company's board: two later checks agreed it was removed.",
-  lapsed:
-    "The company's board has not had a successful check for so long that this posting's status is unknown.",
-};
-
-function addBadge(parent, text, className = "") {
-  const span = document.createElement("span");
-  span.className = `badge ${className}`.trim();
-  span.textContent = text;
-  parent.append(span);
-
-  return span;
-}
-
-// safeHTTPURL admits only http(s) targets for posting links. Corpus rows are
-// data, not trusted markup, and with ?corpus= anyone can put rows in front of
-// a visitor; a javascript: href must render as plain text, not a link.
-function safeHTTPURL(raw) {
-  if (!raw) return "";
-  try {
-    const url = new URL(raw);
-
-    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : "";
-  } catch {
-    return "";
-  }
 }

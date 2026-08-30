@@ -13,6 +13,7 @@ feed. Read that first; come here for the "why" behind a specific one.
 | [`budget-scheduler.md`](budget-scheduler.md) | Spending a time budget across sources by measured cost, not source count | Implemented — [`internal/schedule`](../../internal/schedule) |
 | [`index-and-query.md`](index-and-query.md) | The query language's cost model, ordering, and a proposed `index` command | Query language shipped ([`query`](../../query)); indexing/pagination proposed |
 | [`browser-analytics.md`](browser-analytics.md) | Fixed-memory filtered facets and browser cancellation | Implemented in [`web/engine`](../../web/engine) |
+| [`posting-date-trust.md`](posting-date-trust.md) | Generation-relative future-date quarantine, effective ordering, and bounded card projection | Implemented in [`web/engine`](../../web/engine) and [`web/card.js`](../../web/card.js) |
 | [`webmcp.md`](webmcp.md) | Read-only browser-local agent tools, trust boundaries, and experimental browser support | First slice implemented in [`web/webmcp.js`](../../web/webmcp.js) |
 | [`progressive-readiness.md`](progressive-readiness.md) | Generation 11 boot measurements and a verified first-page bootstrap projection | Measured proposal; publication change not implemented |
 | [`pwa-retention-roadmap.md`](pwa-retention-roadmap.md) | PWA audit, local return state, offline truthfulness, and historical-data phases | Small foundation implemented; medium and large phases proposed |

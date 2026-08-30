@@ -50,6 +50,9 @@ type Engine struct {
 	// It is taken once in [Open] so that paging through results cannot watch a
 	// posting drift from open to stale between two clicks.
 	now time.Time
+	// runAt is immutable generation provenance. Date anomaly, ordering,
+	// posted-since, and posted-age decisions use it instead of now.
+	runAt time.Time
 
 	rows []record
 
@@ -74,6 +77,7 @@ type record struct {
 	comp                uint32
 	state               corpus.State
 	isRemote, isHybrid  bool
+	futureDate          bool
 }
 
 type compensationRecord struct {
@@ -182,8 +186,8 @@ type SearchRequest struct {
 	EmploymentTypes []string `json:"employment_types,omitempty"`
 	WorkplaceTypes  []string `json:"workplace_types,omitempty"`
 
-	// PostedSinceDays bounds PostedAt to the last N days, measured from the
-	// engine's single clock reading. Zero means no bound.
+	// PostedSinceDays bounds trusted PostedAt to the last N days, measured from
+	// the immutable generation RunAt. Zero means no bound.
 	PostedSinceDays int `json:"posted_since_days,omitempty"`
 
 	// IncludeClosed widens the search beyond rows currently believed open
@@ -247,8 +251,9 @@ type Facet struct {
 // Facets is a compact point-in-time overview of the matched rows. Every
 // dimension has fixed cardinality, including an explicit unknown bucket, so
 // malformed or unexpectedly diverse source data cannot grow query memory.
-// Age buckets are mutually exclusive and measured against the engine's pinned
-// clock: 7d means [now-7d, now], 30d means older than 7d through 30d.
+// Age buckets are mutually exclusive. Posted age is measured against immutable
+// generation RunAt; lifecycle-derived first-seen age uses the engine's pinned
+// viewer clock. 7d means [reference-7d, reference].
 type Facets struct {
 	Employment   []Facet `json:"employment"`
 	Workplace    []Facet `json:"workplace"`
@@ -259,22 +264,48 @@ type Facets struct {
 
 // Item is one posting as the results list renders it.
 type Item struct {
-	Title          string `json:"title"`
-	Company        string `json:"company"`
-	Location       string `json:"location,omitempty"`
-	URL            string `json:"url,omitempty"`
-	Platform       string `json:"platform,omitempty"`
-	Department     string `json:"department,omitempty"`
-	Team           string `json:"team,omitempty"`
-	EmploymentType string `json:"employment_type,omitempty"`
-	WorkplaceType  string `json:"workplace_type,omitempty"`
-	Seniority      string `json:"seniority,omitempty"`
-	Remote         bool   `json:"remote,omitempty"`
-	Compensation   string `json:"compensation,omitempty"`
-	PostedAt       string `json:"posted_at,omitempty"`
-	FirstSeen      string `json:"first_seen,omitempty"`
-	State          string `json:"state"`
+	Title              string   `json:"title"`
+	Company            string   `json:"company"`
+	Location           string   `json:"location,omitempty"`
+	URL                string   `json:"url,omitempty"`
+	Platform           string   `json:"platform,omitempty"`
+	Department         string   `json:"department,omitempty"`
+	Team               string   `json:"team,omitempty"`
+	EmploymentType     string   `json:"employment_type,omitempty"`
+	WorkplaceType      string   `json:"workplace_type,omitempty"`
+	Seniority          string   `json:"seniority,omitempty"`
+	Remote             bool     `json:"remote,omitempty"`
+	Compensation       string   `json:"compensation,omitempty"`
+	PostedAt           string   `json:"posted_at,omitempty"`
+	FirstSeen          string   `json:"first_seen,omitempty"`
+	EffectiveSortAt    string   `json:"effective_sort_at,omitempty"`
+	EffectiveSortBasis string   `json:"effective_sort_basis"`
+	DateAnomaly        string   `json:"date_anomaly,omitempty"`
+	View               CardView `json:"view"`
+	State              string   `json:"state"`
 }
+
+// CardView is the bounded, display-only projection shared by the visible UI,
+// WebMCP, and any future bootstrap page. Machine values and original source
+// dates remain on Item; these labels only improve hierarchy and consistency.
+type CardView struct {
+	Title             string `json:"title"`
+	Company           string `json:"company"`
+	Location          string `json:"location,omitempty"`
+	Organization      string `json:"organization,omitempty"`
+	Employment        string `json:"employment,omitempty"`
+	Workplace         string `json:"workplace,omitempty"`
+	RemoteEligibility string `json:"remote_eligibility,omitempty"`
+	Seniority         string `json:"seniority,omitempty"`
+	Source            string `json:"source,omitempty"`
+	AccessibleName    string `json:"accessible_name"`
+}
+
+// FutureDateTolerance admits ordinary producer/consumer clock skew without
+// letting a source date materially after an immutable generation claim
+// recency. Generation 11 had no dates in this window: its only two future
+// values were 57h35m04s and 124d09h35m04s after RunAt.
+const FutureDateTolerance = 15 * time.Minute
 
 // Open reads a corpus's manifest, source states and table footer through the
 // store — a few kilobytes — and no column data. The caller decides when to pay
@@ -285,7 +316,7 @@ func Open(ctx context.Context, store corpus.Store, now time.Time) (*Engine, erro
 		return nil, err
 	}
 
-	return &Engine{corpus: c, now: now.UTC()}, nil
+	return &Engine{corpus: c, now: now.UTC(), runAt: c.Manifest().RunAt}, nil
 }
 
 // Summary describes the opened generation. It is available before Load.
@@ -313,6 +344,13 @@ func (e *Engine) Summary() Summary {
 	}
 
 	return s
+}
+
+func (e *Engine) generationRunAt() time.Time {
+	if e.runAt.IsZero() {
+		return e.now // unit-only engines built without Open
+	}
+	return e.runAt
 }
 
 // The column names this surface reads, mirroring the .jhtc schema that
@@ -420,9 +458,14 @@ func (e *Engine) Load(_ context.Context) error {
 		return err
 	}
 
+	runAt := e.generationRunAt()
+	futureCutoff := runAt.Add(FutureDateTolerance).UnixMilli()
 	for i := range rows {
 		rows[i].firstSeen = firstSeen[i]
 		rows[i].postedAt = postedAt[i]
+		if postedAt[i] != 0 && !runAt.IsZero() {
+			rows[i].futureDate = postedAt[i] > futureCutoff
+		}
 
 		switch remote[i] {
 		case remoteFalse:
@@ -447,44 +490,66 @@ func (e *Engine) Load(_ context.Context) error {
 	runtime.GC()
 
 	order := make([]uint32, len(rows))
-	for i := range order {
-		order[i] = uint32(i)
+	trusted := 0
+	for i := range rows {
+		if rows[i].effectivePostedAt() != 0 {
+			order[trusted] = uint32(i)
+			trusted++
+		}
+	}
+	for i := range rows {
+		if rows[i].effectivePostedAt() == 0 {
+			order[trusted] = uint32(i)
+			trusted++
+		}
 	}
 
-	sort.SliceStable(order, func(x, y int) bool {
-		ai, bi := int(order[x]), int(order[y])
-		a, b := &rows[ai], &rows[bi]
-
-		// Dated postings first, newest first. An undated posting is not old,
-		// it is undated, but a list has to put it somewhere and burying it
-		// beats letting it pretend to be today's.
+	// Trusted source dates are one sort group and fallbacks another. Besides
+	// making the contract explicit, partitioning avoids an anomaly branch on
+	// every comparison in the two-million-row hot sort.
+	trusted = 0
+	for trusted < len(order) && rows[order[trusted]].effectivePostedAt() != 0 {
+		trusted++
+	}
+	sort.Slice(order[:trusted], func(x, y int) bool {
+		a, b := &rows[order[x]], &rows[order[y]]
 		if a.postedAt != b.postedAt {
-			if a.postedAt == 0 || b.postedAt == 0 {
-				return b.postedAt == 0
-			}
 			return a.postedAt > b.postedAt
 		}
-
-		if a.firstSeen != b.firstSeen {
-			return a.firstSeen > b.firstSeen
-		}
-
-		if e.company.at(ai) != e.company.at(bi) {
-			return e.company.at(ai) < e.company.at(bi)
-		}
-
-		if e.title.at(ai) != e.title.at(bi) {
-			return e.title.at(ai) < e.title.at(bi)
-		}
-
-		// The table's row order is itself deterministic, so the index is a
-		// stable final tiebreak.
-		return order[x] < order[y]
+		return e.lessFallback(order[x], order[y])
+	})
+	sort.Slice(order[trusted:], func(x, y int) bool {
+		return e.lessFallback(order[trusted+x], order[trusted+y])
 	})
 
 	e.order = order
 
 	return nil
+}
+
+func (e *Engine) lessFallback(aIndex, bIndex uint32) bool {
+	a, b := &e.rows[aIndex], &e.rows[bIndex]
+	if a.firstSeen != b.firstSeen {
+		return a.firstSeen > b.firstSeen
+	}
+	if e.company.at(int(aIndex)) != e.company.at(int(bIndex)) {
+		return e.company.at(int(aIndex)) < e.company.at(int(bIndex))
+	}
+	if e.title.at(int(aIndex)) != e.title.at(int(bIndex)) {
+		return e.title.at(int(aIndex)) < e.title.at(int(bIndex))
+	}
+	return aIndex < bIndex
+}
+
+func (r *record) effectivePostedAt() int64 {
+	if r.futureDate {
+		return 0
+	}
+	return r.postedAt
+}
+
+func isFutureDate(postedAt, runAt time.Time) bool {
+	return !postedAt.IsZero() && !runAt.IsZero() && postedAt.After(runAt.Add(FutureDateTolerance))
 }
 
 // The tri-state encoding for the remote column, as row.go defines it.
@@ -806,7 +871,7 @@ func (f *Facets) add(e *Engine, i int) {
 		compensation = "other"
 	}
 	increment(f.Compensation, compensation)
-	increment(f.PostedAge, ageBucket(decodeTime(row.postedAt), e.now))
+	increment(f.PostedAge, postedAgeBucket(row, e.generationRunAt()))
 	increment(f.FirstSeenAge, ageBucket(decodeTime(row.firstSeen), e.now))
 }
 
@@ -823,6 +888,17 @@ func ageBucket(value, now time.Time) string {
 		return "30d"
 	}
 	return "older"
+}
+
+func postedAgeBucket(row *record, runAt time.Time) string {
+	postedAt := decodeTime(row.effectivePostedAt())
+	if row.futureDate {
+		return "unknown"
+	}
+	if postedAt.After(runAt) {
+		postedAt = runAt
+	}
+	return ageBucket(postedAt, runAt)
 }
 
 // compiledQuery is [query.Query] with every term folded once, evaluated
@@ -950,7 +1026,7 @@ func (c *compiledQuery) match(e *Engine, i int) bool {
 	}
 
 	if !c.postedSince.IsZero() {
-		postedAt := decodeTime(r.postedAt)
+		postedAt := decodeTime(r.effectivePostedAt())
 		if postedAt.IsZero() || postedAt.Before(c.postedSince) {
 			return false
 		}
@@ -1075,7 +1151,7 @@ func (e *Engine) buildQuery(req SearchRequest) (query.Query, error) {
 	}
 
 	if req.PostedSinceDays > 0 {
-		q.PostedSince = e.now.Add(-time.Duration(req.PostedSinceDays) * 24 * time.Hour)
+		q.PostedSince = e.generationRunAt().Add(-time.Duration(req.PostedSinceDays) * 24 * time.Hour)
 	}
 
 	return q, nil
@@ -1085,18 +1161,18 @@ func (e *Engine) item(i int) Item {
 	row := &e.rows[i]
 	p := e.posting(i)
 	item := Item{
-		Title:          p.Title,
-		Company:        p.Company,
-		Location:       p.Location,
-		URL:            p.URL,
-		Platform:       p.Source.Platform,
-		Department:     p.Department,
-		Team:           p.Team,
-		EmploymentType: string(p.EmploymentType),
-		WorkplaceType:  string(p.WorkplaceType),
-		Seniority:      p.Seniority,
+		Title:          boundText(e.title.at(i), 240),
+		Company:        boundText(e.company.at(i), 160),
+		Location:       boundText(e.location.at(i), 200),
+		URL:            boundLocator(e.url.at(i), 2048),
+		Platform:       boundText(e.platform.at(i), 80),
+		Department:     boundText(e.department.at(i), 160),
+		Team:           boundText(e.team.at(i), 160),
+		EmploymentType: boundText(string(p.EmploymentType), 80),
+		WorkplaceType:  boundText(string(p.WorkplaceType), 80),
+		Seniority:      boundText(p.Seniority, 80),
 		Remote:         row.isRemote,
-		Compensation:   compensationLabel(p.Compensation),
+		Compensation:   boundText(compensationLabel(p.Compensation), 200),
 		State:          row.state.String(),
 	}
 
@@ -1107,6 +1183,17 @@ func (e *Engine) item(i int) Item {
 	if row.firstSeen != 0 {
 		item.FirstSeen = decodeTime(row.firstSeen).Format(time.RFC3339)
 	}
+
+	item.EffectiveSortBasis = "first_seen"
+	item.EffectiveSortAt = item.FirstSeen
+	if effective := row.effectivePostedAt(); effective != 0 {
+		item.EffectiveSortBasis = "posted_at"
+		item.EffectiveSortAt = decodeTime(effective).Format(time.RFC3339)
+	}
+	if row.futureDate {
+		item.DateAnomaly = "future"
+	}
+	item.View = cardView(item)
 
 	return item
 }
@@ -1119,7 +1206,7 @@ func (e *Engine) posting(i int) jobposting.JobPosting {
 		Department: e.department.at(i), Team: e.team.at(i), Seniority: e.seniority.at(i),
 		EmploymentType: jobposting.EmploymentType(e.employment.at(i)),
 		WorkplaceType:  jobposting.WorkplaceType(e.workplace.at(i)),
-		PostedAt:       decodeTime(row.postedAt), Remote: &remote,
+		PostedAt:       decodeTime(row.effectivePostedAt()), Remote: &remote,
 		Source: jobposting.PostingSource{Platform: e.platform.at(i)},
 	}
 	if row.comp != 0 {
@@ -1130,6 +1217,108 @@ func (e *Engine) posting(i int) jobposting.JobPosting {
 		}
 	}
 	return p
+}
+
+func cardView(item Item) CardView {
+	title := displayKnown(item.Title, 160)
+	if title == "" {
+		title = "Untitled posting"
+	}
+	company := displayKnown(item.Company, 100)
+	if company == "" {
+		company = "Unknown employer"
+	}
+	location := displayKnown(item.Location, 120)
+
+	department := displayKnown(item.Department, 80)
+	team := displayKnown(item.Team, 80)
+	organization := department
+	if organization == "" {
+		organization = team
+	} else if team != "" && !strings.EqualFold(department, team) {
+		organization += " / " + team
+	}
+
+	view := CardView{
+		Title:        title,
+		Company:      company,
+		Location:     location,
+		Organization: organization,
+		Employment:   humanizeEnum(item.EmploymentType),
+		Workplace:    humanizeEnum(item.WorkplaceType),
+		Seniority:    humanizeEnum(displayKnown(item.Seniority, 80)),
+	}
+	if item.Remote {
+		view.RemoteEligibility = "Remote eligible"
+	}
+	if displayKnown(item.Platform, 80) != "" {
+		view.Source = "Source: " + humanizeEnum(item.Platform)
+	}
+
+	parts := []string{title, "at " + company}
+	if location != "" {
+		parts = append(parts, "in "+location)
+	}
+	view.AccessibleName = boundText(strings.Join(parts, " ")+" (opens in a new tab)", 300)
+
+	return view
+}
+
+func humanizeEnum(value string) string {
+	value = strings.TrimSpace(value)
+	label := make([]byte, 0, min(len(value), 80))
+	space := false
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c == '_' || c == '-' || c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			space = len(label) > 0
+			continue
+		}
+		if space {
+			label = append(label, ' ')
+			space = false
+		}
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if len(label) == 0 && c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		label = append(label, c)
+	}
+	return string(label)
+}
+
+func displayText(value string, limit int) string {
+	return boundText(strings.Join(strings.Fields(value), " "), limit)
+}
+
+func displayKnown(value string, limit int) string {
+	value = displayText(value, limit)
+	switch {
+	case strings.EqualFold(value, "unknown"), strings.EqualFold(value, "n/a"),
+		strings.EqualFold(value, "not specified"), value == "-":
+		return ""
+	default:
+		return value
+	}
+}
+
+func boundText(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit-1]) + "…"
+}
+
+func boundLocator(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if len([]rune(value)) > limit {
+		return ""
+	}
+	return value
 }
 
 // compensationLabel renders a published pay range for the results list. The

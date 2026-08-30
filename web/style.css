@@ -907,6 +907,32 @@ button.quiet[disabled] {
   gap: 0.35rem;
 }
 
+.card-facts {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.status-meta {
+  color: var(--muted);
+}
+
+.detail-meta {
+  align-items: center;
+}
+
+.org-meta {
+  font-size: 0.78rem;
+}
+
+.card-source {
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 0.55rem;
+  padding-top: 0.4rem;
+  overflow-wrap: anywhere;
+}
+
 .badge {
   font-size: 0.72rem;
   font-weight: 500;
@@ -931,6 +957,24 @@ button.quiet[disabled] {
   font-weight: 600;
   padding: 0.08rem 0.5rem;
   border-radius: 999px;
+}
+
+.badge.date-anomaly {
+  background: var(--old-bg);
+  color: var(--old-fg);
+  font-weight: 650;
+  padding: 0.08rem 0.5rem;
+  border-radius: 999px;
+}
+
+.badge.unknown,
+.badge.organization {
+  color: var(--faint);
+}
+
+.card,
+.card * {
+  unicode-bidi: plaintext;
 }
 
 .badge.platform {

@@ -13,7 +13,7 @@ func TestFacetsBoundMalformedValuesAndFutureDates(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	e := &Engine{
 		now:           now,
-		rows:          []record{{postedAt: now.Add(time.Hour).UnixMilli(), firstSeen: now.Add(time.Hour).UnixMilli()}},
+		rows:          []record{{postedAt: now.Add(time.Hour).UnixMilli(), firstSeen: now.Add(time.Hour).UnixMilli(), futureDate: true}},
 		compensations: []compensationRecord{{}},
 		employment:    testStringColumn("unexpected-employment-value"),
 		workplace:     testStringColumn("unexpected-workplace-value"),

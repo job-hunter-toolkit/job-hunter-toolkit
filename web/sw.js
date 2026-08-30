@@ -25,6 +25,7 @@ const SHELL = [
   "index.html",
   "style.css",
   "app.js",
+  "card.js",
   "config.js",
   "snapshot.js",
   "corpus-store.js",

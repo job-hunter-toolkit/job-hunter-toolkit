@@ -8,7 +8,7 @@ query engine is the same Go code compiled to WebAssembly.
 
 ```console
 $ go build ./... && go test ./...        # hermetic; no network needed
-$ node web/test/config.mjs && node web/test/snapshot.mjs && node web/test/store.mjs && node web/test/engine-client.mjs && node web/test/sw.mjs && node web/test/rollup.mjs && node web/test/freshness.mjs && node web/test/webmcp.mjs
+$ node web/test/config.mjs && node web/test/snapshot.mjs && node web/test/store.mjs && node web/test/engine-client.mjs && node web/test/sw.mjs && node web/test/rollup.mjs && node web/test/freshness.mjs && node web/test/card.mjs && node web/test/webmcp.mjs
 $ ./web/build.sh && node web/test/smoke.mjs web/dist <corpus-dir>
 $ go run ./web/fixture -dir <dir>        # deterministic test corpus for the site
 ```
