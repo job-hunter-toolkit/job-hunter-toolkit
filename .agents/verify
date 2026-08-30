@@ -76,13 +76,19 @@ run "Node engine client tests" node web/test/engine-client.mjs
 run "Node service worker tests" node web/test/sw.mjs
 run "Node rollup tests" node web/test/rollup.mjs
 run "Node card tests" node web/test/card.mjs
+run "Node query URL tests" node web/test/query-state.mjs
 run "Node WebMCP tests" node web/test/webmcp.mjs
 
 site="$temporary/site"
 corpus="$temporary/corpus"
+browser_corpus="$temporary/browser-corpus"
 run "site build" ./web/build.sh "$site"
 run "site fixture" go run ./web/fixture -dir "$corpus"
 run "site smoke test" node web/test/smoke.mjs "$site" "$corpus"
+run "browser dependencies" npm ci --prefix web
+run "browser runtime" web/node_modules/.bin/playwright install chromium
+run "browser fixture" go run ./web/fixture -dir "$browser_corpus" -scale 30
+run "browser accessibility and interaction tests" node web/test/browser.mjs "$site" "$browser_corpus"
 
 run "historical chart" bash -c '
   gnuplot -e "outputfile=\"$1/chart.png\"" jobs_record.gnuplot 2> "$1/gnuplot.err"

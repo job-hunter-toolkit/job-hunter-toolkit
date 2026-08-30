@@ -11,6 +11,7 @@ import { EngineClient } from "./engine-client.js";
 import { advanceProgress, failureState, sameVerifiedSnapshot } from "./readiness.js";
 import { renderCard } from "./card.js";
 import { resultCountText, snapshotStatus } from "./freshness.js";
+import { parseQuery, queryForRequest } from "./query-state.js";
 import {
   VISIT_KEY,
   STREAK_KEY,
@@ -46,8 +47,14 @@ const els = {
   results: $("results"),
   count: $("count"),
   list: $("list"),
-  more: $("more"),
+  pagination: $("pagination"),
+  previous: $("previous"),
+  next: $("next"),
+  pageJump: $("page-jump"),
+  pageNumber: $("page-number"),
+  pageTotal: $("page-total"),
   error: $("error"),
+  urlNote: $("url-note"),
 };
 
 // The engine lives in a worker so no scan ever blocks this thread: typing
@@ -72,6 +79,8 @@ if (typeof document.modelContext?.registerTool === "function") {
 
 let corpusURL = "";
 let offset = 0;
+const PAGE_SIZE = 100;
+let currentPage = 1;
 let lastRequest = null;
 let rowsLoaded = false; // search is legal only after the worker loads the rows
 let searchSeq = 0; // stale async results must never paint over newer ones
@@ -87,6 +96,7 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
 }
 
+hydrateFromURL();
 wireForm();
 boot();
 
@@ -264,24 +274,30 @@ function renderBanner(summary) {
 function wireForm() {
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    haptic();
-    runSearch(true, { fromButton: true });
+    runSearch(true, { fromButton: true, historyMode: "push" });
   });
 
-  els.more.addEventListener("click", () => {
-    haptic();
-    runSearch(false, { fromButton: true });
+  els.previous.addEventListener("click", () => {
+    navigatePage(currentPage - 1);
+  });
+
+  els.next.addEventListener("click", () => {
+    navigatePage(currentPage + 1);
+  });
+
+  els.pageJump.addEventListener("submit", (event) => {
+    event.preventDefault();
+    navigatePage(Number(els.pageNumber.value));
   });
 
   els.save.addEventListener("click", () => {
-    haptic();
     saveCurrentSearch();
   });
 
   els.clear.addEventListener("click", () => {
-    haptic();
     applyRequest({ titles: terms("f-title") });
-    runSearch(true);
+    runSearch(true, { historyMode: "push" });
+    $("f-title").focus();
   });
 
   // Search-as-you-type. Text and number inputs debounce so the engine sees
@@ -309,6 +325,13 @@ function wireForm() {
 
   updateFilterSummary();
 
+  globalThis.addEventListener("popstate", () => {
+    const state = parseQuery(globalThis.location.search);
+    applyRequest(state.valid ? state.request : {});
+    currentPage = state.valid ? state.page : 1;
+    runSearch(true, { historyMode: null, preservePage: true, focusResults: true });
+  });
+
   // "/" focuses search from anywhere; Escape clears it. The muscle memory
   // every fast search product shares.
   document.addEventListener("keydown", (event) => {
@@ -321,9 +344,27 @@ function wireForm() {
 
     if (event.key === "Escape" && document.activeElement === $("f-title") && $("f-title").value) {
       $("f-title").value = "";
-      runSearch(true);
+      updateFilterSummary();
+      runSearch(true, { historyMode: "replace" });
+    }
+
+    if (!inField && (event.key === "[" || event.key === "]")) {
+      event.preventDefault();
+      navigatePage(currentPage + (event.key === "]" ? 1 : -1));
     }
   });
+}
+
+function hydrateFromURL() {
+  const state = parseQuery(globalThis.location.search);
+  if (state.valid) {
+    currentPage = state.page;
+    applyRequest(state.request);
+    return;
+  }
+
+  applyRequest({});
+  els.urlNote.textContent = "This link uses unsupported or invalid search parameters, so no filters were applied. The original URL was left unchanged.";
 }
 
 function debounce(fn, ms) {
@@ -361,6 +402,7 @@ function saveCurrentSearch() {
     flashButton(els.save, "Update the app to save");
     return;
   }
+  haptic();
   renderSavedChips();
   flashButton(els.save, "Saved");
 }
@@ -385,9 +427,8 @@ function renderSavedChips() {
     run.textContent = entry.name;
     run.title = "Run this saved search";
     run.addEventListener("click", () => {
-      haptic();
       applyRequest(entry.request);
-      runSearch(true);
+      runSearch(true, { historyMode: "push" });
     });
 
     const remove = document.createElement("button");
@@ -495,7 +536,6 @@ async function renderRollup() {
     item.textContent = fresh > 0 ? `${entry.name}: ${freshLabel}` : `${entry.name}: nothing new`;
     item.title = `${total.toLocaleString()} total matches`;
     item.addEventListener("click", () => {
-      haptic();
       applyRequest(entry.request);
       runSearch(true);
     });
@@ -531,26 +571,56 @@ async function renderRollup() {
 // runSearch wraps search with feedback proportional to how it was driven: a
 // button press gets a busy state, a keystroke gets only the input spinner.
 // Before the rows finish loading it queues exactly one follow-up search.
-async function runSearch(reset, { fromButton = false } = {}) {
+async function runSearch(reset, { fromButton = false, historyMode = "replace", preservePage = false, focusResults = false } = {}) {
+  if (reset && !preservePage) currentPage = 1;
+  if (reset && historyMode) syncURL(historyMode);
+
   if (!rowsLoaded) {
     // Typing during the load is fine: boot's first search reads the form as
     // it stands the moment the rows land, so nothing typed is lost.
     return;
   }
 
-  const button = fromButton ? (reset ? els.go : els.more) : null;
+  const button = fromButton ? els.go : null;
   if (button) button.disabled = true;
   els.spin.classList.add("busy");
   els.list.classList.add("searching");
 
   try {
     await search(reset);
+    if (focusResults) focusResultCount();
   } catch (err) {
     if (err?.name !== "AbortError") showError(err);
   } finally {
     if (button) button.disabled = false;
     els.spin.classList.remove("busy");
     els.list.classList.remove("searching");
+  }
+}
+
+function navigatePage(page) {
+  const max = Number(els.pageNumber.max) || 1;
+  const nextPage = Math.min(max, Math.max(1, Math.trunc(page) || 1));
+  if (nextPage === currentPage) return;
+  currentPage = nextPage;
+  runSearch(true, { historyMode: "push", preservePage: true, focusResults: true });
+}
+
+function focusResultCount() {
+  els.count.focus({ preventScroll: true });
+  els.results.scrollIntoView({
+    block: "start",
+    behavior: globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+  });
+}
+
+function syncURL(mode) {
+  try {
+    const search = queryForRequest(buildRequest(), globalThis.location.search, currentPage);
+    globalThis.history[`${mode}State`](null, "", `${globalThis.location.pathname}${search}${globalThis.location.hash}`);
+  } catch {
+    // Search remains useful when history is unavailable or the query exceeds
+    // the bounded shareable format. Never turn a browser feature into a gate.
   }
 }
 
@@ -601,7 +671,6 @@ async function search(reset) {
 
   if (reset) {
     searchController?.abort();
-    offset = 0;
     lastRequest = buildRequest();
   }
 
@@ -609,7 +678,8 @@ async function search(reset) {
   searchController = controller;
   let response;
   try {
-    response = await engine.search({ ...lastRequest, offset, limit: 100 }, { signal: controller.signal });
+    offset = (currentPage - 1) * PAGE_SIZE;
+    response = await engine.search({ ...lastRequest, offset, limit: PAGE_SIZE }, { signal: controller.signal });
   } finally {
     if (searchController === controller) searchController = null;
   }
@@ -625,9 +695,7 @@ async function search(reset) {
     // first real paint of the list gets rhythm, retyping gets immediacy.
     const firstPaint = els.list.querySelector(".card:not(.skeleton)") === null;
 
-    if (reset) {
-      els.list.replaceChildren();
-    }
+    els.list.replaceChildren();
 
     els.list.classList.toggle("instant", !firstPaint);
 
@@ -641,9 +709,14 @@ async function search(reset) {
       els.list.append(card);
     });
 
-    offset += response.items.length;
+    const totalPages = Math.max(1, Math.ceil(response.matched / PAGE_SIZE));
+    if (currentPage > totalPages) {
+      currentPage = totalPages;
+      syncURL("replace");
+      return search(true);
+    }
     renderCount(response);
-    els.more.hidden = offset >= response.matched;
+    renderPagination(response.matched, totalPages);
   } catch (err) {
     err.phase = "paint";
     err.retryable = true;
@@ -659,7 +732,17 @@ function renderCount(response) {
   }
 
   const level = snapshotStatus(summary, new Date()).level;
-  els.count.textContent = resultCountText(response, offset, level);
+  els.count.textContent = resultCountText(response, offset + response.items.length, level);
+}
+
+function renderPagination(matched, totalPages) {
+  els.pagination.hidden = matched <= PAGE_SIZE;
+  els.previous.disabled = currentPage === 1;
+  els.next.disabled = currentPage === totalPages;
+  els.pageNumber.value = String(currentPage);
+  els.pageNumber.max = String(totalPages);
+  els.pageTotal.textContent = `of ${totalPages.toLocaleString()}`;
+  els.pagination.setAttribute("aria-label", `Result pages, page ${currentPage} of ${totalPages}`);
 }
 
 // renderEmptyState replaces a bare "no results" sentence with the one action
@@ -680,9 +763,9 @@ function renderEmptyState() {
   clear.className = "secondary";
   clear.textContent = "Clear filters";
   clear.addEventListener("click", () => {
-    haptic();
     applyRequest({});
-    runSearch(true);
+    runSearch(true, { historyMode: "push" });
+    $("f-title").focus();
   });
   empty.append(clear);
 

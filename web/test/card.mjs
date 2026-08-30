@@ -1,4 +1,4 @@
-import { renderCard, safeHTTPURL } from "../card.js";
+import { locationPresentation, renderCard, safeHTTPURL } from "../card.js";
 
 let failures = 0;
 function check(label, got, want) {
@@ -59,11 +59,26 @@ check("script URL is inert text", title.tagName, "SPAN");
 check("instruction-shaped title stays text", title.textContent, malicious);
 check("renderer never creates attacker markup", all.some((node) => node.tagName === "IMG"), false);
 check("anomaly is visible", anomaly.textContent, "Source date appears in the future");
-check("exact anomalous date is accessible", exactDate.attributes["aria-label"], "Source date: 2027-01-01T00:00:00Z");
+check("time avoids prohibited ARIA", exactDate.attributes["aria-label"], undefined);
+check("exact date remains available", exactDate.title, "2027-01-01T00:00:00Z");
+check("exact date is exposed as text", all.find((node) => node.className === "sr-only").textContent, " (2027-01-01T00:00:00Z)");
 check("metadata groups have accessible names", all.filter((node) => node.attributes.role === "list").map((node) => node.attributes["aria-label"]), ["Status and recency", "Job details", "Organization"]);
 check("missing-link card has a descriptive name", card.attributes["aria-label"].includes("Unknown employer"), true);
 check("http URL allowed", safeHTTPURL("https://example.com/job"), "https://example.com/job");
 check("data URL rejected", safeHTTPURL("data:text/html,hi"), "");
+
+check("ordinary location stays intact", locationPresentation("Ann Arbor, Michigan").summary, "Ann Arbor, Michigan");
+check("ordinary multi-location stays useful", locationPresentation("Berlin; München").summary, "Berlin · München");
+check("duplicates and malformed delimiters normalize", locationPresentation("Paris ||| paris ; ; Lyon").summary, "Paris · Lyon");
+check("absent location stays absent", locationPresentation(""), { summary: "", full: "", disclose: false, truncated: false });
+const hundreds = Array.from({ length: 300 }, (_, i) => `City ${i}`).join("|");
+const many = locationPresentation(hundreds);
+check("hundreds of locations get a truthful count", many.summary, "300 locations, including City 0");
+check("hundreds of locations use disclosure", many.disclose, true);
+check("oversized location DOM text is bounded", [...many.full].length <= 4096, true);
+const hostileLocation = locationPresentation(`東京|${"x".repeat(5000)}`);
+check("Unicode survives and long token cannot overflow summary", hostileLocation.summary.startsWith("2 locations, including 東京"), true);
+check("long source fact reports truncation", hostileLocation.truncated, true);
 
 const linked = (company, id) => renderCard(document, {
   url: `https://example.com/jobs/${id}`,

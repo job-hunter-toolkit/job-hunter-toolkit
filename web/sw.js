@@ -26,6 +26,7 @@ const SHELL = [
   "style.css",
   "app.js",
   "card.js",
+  "query-state.js",
   "config.js",
   "snapshot.js",
   "readiness.js",
