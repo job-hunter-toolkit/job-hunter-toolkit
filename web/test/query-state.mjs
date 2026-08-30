@@ -26,9 +26,9 @@ const encoded = queryForRequest(complete, "?corpus=https%3A%2F%2Fexample.com%2Fs
 check("every filter round trips with Unicode and order", queryForRequest(parseQuery(encoded).request), queryForRequest(complete));
 check("corpus override coexists but is not query state", new URLSearchParams(encoded).get("corpus"), "https://example.com/snapshot/");
 check("repeated and comma-separated terms parse", parseQuery("?qv=1&title=a&title=b%2C+c").request.titles, ["a", "b", "c"]);
-check("defaults stay absent", parseQuery(queryForRequest({})).request, {});
+check("defaults stay explicit", parseQuery(queryForRequest({})).request, { states: ["open", "stale"] });
 check("unknown parameters do not become request data", parseQuery("?qv=1&future=x&title=engineer"), {
-  request: { titles: ["engineer"] }, page: 1, valid: true, reason: "ok", unknown: ["future"],
+  request: { titles: ["engineer"], states: ["open", "stale"] }, page: 1, valid: true, reason: "ok", unknown: ["future"],
 });
 check("future version fails closed", parseQuery("?qv=999&title=engineer").valid, false);
 check("missing version leaves old links inert", parseQuery("?title=engineer").request, {});
