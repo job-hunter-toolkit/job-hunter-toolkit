@@ -17,7 +17,7 @@ mkdir -p "$out"
 
 cp web/index.html web/style.css web/app.js web/config.js web/snapshot.js web/corpus-store.js \
    web/freshness.js \
-   web/rollup.js web/worker.js web/engine-client.js \
+   web/rollup.js web/worker.js web/engine-client.js web/webmcp.js \
    web/manifest.webmanifest web/icon.svg web/icon-maskable.svg \
    web/apple-touch-icon.png "$out/"
 

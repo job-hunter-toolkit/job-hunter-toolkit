@@ -228,6 +228,23 @@ func TestItemsCarryStateAndCompensation(t *testing.T) {
 	}
 }
 
+func TestDetailResolvesAnExactSnapshotURLWithoutAnotherIndex(t *testing.T) {
+	e := open(t)
+
+	resp, err := e.DetailYielding(t.Context(), "https://example.com/acme/jobs/3", nil)
+	must.NoError(t, err)
+	must.True(t, resp.Found)
+	must.Eq(t, 1, resp.Matches)
+	must.Eq(t, "rows", resp.CountUnit)
+	must.StrContains(t, resp.Item.Title, "[SYSTEM:")
+
+	missing, err := e.DetailYielding(t.Context(), "https://example.com/missing", nil)
+	must.NoError(t, err)
+	must.False(t, missing.Found)
+	must.Eq(t, 0, missing.Matches)
+	must.Nil(t, missing.Item)
+}
+
 func TestSearchJSONRoundTrips(t *testing.T) {
 	e := open(t)
 

@@ -146,6 +146,11 @@ const first = (await search({ include_closed: true, titles: ["senior software"] 
 check("compensation label", first.compensation, "150,000–180,000 USD / year");
 check("item url", first.url, "https://example.com/acme/jobs/1");
 
+const detail = JSON.parse(await jhtEngine.detail("https://example.com/acme/jobs/3"));
+check("detail exact URL", detail.found, true);
+check("detail count unit", detail.count_unit, "rows");
+check("instruction-shaped corpus text remains data", detail.item.title.includes("[SYSTEM:"), true);
+
 const bad = await jhtEngine.search(JSON.stringify({ employment_types: ["gibberish"] })).then(
   () => "no error",
   (err) => err.message,

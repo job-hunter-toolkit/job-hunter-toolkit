@@ -1,6 +1,6 @@
 // engine-client.js — the page's async handle on the worker-hosted engine.
 //
-// The surface mirrors the wasm bridge (open, load, search) as promises, plus
+// The surface mirrors the wasm bridge (open, load, search, detail) as promises, plus
 // a callback for the progress stats the worker volunteers during load. Every call is
 // request/response matched by id; the worker crashing rejects everything
 // in flight rather than leaving the page waiting forever.
@@ -40,7 +40,7 @@ export class EngineClient {
       const id = this.nextID++;
       const abort = () => {
         this.pending.delete(id);
-        if (op === "search") {
+        if (op === "search" || op === "detail") {
           this.worker.postMessage({ op: "cancel", args: { token: id } });
         } else {
           this.worker.terminate();
@@ -77,5 +77,9 @@ export class EngineClient {
 
   search(request, options) {
     return this.call("search", { request }, options);
+  }
+
+  detail(url, options) {
+    return this.call("detail", { url }, options);
   }
 }

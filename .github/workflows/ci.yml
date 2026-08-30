@@ -110,6 +110,7 @@ jobs:
         node web/test/sw.mjs
         node web/test/rollup.mjs
         node web/test/freshness.mjs
+        node web/test/webmcp.mjs
         go run ./web/fixture -dir "$RUNNER_TEMP/corpus"
         ./web/build.sh "$RUNNER_TEMP/site"
         node web/test/smoke.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/corpus"
