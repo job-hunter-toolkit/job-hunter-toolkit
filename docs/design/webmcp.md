@@ -77,7 +77,7 @@ general stable availability: Chrome's published support remains experimental.
   telemetry call, saved-search read, corpus export, or arbitrary query/code
   execution.
 - Inputs are manually validated in addition to their schemas. Unknown fields,
-  unsupported enum values, non-finite numbers, non-HTTP detail locators, and
+  unsupported enum values, non-finite numbers, non-HTTP record locators, and
   over-limit pages are stable `invalid_input` responses.
 - Calls before load completes return `not_ready`, with the current phase and
   snapshot provenance when metadata is available. A failed load is not

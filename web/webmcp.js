@@ -322,7 +322,7 @@ function provenance(summary, now) {
     identity_version: Number(summary.identity_version) || 0,
     corpus_rows: Number(summary.rows) || 0,
     believed_open_deduplicated: Number(summary.open) || 0,
-    count_semantics: "Search, facet, state, detail match, and corpus_rows values count corpus rows. believed_open_deduplicated is the manifest's generation-wide deduplicated believed-open count.",
+    count_semantics: "Search, facet, state, record match, and corpus_rows values count corpus rows. believed_open_deduplicated is the manifest's generation-wide deduplicated believed-open count.",
   };
 }
 
