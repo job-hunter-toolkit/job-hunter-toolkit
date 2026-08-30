@@ -274,17 +274,14 @@ function renderBanner(summary) {
 function wireForm() {
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    haptic();
     runSearch(true, { fromButton: true, historyMode: "push" });
   });
 
   els.previous.addEventListener("click", () => {
-    haptic();
     navigatePage(currentPage - 1);
   });
 
   els.next.addEventListener("click", () => {
-    haptic();
     navigatePage(currentPage + 1);
   });
 
@@ -294,12 +291,10 @@ function wireForm() {
   });
 
   els.save.addEventListener("click", () => {
-    haptic();
     saveCurrentSearch();
   });
 
   els.clear.addEventListener("click", () => {
-    haptic();
     applyRequest({ titles: terms("f-title") });
     runSearch(true, { historyMode: "push" });
     $("f-title").focus();
@@ -407,6 +402,7 @@ function saveCurrentSearch() {
     flashButton(els.save, "Update the app to save");
     return;
   }
+  haptic();
   renderSavedChips();
   flashButton(els.save, "Saved");
 }
@@ -431,7 +427,6 @@ function renderSavedChips() {
     run.textContent = entry.name;
     run.title = "Run this saved search";
     run.addEventListener("click", () => {
-      haptic();
       applyRequest(entry.request);
       runSearch(true, { historyMode: "push" });
     });
@@ -541,7 +536,6 @@ async function renderRollup() {
     item.textContent = fresh > 0 ? `${entry.name}: ${freshLabel}` : `${entry.name}: nothing new`;
     item.title = `${total.toLocaleString()} total matches`;
     item.addEventListener("click", () => {
-      haptic();
       applyRequest(entry.request);
       runSearch(true);
     });
@@ -769,7 +763,6 @@ function renderEmptyState() {
   clear.className = "secondary";
   clear.textContent = "Clear filters";
   clear.addEventListener("click", () => {
-    haptic();
     applyRequest({});
     runSearch(true, { historyMode: "push" });
     $("f-title").focus();
