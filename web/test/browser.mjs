@@ -149,6 +149,7 @@ try {
   const failure = await failureContext.newPage();
   await failure.goto(`${origin}/?corpus=${encodeURIComponent(`${origin}/missing/`)}`);
   await failure.locator("#error").waitFor({ state: "visible", timeout: 10_000 });
+  await failure.waitForTimeout(500);
   assert.equal(await failure.locator("#error").evaluate((node) => node === document.activeElement), true);
   await assertAxe(failure, "error state");
   await assertNoOverflow(failure);
