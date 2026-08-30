@@ -8,6 +8,7 @@
 export class EngineClient {
   constructor() {
     this.worker = new Worker("worker.js", { type: "module" });
+    this.active = true;
     this.pending = new Map();
     this.nextID = 1;
     this.onProgress = null;
@@ -25,24 +26,47 @@ export class EngineClient {
       this.pending.delete(message.id);
 
       if (message.ok) entry.resolve(message.value);
-      else entry.reject(new Error(message.error));
+      else {
+        const err = new Error(message.error);
+        err.phase = message.phase;
+        err.retryable = message.retryable;
+        entry.reject(err);
+      }
     };
 
     this.worker.onerror = (event) => {
       const err = new Error(event.message || "the search engine worker failed");
-      for (const entry of this.pending.values()) entry.reject(err);
-      this.pending.clear();
+      err.phase = "worker";
+      err.retryable = true;
+      this.terminate(err);
     };
+  }
+
+  terminate(reason = new DOMException("The search engine was replaced", "AbortError")) {
+    if (!this.active) return;
+    this.active = false;
+    this.worker.onmessage = null;
+    this.worker.onerror = null;
+    this.worker.terminate();
+    for (const entry of this.pending.values()) entry.reject(reason);
+    this.pending.clear();
   }
 
   call(op, args, { signal } = {}) {
     return new Promise((resolve, reject) => {
+      if (!this.active) {
+        reject(new Error("the search engine worker is not active"));
+        return;
+      }
       const id = this.nextID++;
       const abort = () => {
         this.pending.delete(id);
         if (op === "search" || op === "detail") {
           this.worker.postMessage({ op: "cancel", args: { token: id } });
         } else {
+          this.active = false;
+          this.worker.onmessage = null;
+          this.worker.onerror = null;
           this.worker.terminate();
           for (const entry of this.pending.values()) {
             entry.reject(new DOMException("Snapshot preparation timed out", "TimeoutError"));

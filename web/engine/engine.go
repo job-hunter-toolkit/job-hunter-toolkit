@@ -92,6 +92,26 @@ type stringColumn struct {
 	direct []string
 }
 
+// LoadProgress is one monotonic milestone in the expensive browser projection.
+// Completed never decreases and Total is fixed for one load, so the DOM and
+// machine-readable capability surface can report the same truthful state.
+type LoadProgress struct {
+	Phase     string `json:"phase"`
+	Completed int    `json:"completed"`
+	Total     int    `json:"total"`
+}
+
+const loadProgressTotal = 30
+
+func reportLoadProgress(report func(LoadProgress), phase string, completed int) {
+	if report == nil {
+		return
+	}
+	report(LoadProgress{
+		Phase: phase, Completed: completed, Total: loadProgressTotal,
+	})
+}
+
 func (c stringColumn) at(i int) string {
 	if c.direct != nil {
 		return c.direct[i]
@@ -106,20 +126,27 @@ func (c stringColumn) fold(i int) string {
 	return c.folded[c.ids[i]]
 }
 
-func loadStringColumn(table *corpus.Table, name string, folded bool) (stringColumn, error) {
+func (c *stringColumn) buildFolded() {
+	if c.direct != nil {
+		c.folded = make([]string, len(c.direct))
+		for i, value := range c.direct {
+			c.folded[i] = strings.ToLower(value)
+		}
+		return
+	}
+	c.folded = make([]string, len(c.values))
+	for i, value := range c.values {
+		c.folded[i] = strings.ToLower(value)
+	}
+}
+
+func loadStringColumn(table *corpus.Table, name string) (stringColumn, error) {
 	dictionary, ids, indexed, err := table.StringDictionary(name)
 	if err != nil {
 		return stringColumn{}, err
 	}
 	if indexed {
-		column := stringColumn{ids: ids, values: dictionary}
-		if folded {
-			column.folded = make([]string, len(dictionary))
-			for i, value := range dictionary {
-				column.folded[i] = strings.ToLower(value)
-			}
-		}
-		return column, nil
+		return stringColumn{ids: ids, values: dictionary}, nil
 	}
 
 	raw, err := table.Strings(name)
@@ -135,9 +162,6 @@ func loadStringColumn(table *corpus.Table, name string, folded bool) (stringColu
 			id = uint32(len(column.values))
 			internIDs[value] = id
 			column.values = append(column.values, value)
-			if folded {
-				column.folded = append(column.folded, strings.ToLower(value))
-			}
 		}
 		column.ids[i] = id
 	}
@@ -395,6 +419,13 @@ var requiredColumns = []string{
 // request, so the columns this deliberately skips (row identity, dedupe keys,
 // closure timestamps, the audit fields) are bytes that never leave the host.
 func (e *Engine) Load(_ context.Context) error {
+	return e.LoadWithProgress(nil)
+}
+
+// LoadWithProgress materializes the same projection as Load while exposing
+// bounded phase milestones. Reporting does not change the loaded data or its
+// digest verification; callers may omit it without changing behavior.
+func (e *Engine) LoadWithProgress(report func(LoadProgress)) error {
 	if e.rows != nil {
 		return nil
 	}
@@ -409,37 +440,40 @@ func (e *Engine) Load(_ context.Context) error {
 
 	rows := make([]record, table.Rows())
 	e.rows = rows
+	reportLoadProgress(report, "decode", 0)
 
 	// Keep four-byte IDs per row and one copy of each distinct value. This is
 	// the same logical projection as before, but does not spend 16 bytes on a Go
 	// string header for every field of every row.
-	for _, column := range []struct {
-		name   string
-		folded bool
-		to     *stringColumn
+	columns := []struct {
+		name string
+		to   *stringColumn
 	}{
-		{colPlatform, false, &e.platform},
-		{colCompany, true, &e.company},
-		{colTitle, true, &e.title},
-		{colLocation, true, &e.location},
-		{colDepartment, true, &e.department},
-		{colTeam, true, &e.team},
-		{colEmployment, false, &e.employment},
-		{colWorkplace, false, &e.workplace},
-		{colSeniority, false, &e.seniority},
-	} {
-		loaded, err := loadStringColumn(table, column.name, column.folded)
+		{colPlatform, &e.platform},
+		{colCompany, &e.company},
+		{colTitle, &e.title},
+		{colLocation, &e.location},
+		{colDepartment, &e.department},
+		{colTeam, &e.team},
+		{colEmployment, &e.employment},
+		{colWorkplace, &e.workplace},
+		{colSeniority, &e.seniority},
+	}
+	for i, column := range columns {
+		loaded, err := loadStringColumn(table, column.name)
 		if err != nil {
 			return err
 		}
 		*column.to = loaded
 		runtime.GC()
+		reportLoadProgress(report, "decode", i+1)
 	}
 	var err error
 	if e.url, err = loadDirectStringColumn(table, colURL); err != nil {
 		return err
 	}
 	runtime.GC()
+	reportLoadProgress(report, "decode", 10)
 
 	// Timestamps are Unix milliseconds with 0 reserved for "the board did not
 	// say" — the .jhtc encoding internal/corpus/row.go documents.
@@ -457,9 +491,24 @@ func (e *Engine) Load(_ context.Context) error {
 	if err != nil {
 		return err
 	}
+	reportLoadProgress(report, "decode", 11)
+
+	if err := e.loadCompensation(table); err != nil {
+		return err
+	}
+	runtime.GC()
+	reportLoadProgress(report, "decode", 12)
+
+	for i, column := range []*stringColumn{&e.company, &e.title, &e.location, &e.department, &e.team} {
+		column.buildFolded()
+		runtime.GC()
+		reportLoadProgress(report, "fold", 13+i)
+	}
 
 	runAt := e.generationRunAt()
 	futureCutoff := runAt.Add(FutureDateTolerance).UnixMilli()
+	reportLoadProgress(report, "state", 18)
+	stateProgress := 18
 	for i := range rows {
 		rows[i].firstSeen = firstSeen[i]
 		rows[i].postedAt = postedAt[i]
@@ -473,22 +522,26 @@ func (e *Engine) Load(_ context.Context) error {
 		case remoteTrue:
 			rows[i].isRemote = true
 		}
+		completed := 18 + (i+1)*4/max(len(rows), 1)
+		if completed > stateProgress {
+			stateProgress = completed
+			reportLoadProgress(report, "state", completed)
+		}
+	}
+	if stateProgress < 22 {
+		reportLoadProgress(report, "state", 22)
 	}
 	firstSeen = nil
 	postedAt = nil
 	runtime.GC()
 
-	if err := e.loadCompensation(table); err != nil {
-		return err
-	}
-	runtime.GC()
-
-	if err := e.loadStates(table, remote); err != nil {
+	if err := e.loadStates(table, remote, report); err != nil {
 		return err
 	}
 	remote = nil
 	runtime.GC()
 
+	reportLoadProgress(report, "sort", 27)
 	order := make([]uint32, len(rows))
 	trusted := 0
 	for i := range rows {
@@ -518,11 +571,14 @@ func (e *Engine) Load(_ context.Context) error {
 		}
 		return e.lessFallback(order[x], order[y])
 	})
+	reportLoadProgress(report, "sort", 28)
 	sort.Slice(order[trusted:], func(x, y int) bool {
 		return e.lessFallback(order[trusted+x], order[trusted+y])
 	})
+	reportLoadProgress(report, "sort", 29)
 
 	e.order = order
+	reportLoadProgress(report, "sort", 30)
 
 	return nil
 }
@@ -577,21 +633,21 @@ func (e *Engine) loadCompensation(table *corpus.Table) error {
 		return err
 	}
 
-	minimums, err := loadStringColumn(table, colCompMin, false)
+	minimums, err := loadStringColumn(table, colCompMin)
 	if err != nil {
 		return err
 	}
-	maximums, err := loadStringColumn(table, colCompMax, false)
+	maximums, err := loadStringColumn(table, colCompMax)
 	if err != nil {
 		return err
 	}
-	if e.currency, err = loadStringColumn(table, colCompCcy, false); err != nil {
+	if e.currency, err = loadStringColumn(table, colCompCcy); err != nil {
 		return err
 	}
-	if e.period, err = loadStringColumn(table, colCompPeriod, false); err != nil {
+	if e.period, err = loadStringColumn(table, colCompPeriod); err != nil {
 		return err
 	}
-	if e.compensation, err = loadStringColumn(table, colCompSummary, false); err != nil {
+	if e.compensation, err = loadStringColumn(table, colCompSummary); err != nil {
 		return err
 	}
 
@@ -651,16 +707,17 @@ func decodeFloat(s string) (float64, error) {
 // loadStates computes each row's lifecycle state through corpus.State — the
 // same derivation every other surface uses — feeding it the two inputs that
 // function actually reads: the closure reason and the row's source.
-func (e *Engine) loadStates(table *corpus.Table, remote []int64) error {
-	sourceKeys, err := loadStringColumn(table, colSourceKey, false)
+func (e *Engine) loadStates(table *corpus.Table, remote []int64, report func(LoadProgress)) error {
+	sourceKeys, err := loadStringColumn(table, colSourceKey)
 	if err != nil {
 		return err
 	}
-	reasons, err := loadStringColumn(table, colClosedWhy, false)
+	reasons, err := loadStringColumn(table, colClosedWhy)
 	if err != nil {
 		return err
 	}
 
+	stateProgress := 22
 	for i := range e.rows {
 		synthetic := corpus.Row{Posting: jobposting.JobPosting{Source: jobposting.PostingSource{
 			Platform: e.platform.at(i),
@@ -676,6 +733,14 @@ func (e *Engine) loadStates(table *corpus.Table, remote []int64) error {
 			r.isRemote = jobposting.LooksRemote(e.location.fold(i), e.title.fold(i))
 		}
 		r.isHybrid = jobposting.LooksHybrid(e.location.fold(i), e.title.fold(i))
+		completed := 22 + (i+1)*4/max(len(e.rows), 1)
+		if completed > stateProgress {
+			stateProgress = completed
+			reportLoadProgress(report, "state", completed)
+		}
+	}
+	if stateProgress < 26 {
+		reportLoadProgress(report, "state", 26)
 	}
 
 	return nil

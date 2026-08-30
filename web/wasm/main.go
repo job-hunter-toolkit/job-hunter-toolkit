@@ -79,14 +79,25 @@ func (b *bridge) open(args []js.Value) (any, error) {
 
 // load materializes the rows. It is the one expensive call, so it reports what
 // it cost: the page shows the number instead of guessing.
-func (b *bridge) load(_ []js.Value) (any, error) {
+func (b *bridge) load(args []js.Value) (any, error) {
 	if b.engine == nil {
 		return nil, errors.New("load: open() first")
 	}
 
 	start := time.Now()
+	var progress js.Value
+	if len(args) > 0 && args[0].Type() == js.TypeFunction {
+		progress = args[0]
+	}
 
-	if err := b.engine.Load(context.Background()); err != nil {
+	if err := b.engine.LoadWithProgress(func(update engine.LoadProgress) {
+		if progress.Type() == js.TypeFunction {
+			progress.Invoke(map[string]any{
+				"phase":     update.Phase,
+				"completed": update.Completed, "total": update.Total,
+			})
+		}
+	}); err != nil {
 		return nil, err
 	}
 

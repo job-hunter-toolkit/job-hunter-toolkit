@@ -321,6 +321,12 @@ form {
   gap: 0.5rem;
 }
 
+.form-readiness {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
 .search-box {
   position: relative;
   flex: 1;

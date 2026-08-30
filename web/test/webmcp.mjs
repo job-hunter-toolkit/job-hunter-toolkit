@@ -143,13 +143,17 @@ const oversizedInputError = await byName.search_jobs.execute({ ["x".repeat(300_0
 check("oversized invalid input returns bounded error", new TextEncoder().encode(JSON.stringify(oversizedInputError)).byteLength <= 256 * 1024, true);
 check("record rejects script URL", (await byName.get_job_record.execute({ url: "javascript:alert(1)" })).error.code, "invalid_input");
 
-state = { phase: "indexing", summary };
+state = { phase: "indexing", summary, progress: { phase: "fold", completed: 14, total: 24 } };
 check("not-ready search", (await byName.search_jobs.execute({ titles: ["go"] })).error.code, "not_ready");
-check("status remains truthful while indexing", (await byName.get_snapshot_status.execute({})).data.phase, "indexing");
+const indexingStatus = await byName.get_snapshot_status.execute({});
+check("status remains truthful while indexing", indexingStatus.data.phase, "indexing");
+check("status phase matches UI progress", indexingStatus.data.current_phase, "fold");
+check("status progress matches UI progress", [indexingStatus.data.completed, indexingStatus.data.total], [14, 24]);
 check("capability readiness follows indexing", (await byName.get_search_capabilities.execute({})).data.readiness.operations.get_job_record.available, false);
-state = { phase: "error", summary };
+state = { phase: "error", summary, error: { phase: "sort", retryable: true, action: "Retry in this tab" } };
 const unavailable = await byName.search_jobs.execute({});
-check("failed load is not retryable inside tab", unavailable.error.retryable, false);
+check("failed load advertises in-tab recovery", unavailable.error.retryable, true);
+check("failed load identifies its phase", unavailable.error.message.includes("sort"), true);
 state = { phase: "ready", summary };
 
 let abortSeen = false;

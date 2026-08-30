@@ -1,10 +1,12 @@
 // Unit coverage for the worker protocol's cancellation contract.
 
 let worker;
+const workers = [];
 
 class FakeWorker {
   constructor() {
     worker = this;
+    workers.push(this);
     this.messages = [];
   }
 
@@ -47,6 +49,14 @@ if (error?.name !== "AbortError" || client.pending.size !== 0) {
 // A late worker response to cancelled work is deliberately ignored.
 worker.onmessage({ data: { id: request.id, ok: true, value: { matched: 1 } } });
 
+const failedLoad = client.load();
+const failedLoadRequest = worker.messages.at(-1);
+worker.onmessage({ data: { id: failedLoadRequest.id, ok: false, error: "bad column", phase: "decode", retryable: true } });
+const failedLoadError = await failedLoad.then(() => null, (err) => err);
+if (failedLoadError?.phase !== "decode" || failedLoadError?.retryable !== true) {
+  throw new Error(`worker failure lost recovery metadata: ${failedLoadError}`);
+}
+
 // Exercise the actual EngineClient.detail -> WebMCP seam. A fake detail
 // dependency would miss operation-specific error naming in EngineClient.
 const { createWebMCPTools } = await import("../webmcp.js");
@@ -81,6 +91,22 @@ const opening = client.open("https://raw.example/missing/", { signal: AbortSigna
 const timeout = await opening.then(() => null, (err) => err);
 if (timeout?.name !== "TimeoutError" || worker.terminated !== true || client.pending.size !== 0) {
   throw new Error(`open timeout did not terminate worker: ${timeout}`);
+}
+
+// Recovery owns a fresh worker. Replacing the failed client leaves exactly one
+// active worker and one response listener, rather than retrying against a
+// terminated Wasm heap or duplicating an in-flight corpus load.
+const recovered = new EngineClient();
+if (workers.length !== 2 || workers.filter((candidate) => !candidate.terminated).length !== 1) {
+  throw new Error(`recovery did not leave exactly one active worker: ${JSON.stringify(workers)}`);
+}
+let progressCalls = 0;
+recovered.onProgress = () => progressCalls++;
+worker.onmessage({ data: { op: "progress", phase: "decode", completed: 1, total: 30 } });
+if (progressCalls !== 1) throw new Error("fresh worker did not install exactly one progress listener");
+recovered.terminate();
+if (workers.filter((candidate) => !candidate.terminated).length !== 0) {
+  throw new Error("explicit cleanup left an active worker");
 }
 
 console.log("engine client tests passed");

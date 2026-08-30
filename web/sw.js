@@ -28,6 +28,7 @@ const SHELL = [
   "card.js",
   "config.js",
   "snapshot.js",
+  "readiness.js",
   "corpus-store.js",
   "freshness.js",
   "rollup.js",
