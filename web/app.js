@@ -5,7 +5,8 @@
 // reaches the page through textContent, never innerHTML, so corpus content
 // cannot inject markup.
 
-import { resolveCorpusBase } from "./config.js";
+import { resolveCorpusBases } from "./config.js";
+import { openSnapshot } from "./snapshot.js";
 import { EngineClient } from "./engine-client.js";
 import { resultCountText, snapshotStatus } from "./freshness.js";
 import {
@@ -63,7 +64,7 @@ let freshnessTimer = null;
 // The service worker makes the shell installable and offline-capable. Its
 // failure is never the page's problem.
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
 }
 
 boot();
@@ -78,9 +79,14 @@ async function boot() {
     wireForm();
     renderSavedChips();
 
-    corpusURL = await resolveCorpusBase();
-
-    summary = await engine.open(corpusURL);
+    const candidates = await resolveCorpusBases();
+    const opened = await openSnapshot(
+      candidates,
+      (candidate) => timedEngineCall((signal) => engine.open(candidate, { signal }), 30_000),
+      () => setStage("The pinned snapshot moved before it opened. Checking the published snapshot…"),
+    );
+    corpusURL = opened.base;
+    summary = opened.summary;
     renderBanner(summary);
     els.count.textContent = "Preparing the snapshot for search…";
     els.list.setAttribute("aria-busy", "true");
@@ -90,22 +96,25 @@ async function boot() {
       bytesFetched = stats.bytesFetched;
     };
 
-    const ticker = setInterval(() => {
+    const reportProgress = () => {
       const transferred = bytesFetched > 0
         ? ` · ${(bytesFetched / (1024 * 1024)).toFixed(1)} MiB transferred`
         : "";
       setStage(`Preparing ${summary.rows.toLocaleString()} listings for fast local search${transferred}`);
-    }, 600);
+    };
+    reportProgress();
+    const ticker = setInterval(reportProgress, 600);
 
     let stats;
     try {
-      stats = await engine.load();
+      stats = await timedEngineCall((signal) => engine.load({ signal }), 75_000);
     } finally {
       clearInterval(ticker);
     }
 
     rowsLoaded = true;
     els.go.disabled = false;
+    els.save.disabled = false;
     els.list.setAttribute("aria-busy", "false");
     const elapsed = stats.elapsed_ms < 100 ? "under 0.1 s" : `${(stats.elapsed_ms / 1000).toFixed(1)} s`;
     setStage(`Ready · ${stats.rows.toLocaleString()} listings indexed locally in ${elapsed}`);
@@ -661,6 +670,16 @@ function setStage(text) {
   els.loading.setAttribute("aria-valuetext", text);
 }
 
+async function timedEngineCall(call, timeoutMS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMS);
+  try {
+    return await call(controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function showError(err) {
   console.error(err);
   els.loading.hidden = true;
@@ -677,7 +696,13 @@ function showError(err) {
 
   els.error.replaceChildren();
   const message = document.createElement("p");
-  message.textContent = offline + `The snapshot could not be prepared. ${err.message ?? err}`;
+  let detail = "The snapshot could not be prepared. Retry in a moment.";
+  if (err?.name === "TimeoutError") {
+    detail = "Snapshot preparation took too long and was stopped. Retry on a stable connection.";
+  } else if (/HTTP 404/.test(String(err?.message ?? err))) {
+    detail = "The published snapshot changed while loading. Retry to use the current snapshot.";
+  }
+  message.textContent = offline + detail;
   const retry = document.createElement("button");
   retry.type = "button";
   retry.className = "secondary";

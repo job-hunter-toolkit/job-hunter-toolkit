@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -52,45 +53,97 @@ type Engine struct {
 
 	rows []record
 
+	platform, company, url, title, location   stringColumn
+	department, team, employment, workplace   stringColumn
+	seniority, compensation, currency, period stringColumn
+	compensations                             []compensationRecord
+
 	// order is row indexes in presentation order, computed once at load:
 	// PostedAt descending with undated rows last, then FirstSeen descending,
 	// then company and title ascending, then table row index so the order is
 	// total and a reload shows the same page.
-	order []int
+	order []uint32
 }
 
-// record is one row as the web surface needs it, and nothing more.
-//
-// It is deliberately not corpus.Row. A full Row carries the corpus's identity
-// and lifecycle bookkeeping — id, basis, dedupe_key, closure timestamps,
-// missing counts — which no query predicate reads and no result card shows.
-// At corpus volume those columns are real money: measured at 800,000 rows
-// under Node, loading full rows cost 12.2 s, 27 MiB of column fetches and
-// 1.39 GiB of wasm linear memory; the id and dedupe_key columns alone are the
-// two least compressible in the file. This projection is what [Engine.Load]
-// pays for instead, and the same measurement after the change is the number
-// web/README.md quotes.
+// record keeps only fixed-width query state. Strings live in interned columns:
+// generation 11 has two million rows, and one 16-byte Go string header per
+// field per row used 1.73 GiB before any browser overhead. Four-byte IDs keep
+// the resident index within mobile browser memory without changing the corpus.
 type record struct {
-	posting   jobposting.JobPosting
-	firstSeen time.Time
-	state     corpus.State
+	firstSeen, postedAt int64
+	comp                uint32
+	state               corpus.State
+	isRemote, isHybrid  bool
+}
 
-	// The fields below are folded once at load so that a search is a scan,
-	// not 1.3 million ToLower allocations. Measured before this existed:
-	// `remote: true` cost 3.1 s per query and a title term 1.3 s, which on
-	// the browser's main thread is a frozen page; after, both are scans over
-	// prefolded bytes. TestSearchMatchesQueryMatch pins these to the shared
-	// vocabulary's semantics row for row.
-	foldTitle      string
-	foldLocation   string
-	foldCompany    string
-	foldDepartment string
-	foldTeam       string
-	isRemote       bool
-	isHybrid       bool
-	hasComp        bool
-	hasAnnual      bool
-	annualMax      float64
+type compensationRecord struct {
+	minimum, maximum, annualMax float64
+	hasAnnual                   bool
+}
+
+type stringColumn struct {
+	ids    []uint32
+	values []string
+	folded []string
+	direct []string
+}
+
+func (c stringColumn) at(i int) string {
+	if c.direct != nil {
+		return c.direct[i]
+	}
+	return c.values[c.ids[i]]
+}
+
+func (c stringColumn) fold(i int) string {
+	if len(c.folded) == 0 {
+		return c.at(i)
+	}
+	return c.folded[c.ids[i]]
+}
+
+func loadStringColumn(table *corpus.Table, name string, folded bool) (stringColumn, error) {
+	dictionary, ids, indexed, err := table.StringDictionary(name)
+	if err != nil {
+		return stringColumn{}, err
+	}
+	if indexed {
+		column := stringColumn{ids: ids, values: dictionary}
+		if folded {
+			column.folded = make([]string, len(dictionary))
+			for i, value := range dictionary {
+				column.folded[i] = strings.ToLower(value)
+			}
+		}
+		return column, nil
+	}
+
+	raw, err := table.Strings(name)
+	if err != nil {
+		return stringColumn{}, err
+	}
+
+	column := stringColumn{ids: make([]uint32, len(raw))}
+	internIDs := make(map[string]uint32)
+	for i, value := range raw {
+		id, ok := internIDs[value]
+		if !ok {
+			id = uint32(len(column.values))
+			internIDs[value] = id
+			column.values = append(column.values, value)
+			if folded {
+				column.folded = append(column.folded, strings.ToLower(value))
+			}
+		}
+		column.ids[i] = id
+	}
+
+	return column, nil
+}
+
+func loadDirectStringColumn(table *corpus.Table, name string) (stringColumn, error) {
+	values, err := table.Strings(name)
+	return stringColumn{direct: values}, err
 }
 
 // Summary is what the UI must show before it shows a single posting: which
@@ -306,34 +359,38 @@ func (e *Engine) Load(_ context.Context) error {
 	}
 
 	rows := make([]record, table.Rows())
+	e.rows = rows
 
-	// String columns, decoded one at a time so peak memory is the records
-	// plus one column, never the records plus every column.
+	// Keep four-byte IDs per row and one copy of each distinct value. This is
+	// the same logical projection as before, but does not spend 16 bytes on a Go
+	// string header for every field of every row.
 	for _, column := range []struct {
-		name string
-		set  func(*record, string)
+		name   string
+		folded bool
+		to     *stringColumn
 	}{
-		{colPlatform, func(r *record, v string) { r.posting.Source.Platform = v }},
-		{colSourceKey, func(r *record, v string) { r.posting.Source.Key = v }},
-		{colCompany, func(r *record, v string) { r.posting.Company = v }},
-		{colURL, func(r *record, v string) { r.posting.URL = v }},
-		{colTitle, func(r *record, v string) { r.posting.Title = v }},
-		{colLocation, func(r *record, v string) { r.posting.Location = v }},
-		{colDepartment, func(r *record, v string) { r.posting.Department = v }},
-		{colTeam, func(r *record, v string) { r.posting.Team = v }},
-		{colEmployment, func(r *record, v string) { r.posting.EmploymentType = jobposting.EmploymentType(v) }},
-		{colWorkplace, func(r *record, v string) { r.posting.WorkplaceType = jobposting.WorkplaceType(v) }},
-		{colSeniority, func(r *record, v string) { r.posting.Seniority = v }},
+		{colPlatform, false, &e.platform},
+		{colCompany, true, &e.company},
+		{colTitle, true, &e.title},
+		{colLocation, true, &e.location},
+		{colDepartment, true, &e.department},
+		{colTeam, true, &e.team},
+		{colEmployment, false, &e.employment},
+		{colWorkplace, false, &e.workplace},
+		{colSeniority, false, &e.seniority},
 	} {
-		values, err := table.Strings(column.name)
+		loaded, err := loadStringColumn(table, column.name, column.folded)
 		if err != nil {
 			return err
 		}
-
-		for i := range rows {
-			column.set(&rows[i], values[i])
-		}
+		*column.to = loaded
+		runtime.GC()
 	}
+	var err error
+	if e.url, err = loadDirectStringColumn(table, colURL); err != nil {
+		return err
+	}
+	runtime.GC()
 
 	// Timestamps are Unix milliseconds with 0 reserved for "the board did not
 	// say" — the .jhtc encoding internal/corpus/row.go documents.
@@ -353,56 +410,60 @@ func (e *Engine) Load(_ context.Context) error {
 	}
 
 	for i := range rows {
-		rows[i].firstSeen = decodeTime(firstSeen[i])
-		rows[i].posting.PostedAt = decodeTime(postedAt[i])
+		rows[i].firstSeen = firstSeen[i]
+		rows[i].postedAt = postedAt[i]
 
-		// The tri-state remote column: 0 unset, 1 false, 2 true. The two
-		// pointer values are shared so 800k rows cost two allocations.
 		switch remote[i] {
 		case remoteFalse:
-			rows[i].posting.Remote = &remoteNo
+			rows[i].isRemote = false
 		case remoteTrue:
-			rows[i].posting.Remote = &remoteYes
+			rows[i].isRemote = true
 		}
 	}
+	firstSeen = nil
+	postedAt = nil
+	runtime.GC()
 
-	if err := e.loadCompensation(table, rows); err != nil {
+	if err := e.loadCompensation(table); err != nil {
 		return err
 	}
+	runtime.GC()
 
-	if err := e.loadStates(table, rows); err != nil {
+	if err := e.loadStates(table, remote); err != nil {
 		return err
 	}
+	remote = nil
+	runtime.GC()
 
-	order := make([]int, len(rows))
+	order := make([]uint32, len(rows))
 	for i := range order {
-		order[i] = i
+		order[i] = uint32(i)
 	}
 
 	sort.SliceStable(order, func(x, y int) bool {
-		a, b := &rows[order[x]], &rows[order[y]]
+		ai, bi := int(order[x]), int(order[y])
+		a, b := &rows[ai], &rows[bi]
 
 		// Dated postings first, newest first. An undated posting is not old,
 		// it is undated, but a list has to put it somewhere and burying it
 		// beats letting it pretend to be today's.
-		if !a.posting.PostedAt.Equal(b.posting.PostedAt) {
-			if a.posting.PostedAt.IsZero() || b.posting.PostedAt.IsZero() {
-				return b.posting.PostedAt.IsZero()
+		if a.postedAt != b.postedAt {
+			if a.postedAt == 0 || b.postedAt == 0 {
+				return b.postedAt == 0
 			}
-
-			return a.posting.PostedAt.After(b.posting.PostedAt)
+			return a.postedAt > b.postedAt
 		}
 
-		if !a.firstSeen.Equal(b.firstSeen) {
-			return a.firstSeen.After(b.firstSeen)
+		if a.firstSeen != b.firstSeen {
+			return a.firstSeen > b.firstSeen
 		}
 
-		if a.posting.Company != b.posting.Company {
-			return a.posting.Company < b.posting.Company
+		if e.company.at(ai) != e.company.at(bi) {
+			return e.company.at(ai) < e.company.at(bi)
 		}
 
-		if a.posting.Title != b.posting.Title {
-			return a.posting.Title < b.posting.Title
+		if e.title.at(ai) != e.title.at(bi) {
+			return e.title.at(ai) < e.title.at(bi)
 		}
 
 		// The table's row order is itself deterministic, so the index is a
@@ -410,16 +471,10 @@ func (e *Engine) Load(_ context.Context) error {
 		return order[x] < order[y]
 	})
 
-	e.rows, e.order = rows, order
+	e.order = order
 
 	return nil
 }
-
-// Shared pointees for the tri-state remote column.
-var (
-	remoteYes = true
-	remoteNo  = false
-)
 
 // The tri-state encoding for the remote column, as row.go defines it.
 const (
@@ -440,41 +495,61 @@ func decodeTime(ms int64) time.Time {
 // loadCompensation attaches published pay ranges. The presence column keeps
 // "the board had a pay field and left it blank" distinct from "no pay field",
 // and only present rows allocate.
-func (e *Engine) loadCompensation(table *corpus.Table, rows []record) error {
+func (e *Engine) loadCompensation(table *corpus.Table) error {
 	present, err := table.Ints(colComp)
 	if err != nil {
 		return err
 	}
 
-	columns := map[string][]string{}
-	for _, name := range []string{colCompMin, colCompMax, colCompCcy, colCompPeriod, colCompSummary} {
-		if columns[name], err = table.Strings(name); err != nil {
-			return err
-		}
+	minimums, err := loadStringColumn(table, colCompMin, false)
+	if err != nil {
+		return err
+	}
+	maximums, err := loadStringColumn(table, colCompMax, false)
+	if err != nil {
+		return err
+	}
+	if e.currency, err = loadStringColumn(table, colCompCcy, false); err != nil {
+		return err
+	}
+	if e.period, err = loadStringColumn(table, colCompPeriod, false); err != nil {
+		return err
+	}
+	if e.compensation, err = loadStringColumn(table, colCompSummary, false); err != nil {
+		return err
 	}
 
-	for i := range rows {
+	e.compensations = append(e.compensations, compensationRecord{})
+	for i := range e.rows {
 		if present[i] == 0 {
 			continue
 		}
 
-		minimum, err := decodeFloat(columns[colCompMin][i])
+		minimum, err := decodeFloat(minimums.at(i))
 		if err != nil {
 			return fmt.Errorf("engine: row %d compensation_min: %w", i, err)
 		}
 
-		maximum, err := decodeFloat(columns[colCompMax][i])
+		maximum, err := decodeFloat(maximums.at(i))
 		if err != nil {
 			return fmt.Errorf("engine: row %d compensation_max: %w", i, err)
 		}
 
-		rows[i].posting.Compensation = &jobposting.Compensation{
+		compensation := &jobposting.Compensation{
 			Min:      minimum,
 			Max:      maximum,
-			Currency: columns[colCompCcy][i],
-			Period:   jobposting.Period(columns[colCompPeriod][i]),
-			Summary:  columns[colCompSummary][i],
+			Currency: e.currency.at(i),
+			Period:   jobposting.Period(e.period.at(i)),
+			Summary:  e.compensation.at(i),
 		}
+		if compensation.IsZero() {
+			continue
+		}
+		annualMax, hasAnnual := compensation.AnnualMax()
+		e.rows[i].comp = uint32(len(e.compensations))
+		e.compensations = append(e.compensations, compensationRecord{
+			minimum: minimum, maximum: maximum, annualMax: annualMax, hasAnnual: hasAnnual,
+		})
 	}
 
 	return nil
@@ -500,43 +575,31 @@ func decodeFloat(s string) (float64, error) {
 // loadStates computes each row's lifecycle state through corpus.State — the
 // same derivation every other surface uses — feeding it the two inputs that
 // function actually reads: the closure reason and the row's source.
-func (e *Engine) loadStates(table *corpus.Table, rows []record) error {
-	reasons, err := table.Strings(colClosedWhy)
+func (e *Engine) loadStates(table *corpus.Table, remote []int64) error {
+	sourceKeys, err := loadStringColumn(table, colSourceKey, false)
+	if err != nil {
+		return err
+	}
+	reasons, err := loadStringColumn(table, colClosedWhy, false)
 	if err != nil {
 		return err
 	}
 
-	for i := range rows {
-		synthetic := corpus.Row{Posting: jobposting.JobPosting{Source: rows[i].posting.Source}}
-		if reasons[i] != "" {
-			synthetic.Closed = &corpus.Closure{Reason: reasons[i]}
+	for i := range e.rows {
+		synthetic := corpus.Row{Posting: jobposting.JobPosting{Source: jobposting.PostingSource{
+			Platform: e.platform.at(i),
+			Key:      sourceKeys.at(i),
+		}}}
+		if reason := reasons.at(i); reason != "" {
+			synthetic.Closed = &corpus.Closure{Reason: reason}
 		}
 
-		rows[i].state = e.corpus.State(synthetic, e.now)
-	}
-
-	// Fold every string a predicate reads and settle every derived flag,
-	// once. This pass must run last: it reads compensation and the remote
-	// heuristic, which the loops above only just finished assembling.
-	for i := range rows {
-		r := &rows[i]
-		r.foldTitle = strings.ToLower(r.posting.Title)
-		r.foldLocation = strings.ToLower(r.posting.Location)
-		r.foldCompany = strings.ToLower(r.posting.Company)
-		r.foldDepartment = strings.ToLower(r.posting.Department)
-		r.foldTeam = strings.ToLower(r.posting.Team)
-
-		// The structured flag outranks the heuristic, exactly as IsRemote
-		// decides; the folds above feed the heuristic so nothing lowercases
-		// twice.
-		if r.posting.Remote != nil {
-			r.isRemote = *r.posting.Remote
-		} else {
-			r.isRemote = jobposting.LooksRemote(r.foldLocation, r.foldTitle)
+		r := &e.rows[i]
+		r.state = e.corpus.State(synthetic, e.now)
+		if remote[i] == 0 {
+			r.isRemote = jobposting.LooksRemote(e.location.fold(i), e.title.fold(i))
 		}
-		r.isHybrid = jobposting.LooksHybrid(r.foldLocation, r.foldTitle)
-		r.hasComp = !r.posting.Compensation.IsZero()
-		r.annualMax, r.hasAnnual = r.posting.Compensation.AnnualMax()
+		r.isHybrid = jobposting.LooksHybrid(e.location.fold(i), e.title.fold(i))
 	}
 
 	return nil
@@ -591,7 +654,8 @@ func (e *Engine) searchContext(ctx context.Context, req SearchRequest, yield fun
 
 	c := compileQuery(q)
 
-	for n, i := range e.order {
+	for n, rawIndex := range e.order {
+		i := int(rawIndex)
 		if n&1023 == 0 {
 			select {
 			case <-ctx.Done():
@@ -614,18 +678,18 @@ func (e *Engine) searchContext(ctx context.Context, req SearchRequest, yield fun
 			continue
 		}
 
-		if !c.match(row) {
+		if !c.match(e, i) {
 			continue
 		}
 
 		if resp.Matched >= offset && len(resp.Items) < limit {
-			resp.Items = append(resp.Items, e.item(row))
+			resp.Items = append(resp.Items, e.item(i))
 		}
 
 		resp.Matched++
 		resp.States[row.state.String()]++
 		if resp.Facets != nil {
-			resp.Facets.add(row, e.now)
+			resp.Facets.add(e, i)
 		}
 	}
 
@@ -661,14 +725,15 @@ func increment(values []Facet, value string) {
 	values[len(values)-1].Rows++
 }
 
-func (f *Facets) add(row *record, now time.Time) {
-	employment := string(row.posting.EmploymentType)
+func (f *Facets) add(e *Engine, i int) {
+	row := &e.rows[i]
+	employment := e.employment.at(i)
 	if employment == "" {
 		employment = "unknown"
 	}
 	increment(f.Employment, employment)
 
-	workplace := string(row.posting.WorkplaceType)
+	workplace := e.workplace.at(i)
 	if workplace == "" {
 		switch {
 		case row.isHybrid:
@@ -682,14 +747,15 @@ func (f *Facets) add(row *record, now time.Time) {
 	increment(f.Workplace, workplace)
 
 	compensation := "undisclosed"
-	if row.hasAnnual {
+	comp := e.compensations[row.comp]
+	if comp.hasAnnual {
 		compensation = "annual"
-	} else if row.hasComp {
+	} else if row.comp != 0 {
 		compensation = "other"
 	}
 	increment(f.Compensation, compensation)
-	increment(f.PostedAge, ageBucket(row.posting.PostedAt, now))
-	increment(f.FirstSeenAge, ageBucket(row.firstSeen, now))
+	increment(f.PostedAge, ageBucket(decodeTime(row.postedAt), e.now))
+	increment(f.FirstSeenAge, ageBucket(decodeTime(row.firstSeen), e.now))
 }
 
 func ageBucket(value, now time.Time) string {
@@ -780,54 +846,60 @@ func usableEnums[T ~string](values []T) []T {
 // match mirrors [query.Query.Match] clause for clause over the precomputed
 // record. Any semantic change to Match belongs there first; the parity test
 // will fail here until this follows.
-func (c *compiledQuery) match(r *record) bool {
+func (c *compiledQuery) match(e *Engine, i int) bool {
+	r := &e.rows[i]
 	if c.remote && !r.isRemote {
 		return false
 	}
 
-	if c.hasComp && !r.hasComp {
+	if c.hasComp && r.comp == 0 {
 		return false
 	}
 
-	if c.minAnnual > 0 && (!r.hasAnnual || r.annualMax < c.minAnnual) {
-		return false
-	}
-
-	if len(c.titles) > 0 && !anyContains(r.foldTitle, c.titles) {
-		return false
-	}
-
-	if len(c.excludeTitles) > 0 && anyContains(r.foldTitle, c.excludeTitles) {
-		return false
-	}
-
-	if len(c.locations) > 0 && !anyContains(r.foldLocation, c.locations) {
-		return false
-	}
-
-	if len(c.companies) > 0 && !anyContains(r.foldCompany, c.companies) {
-		return false
-	}
-
-	if len(c.departments) > 0 &&
-		!anyContains(r.foldDepartment, c.departments) &&
-		!anyContains(r.foldTeam, c.departments) {
-		return false
-	}
-
-	if len(c.employment) > 0 {
-		if r.posting.EmploymentType == jobposting.EmploymentTypeUnknown ||
-			!slices.Contains(c.employment, r.posting.EmploymentType) {
+	if c.minAnnual > 0 {
+		compensation := e.compensations[r.comp]
+		if !compensation.hasAnnual || compensation.annualMax < c.minAnnual {
 			return false
 		}
 	}
 
-	if len(c.workplace) > 0 && !c.matchesWorkplace(r) {
+	if len(c.titles) > 0 && !anyContains(e.title.fold(i), c.titles) {
+		return false
+	}
+
+	if len(c.excludeTitles) > 0 && anyContains(e.title.fold(i), c.excludeTitles) {
+		return false
+	}
+
+	if len(c.locations) > 0 && !anyContains(e.location.fold(i), c.locations) {
+		return false
+	}
+
+	if len(c.companies) > 0 && !anyContains(e.company.fold(i), c.companies) {
+		return false
+	}
+
+	if len(c.departments) > 0 &&
+		!anyContains(e.department.fold(i), c.departments) &&
+		!anyContains(e.team.fold(i), c.departments) {
+		return false
+	}
+
+	if len(c.employment) > 0 {
+		employment := jobposting.EmploymentType(e.employment.at(i))
+		if employment == jobposting.EmploymentTypeUnknown ||
+			!slices.Contains(c.employment, employment) {
+			return false
+		}
+	}
+
+	if len(c.workplace) > 0 && !c.matchesWorkplace(e, i) {
 		return false
 	}
 
 	if !c.postedSince.IsZero() {
-		if r.posting.PostedAt.IsZero() || r.posting.PostedAt.Before(c.postedSince) {
+		postedAt := decodeTime(r.postedAt)
+		if postedAt.IsZero() || postedAt.Before(c.postedSince) {
 			return false
 		}
 	}
@@ -835,9 +907,11 @@ func (c *compiledQuery) match(r *record) bool {
 	return true
 }
 
-func (c *compiledQuery) matchesWorkplace(r *record) bool {
-	if r.posting.WorkplaceType != jobposting.WorkplaceTypeUnknown {
-		return slices.Contains(c.workplace, r.posting.WorkplaceType)
+func (c *compiledQuery) matchesWorkplace(e *Engine, i int) bool {
+	r := &e.rows[i]
+	workplace := jobposting.WorkplaceType(e.workplace.at(i))
+	if workplace != jobposting.WorkplaceTypeUnknown {
+		return slices.Contains(c.workplace, workplace)
 	}
 
 	for _, want := range c.workplace {
@@ -945,9 +1019,9 @@ func (e *Engine) buildQuery(req SearchRequest) (query.Query, error) {
 	return q, nil
 }
 
-func (e *Engine) item(row *record) Item {
-	p := &row.posting
-
+func (e *Engine) item(i int) Item {
+	row := &e.rows[i]
+	p := e.posting(i)
 	item := Item{
 		Title:          p.Title,
 		Company:        p.Company,
@@ -959,20 +1033,41 @@ func (e *Engine) item(row *record) Item {
 		EmploymentType: string(p.EmploymentType),
 		WorkplaceType:  string(p.WorkplaceType),
 		Seniority:      p.Seniority,
-		Remote:         p.IsRemote(),
+		Remote:         row.isRemote,
 		Compensation:   compensationLabel(p.Compensation),
 		State:          row.state.String(),
 	}
 
-	if !p.PostedAt.IsZero() {
-		item.PostedAt = p.PostedAt.UTC().Format(time.RFC3339)
+	if row.postedAt != 0 {
+		item.PostedAt = decodeTime(row.postedAt).Format(time.RFC3339)
 	}
 
-	if !row.firstSeen.IsZero() {
-		item.FirstSeen = row.firstSeen.UTC().Format(time.RFC3339)
+	if row.firstSeen != 0 {
+		item.FirstSeen = decodeTime(row.firstSeen).Format(time.RFC3339)
 	}
 
 	return item
+}
+
+func (e *Engine) posting(i int) jobposting.JobPosting {
+	row := &e.rows[i]
+	remote := row.isRemote
+	p := jobposting.JobPosting{
+		Title: e.title.at(i), Company: e.company.at(i), Location: e.location.at(i), URL: e.url.at(i),
+		Department: e.department.at(i), Team: e.team.at(i), Seniority: e.seniority.at(i),
+		EmploymentType: jobposting.EmploymentType(e.employment.at(i)),
+		WorkplaceType:  jobposting.WorkplaceType(e.workplace.at(i)),
+		PostedAt:       decodeTime(row.postedAt), Remote: &remote,
+		Source: jobposting.PostingSource{Platform: e.platform.at(i)},
+	}
+	if row.comp != 0 {
+		comp := e.compensations[row.comp]
+		p.Compensation = &jobposting.Compensation{
+			Min: comp.minimum, Max: comp.maximum, Currency: e.currency.at(i),
+			Period: jobposting.Period(e.period.at(i)), Summary: e.compensation.at(i),
+		}
+	}
+	return p
 }
 
 // compensationLabel renders a published pay range for the results list. The

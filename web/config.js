@@ -36,7 +36,7 @@ export const CORPUS_SOURCE = {
 //
 // `?corpus=<url>` overrides everything, which is how a local corpus (`python3
 // -m http.server`) or a candidate host gets tested without editing this file.
-export async function resolveCorpusBase(fetchImpl = globalThis.fetch.bind(globalThis)) {
+export async function resolveCorpusBases(fetchImpl = globalThis.fetch.bind(globalThis)) {
   const override = new URLSearchParams(globalThis.location?.search ?? "").get(
     "corpus",
   );
@@ -57,7 +57,7 @@ export async function resolveCorpusBase(fetchImpl = globalThis.fetch.bind(global
 
     const base = parsed.toString();
 
-    return base.endsWith("/") ? base : `${base}/`;
+    return [base.endsWith("/") ? base : `${base}/`];
   }
 
   const { owner, repo, branch } = CORPUS_SOURCE;
@@ -66,19 +66,23 @@ export async function resolveCorpusBase(fetchImpl = globalThis.fetch.bind(global
   try {
     const response = await fetchImpl(
       `https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(branch)}`,
-      { headers: { Accept: "application/vnd.github+json" } },
+      { cache: "no-store", headers: { Accept: "application/vnd.github+json" } },
     );
 
     if (!response.ok) {
-      return byBranch;
+      return [byBranch];
     }
 
     const commit = await response.json();
 
     return typeof commit.sha === "string" && /^[0-9a-f]{40}$/.test(commit.sha)
-      ? `https://raw.githubusercontent.com/${owner}/${repo}/${commit.sha}/`
-      : byBranch;
+      ? [`https://raw.githubusercontent.com/${owner}/${repo}/${commit.sha}/`, byBranch]
+      : [byBranch];
   } catch {
-    return byBranch;
+    return [byBranch];
   }
+}
+
+export async function resolveCorpusBase(fetchImpl = globalThis.fetch.bind(globalThis)) {
+  return (await resolveCorpusBases(fetchImpl))[0];
 }

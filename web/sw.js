@@ -26,6 +26,7 @@ const SHELL = [
   "style.css",
   "app.js",
   "config.js",
+  "snapshot.js",
   "corpus-store.js",
   "freshness.js",
   "rollup.js",
@@ -52,12 +53,19 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       const names = await caches.keys();
-      await Promise.all(
-        names
-          .filter((name) => name.startsWith("jht-shell-") && name !== SHELL_CACHE)
-          .map((name) => caches.delete(name)),
-      );
+      const oldShells = names
+        .filter((name) => name.startsWith("jht-shell-") && name !== SHELL_CACHE);
+      const staleClients = oldShells.length > 0
+        ? await self.clients.matchAll({ type: "window", includeUncontrolled: true })
+        : [];
+      await Promise.all(oldShells.map((name) => caches.delete(name)));
       await self.clients.claim();
+
+      // A page controlled by the prior worker is still running the old
+      // JavaScript until navigation. A first-time visitor was uncontrolled and
+      // must not pay for a duplicate boot. Reload it once so a stale installed
+      // PWA cannot keep requesting a corpus layout the new shell can replace.
+      await Promise.all(staleClients.map((client) => client.navigate(client.url)));
     })(),
   );
 });
@@ -70,6 +78,15 @@ self.addEventListener("fetch", (event) => {
   }
 
   const url = new URL(request.url);
+
+  // Some Safari versions drop Range while a request passes through a service
+  // worker, turning a few-megabyte column read into a 38-90 MiB whole-part
+  // download. Let the browser networking stack send ranged corpus reads
+  // directly. There is no useful cached 206 response to give up: CacheStorage
+  // rejects partial responses.
+  if (request.headers.get("Range")) {
+    return;
+  }
 
   if (url.origin === self.location.origin) {
     event.respondWith(shellFirst(request));

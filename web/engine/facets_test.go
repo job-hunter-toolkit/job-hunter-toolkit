@@ -11,17 +11,16 @@ import (
 
 func TestFacetsBoundMalformedValuesAndFutureDates(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
-	row := record{
-		posting: jobposting.JobPosting{
-			EmploymentType: "unexpected-employment-value",
-			WorkplaceType:  "unexpected-workplace-value",
-			PostedAt:       now.Add(time.Hour),
-		},
-		firstSeen: now.Add(time.Hour),
+	e := &Engine{
+		now:           now,
+		rows:          []record{{postedAt: now.Add(time.Hour).UnixMilli(), firstSeen: now.Add(time.Hour).UnixMilli()}},
+		compensations: []compensationRecord{{}},
+		employment:    testStringColumn("unexpected-employment-value"),
+		workplace:     testStringColumn("unexpected-workplace-value"),
 	}
 
 	facets := newFacets()
-	facets.add(&row, now)
+	facets.add(e, 0)
 
 	must.Eq(t, 1, facetCount(facets.Employment, "unknown"))
 	must.Eq(t, 1, facetCount(facets.Workplace, "unknown"))
@@ -31,18 +30,17 @@ func TestFacetsBoundMalformedValuesAndFutureDates(t *testing.T) {
 
 func TestFacetCountingHasConstantMemory(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
-	row := record{
-		posting: jobposting.JobPosting{
-			EmploymentType: jobposting.EmploymentTypeFullTime,
-			WorkplaceType:  jobposting.WorkplaceTypeRemote,
-			PostedAt:       now,
-		},
-		firstSeen: now,
+	e := &Engine{
+		now:           now,
+		rows:          []record{{postedAt: now.UnixMilli(), firstSeen: now.UnixMilli()}},
+		compensations: []compensationRecord{{}},
+		employment:    testStringColumn(string(jobposting.EmploymentTypeFullTime)),
+		workplace:     testStringColumn(string(jobposting.WorkplaceTypeRemote)),
 	}
 	facets := newFacets()
 
 	allocations := testing.AllocsPerRun(1000, func() {
-		facets.add(&row, now)
+		facets.add(e, 0)
 	})
 	must.Eq(t, 0.0, allocations)
 
@@ -59,16 +57,20 @@ func TestFacetCountingHasConstantMemory(t *testing.T) {
 func TestSearchYieldingLetsCancellationRunBetweenChunks(t *testing.T) {
 	const rows = 32769
 	e := &Engine{
-		rows:  make([]record, rows),
-		order: make([]int, rows),
+		rows:       make([]record, rows),
+		order:      make([]uint32, rows),
+		employment: testStringColumn(""),
+		workplace:  testStringColumn(""),
+		title:      testStringColumn(""), location: testStringColumn(""),
+		company: testStringColumn(""), department: testStringColumn(""), team: testStringColumn(""),
 	}
 	for i := range e.order {
-		e.order[i] = i
+		e.order[i] = uint32(i)
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
 	yields := 0
-	_, err := e.SearchYielding(ctx, SearchRequest{}, func() error {
+	_, err := e.SearchYielding(ctx, SearchRequest{Offset: rows}, func() error {
 		yields++
 		cancel()
 		return nil
@@ -76,6 +78,10 @@ func TestSearchYieldingLetsCancellationRunBetweenChunks(t *testing.T) {
 
 	must.ErrorIs(t, err, context.Canceled)
 	must.Eq(t, 1, yields)
+}
+
+func testStringColumn(value string) stringColumn {
+	return stringColumn{ids: make([]uint32, 32769), values: []string{value}, folded: []string{value}}
 }
 
 func facetCount(values []Facet, value string) int {

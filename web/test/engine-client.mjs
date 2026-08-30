@@ -11,6 +11,10 @@ class FakeWorker {
   postMessage(message) {
     this.messages.push(message);
   }
+
+  terminate() {
+    this.terminated = true;
+  }
 }
 
 globalThis.Worker = FakeWorker;
@@ -42,5 +46,11 @@ if (error?.name !== "AbortError" || client.pending.size !== 0) {
 
 // A late worker response to cancelled work is deliberately ignored.
 worker.onmessage({ data: { id: request.id, ok: true, value: { matched: 1 } } });
+
+const opening = client.open("https://raw.example/missing/", { signal: AbortSignal.abort() });
+const timeout = await opening.then(() => null, (err) => err);
+if (timeout?.name !== "TimeoutError" || worker.terminated !== true || client.pending.size !== 0) {
+  throw new Error(`open timeout did not terminate worker: ${timeout}`);
+}
 
 console.log("engine client tests passed");
