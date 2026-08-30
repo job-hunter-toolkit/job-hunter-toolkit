@@ -88,7 +88,7 @@ The browser can verify this small object, paint truthful real jobs, and label
 the capability state `default_page_ready` while the unchanged generation 11
 engine prepares in the worker. UI controls that require a full scan remain
 disabled and say why. WebMCP status reports capability readiness explicitly;
-`search_jobs` and `get_job_detail` keep returning `not_ready` until the full
+`search_jobs` and `get_job_record` keep returning `not_ready` until the full
 engine is ready, so humans and agents cannot disagree.
 
 This is deliberately narrower than claiming basic search readiness early.

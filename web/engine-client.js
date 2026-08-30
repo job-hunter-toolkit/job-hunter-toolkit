@@ -49,7 +49,8 @@ export class EngineClient {
           }
           this.pending.clear();
         }
-        reject(new DOMException(op === "search" ? "The search was cancelled" : "Snapshot preparation timed out", op === "search" ? "AbortError" : "TimeoutError"));
+        const cancellable = op === "search" || op === "detail";
+        reject(new DOMException(cancellable ? `The ${op} was cancelled` : "Snapshot preparation timed out", cancellable ? "AbortError" : "TimeoutError"));
       };
 
       if (signal?.aborted) {
