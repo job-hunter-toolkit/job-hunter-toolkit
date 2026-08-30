@@ -104,45 +104,48 @@ console.log(`load: ${loadMS.toFixed(0)} ms, ${store.reads - openReads} reads, ${
 // The engine here runs against the real clock, so open-vs-stale for the
 // fixture's rows drifts as real time passes its pinned instants. Closed and
 // lapsed rows are written at fold time and cannot drift for 90 days, and
-// include_closed:true sees every row regardless of state — so all matched
+// Selecting all lifecycle states sees every row regardless of state, so matched
 // counts below use it to stay clock-independent. The state *math* against a
 // pinned clock is asserted natively in web/engine's tests.
 const search = async (request) => JSON.parse(await jhtEngine.search(JSON.stringify(request)));
 
-const all = await search({ include_closed: true });
-check("include_closed matches", all.matched, 8);
+const everyState = ["open", "stale", "closed", "lapsed"];
+const all = await search({ states: everyState });
+check("explicit states match", all.matched, 8);
+check("explicit state selection round trips", all.selected_states, everyState);
+check("state derivation is pinned", typeof all.as_of === "string" && all.state_method.includes("not a live"), true);
 check("closed rows visible", all.states.closed, 1);
 check("lapsed rows visible", all.states.lapsed, 1);
 
-check("title substring", (await search({ include_closed: true, titles: ["engineer"] })).matched, 4);
+check("title substring", (await search({ states: everyState, titles: ["engineer"] })).matched, 4);
 check(
   "title + exclude",
-  (await search({ include_closed: true, titles: ["engineer"], exclude_titles: ["security"] })).matched,
+  (await search({ states: everyState, titles: ["engineer"], exclude_titles: ["security"] })).matched,
   3,
 );
-check("company", (await search({ include_closed: true, companies: ["globex"] })).matched, 2);
-check("remote heuristic", (await search({ include_closed: true, remote: true })).matched, 2);
-check("pay floor", (await search({ include_closed: true, min_annual: 200000 })).matched, 1);
+check("company", (await search({ states: everyState, companies: ["globex"] })).matched, 2);
+check("remote heuristic", (await search({ states: everyState, remote: true })).matched, 2);
+check("pay floor", (await search({ states: everyState, min_annual: 200000 })).matched, 1);
 check(
   "employment type, board spelling",
-  (await search({ include_closed: true, employment_types: ["Full-Time"] })).matched,
+  (await search({ states: everyState, employment_types: ["Full-Time"] })).matched,
   2,
 );
-check("workplace type", (await search({ include_closed: true, workplace_types: ["remote"] })).matched, 2);
-check("department", (await search({ include_closed: true, departments: ["security"] })).matched, 1);
+check("workplace type", (await search({ states: everyState, workplace_types: ["remote"] })).matched, 2);
+check("department", (await search({ states: everyState, departments: ["security"] })).matched, 1);
 
-const faceted = await search({ include_closed: true, include_facets: true, titles: ["engineer"] });
+const faceted = await search({ states: everyState, include_facets: true, titles: ["engineer"] });
 check("facet count unit", faceted.count_unit, "rows");
 check("facets follow filters", faceted.facets.employment.reduce((sum, facet) => sum + facet.rows, 0), faceted.matched);
 check("employment facet", faceted.facets.employment.find((facet) => facet.value === "full_time").rows, 2);
 check("workplace facet", faceted.facets.workplace.find((facet) => facet.value === "remote").rows, 2);
 check("facets are omitted by default", Object.hasOwn(all, "facets"), false);
 
-const paged = await search({ include_closed: true, limit: 3, offset: 6 });
+const paged = await search({ states: everyState, limit: 3, offset: 6 });
 check("paging window", paged.items.length, 2);
 check("paging total", paged.matched, 8);
 
-const first = (await search({ include_closed: true, titles: ["senior software"] })).items[0];
+const first = (await search({ states: everyState, titles: ["senior software"] })).items[0];
 check("compensation label", first.compensation, "150,000–180,000 USD / year");
 check("item url", first.url, "https://example.com/acme/jobs/1");
 

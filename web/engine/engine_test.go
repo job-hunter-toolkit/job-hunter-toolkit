@@ -84,6 +84,9 @@ func TestSearchDefaultsToRowsCurrentlyBelievedOpen(t *testing.T) {
 
 	resp := search(t, e, engine.SearchRequest{})
 	must.Eq(t, 6, resp.Matched) // 4 open + 2 stale; closed and lapsed excluded
+	must.Eq(t, []string{"open", "stale"}, resp.SelectedStates)
+	must.Eq(t, "2026-07-29T12:00:00Z", resp.AsOf)
+	must.StrContains(t, resp.StateMethod, "not a live employer-board check")
 	must.Eq(t, 4, resp.States["open"])
 	must.Eq(t, 2, resp.States["stale"])
 	must.Eq(t, 0, resp.States["closed"])
@@ -92,6 +95,36 @@ func TestSearchDefaultsToRowsCurrentlyBelievedOpen(t *testing.T) {
 	must.Eq(t, 8, all.Matched)
 	must.Eq(t, 1, all.States["closed"])
 	must.Eq(t, 1, all.States["lapsed"])
+}
+
+func TestSearchSelectsExplicitLifecycleStatesWithORSemantics(t *testing.T) {
+	e := open(t)
+
+	cases := []struct {
+		states []string
+		want   int
+	}{
+		{[]string{"open"}, 4},
+		{[]string{"stale"}, 2},
+		{[]string{"closed"}, 1},
+		{[]string{"lapsed"}, 1},
+		{[]string{"lapsed", "open"}, 5},
+		{[]string{"closed", "stale", "open", "lapsed"}, 8},
+	}
+	for _, tc := range cases {
+		resp := search(t, e, engine.SearchRequest{States: tc.states})
+		must.Eq(t, tc.want, resp.Matched)
+	}
+
+	for _, req := range []engine.SearchRequest{
+		{States: []string{}},
+		{States: []string{"open", "open"}},
+		{States: []string{"unknown"}},
+		{States: []string{"open"}, IncludeClosed: true},
+	} {
+		_, err := e.Search(req)
+		must.Error(t, err)
+	}
 }
 
 func TestSearchFacetsCountMatchedRowsExactly(t *testing.T) {
@@ -130,7 +163,7 @@ func TestSearchFacetsRespectFiltersAndLifecycle(t *testing.T) {
 	must.Eq(t, 2, facetRows(filtered.Facets.Employment, "full_time"))
 	must.Eq(t, 1, facetRows(filtered.Facets.Employment, "unknown"))
 
-	all := search(t, e, engine.SearchRequest{IncludeClosed: true, IncludeFacets: true})
+	all := search(t, e, engine.SearchRequest{States: []string{"open", "stale", "closed", "lapsed"}, IncludeFacets: true})
 	must.Eq(t, 8, all.Matched)
 	for _, dimension := range [][]engine.Facet{
 		all.Facets.Employment, all.Facets.Workplace, all.Facets.Compensation,

@@ -48,6 +48,9 @@ const dependencies = {
       matched: 1,
       count_unit: "rows",
       states: { open: 1 },
+      selected_states: request.states ?? ["open", "stale"],
+      as_of: "2026-08-30T00:00:00Z",
+      state_method: "derived from corpus row and source observations at as_of; not a live employer-board check",
       offset: request.offset,
       items: [fixtureItem],
       facets: request.include_facets ? {
@@ -80,12 +83,17 @@ check("deduplicated count provenance", status.snapshot.believed_open_deduplicate
 
 const capability = await byName.get_search_capabilities.execute({});
 check("versioned API contract", capability.data.api_version, API_CONTRACT_VERSION);
+check("breaking lifecycle contract is versioned", API_CONTRACT_VERSION, "2.0.0");
 check("capability filter parity", Object.keys(capability.data.search.input_schema.properties), Object.keys(SEARCH_INPUT_SCHEMA.properties));
 check("capability default parity", Object.keys(capability.data.search.defaults_when_omitted), Object.keys(SEARCH_INPUT_SCHEMA.properties));
 check("capability response parity", capability.data.search.output_fields, Object.keys(byName.search_jobs.outputSchema.oneOf[0].properties.data.properties));
 check("capability item parity", capability.data.search.item_fields, Object.keys(byName.search_jobs.outputSchema.oneOf[0].properties.data.properties.items.items.properties));
 check("capabilities publish generation-relative future policy", capability.data.search.future_date_policy.includes("15 minutes after snapshot.run_at"), true);
 check("capabilities publish effective ordering fields", capability.data.search.effective_order_fields, ["effective_sort_at", "effective_sort_basis", "date_anomaly"]);
+check("capabilities explain lifecycle derivation", capability.data.search.lifecycle.derivation.includes("not a live employer-board check"), true);
+check("capabilities publish truthful default states", capability.data.search.defaults_when_omitted.states, ["open", "stale"]);
+check("capabilities define every lifecycle value", Object.keys(capability.data.search.lifecycle.definitions), ["open", "stale", "closed", "lapsed"]);
+check("lapsed is not misrepresented as closed", capability.data.search.lifecycle.definitions.lapsed.includes("not closed"), true);
 check("capabilities tell the truth about IDs", capability.data.identity.stable_job_id_available, false);
 check("capabilities tell the truth about cursors", capability.data.pagination.cursor_available, false);
 check("ready operations derive from state", capability.data.readiness.operations.search_jobs.available, true);
@@ -94,6 +102,7 @@ const search = await byName.search_jobs.execute({
   titles: ["security engineer"],
   remote: true,
   employment_types: ["full_time"],
+  states: ["open"],
   posted_since_days: 30,
   include_facets: true,
   sort: "newest",
@@ -105,6 +114,7 @@ check("UI engine request parity", seenRequest, {
   titles: ["security engineer"],
   remote: true,
   employment_types: ["full_time"],
+  states: ["open"],
   posted_since_days: 30,
   include_facets: true,
   offset: 10,
@@ -113,6 +123,11 @@ check("UI engine request parity", seenRequest, {
 check("fixed facets pass through", search.data.facets.workplace[0], { value: "remote", rows: 1 });
 check("malicious corpus string remains inert data", search.data.items[0].title, malicious);
 check("search response states row semantics", search.data.count_unit, "rows");
+check("search reports selected state and pinned derivation", {
+  selected: search.data.selected_states,
+  asOf: search.data.as_of,
+  method: search.data.state_method.includes("not a live employer-board check"),
+}, { selected: ["open"], asOf: "2026-08-30T00:00:00Z", method: true });
 check("anomaly and effective order pass through", {
   anomaly: search.data.items[0].date_anomaly,
   basis: search.data.items[0].effective_sort_basis,
@@ -134,6 +149,11 @@ for (const [label, input] of [
   ["negative offset", { offset: -1 }],
   ["too many terms", { titles: Array(9).fill("engineer") }],
   ["unknown enum", { workplace_types: ["underwater"] }],
+  ["legacy v1 lifecycle switch", { include_closed: true }],
+  ["empty lifecycle states", { states: [] }],
+  ["duplicate lifecycle states", { states: ["open", "open"] }],
+  ["unknown lifecycle state", { states: ["available"] }],
+  ["huge lifecycle state", { states: ["x".repeat(300_000)] }],
   ["unbounded date", { posted_since_days: 365 }],
   ["unknown sort", { sort: "salary" }],
 ]) {
@@ -178,7 +198,10 @@ const [,, supersedingSearch] = createWebMCPTools({
       firstAborted = true;
       reject(new DOMException("superseded", "AbortError"));
     }, { once: true }))
-    : Promise.resolve({ matched: 0, count_unit: "rows", states: {}, offset: 0, items: [] }),
+    : Promise.resolve({
+      matched: 0, count_unit: "rows", states: {}, selected_states: ["open", "stale"],
+      as_of: "2026-08-30T00:00:00Z", state_method: "not a live employer-board check", offset: 0, items: [],
+    }),
 });
 const first = supersedingSearch.execute({ titles: ["first"] });
 const second = supersedingSearch.execute({ titles: ["second"] });
@@ -189,7 +212,8 @@ check("newest request completes", (await second).ok, true);
 const oversizedStringTools = createWebMCPTools({
   ...dependencies,
   search: async () => ({
-    matched: 1, count_unit: "rows", states: { open: 1 }, offset: 0,
+    matched: 1, count_unit: "rows", states: { open: 1 }, selected_states: ["open", "stale"],
+    as_of: "2026-08-30T00:00:00Z", state_method: "not a live employer-board check", offset: 0,
     items: [{ title: "x".repeat(2049), company: "Example", state: "open" }],
   }),
 });
@@ -200,7 +224,8 @@ check("oversized corpus string is not retryable", oversizedString.error.retryabl
 const oversizedResponseTools = createWebMCPTools({
   ...dependencies,
   search: async () => ({
-    matched: 50, count_unit: "rows", states: { open: 50 }, offset: 0,
+    matched: 50, count_unit: "rows", states: { open: 50 }, selected_states: ["open", "stale"],
+    as_of: "2026-08-30T00:00:00Z", state_method: "not a live employer-board check", offset: 0,
     items: Array.from({ length: 50 }, (_, i) => ({
       title: `${i}${"x".repeat(2046)}`, company: "x".repeat(2048), location: "x".repeat(2048), state: "open",
     })),
@@ -235,6 +260,7 @@ const draftTools = registered.map(({ outputSchema: _ignored, execute: _execute, 
 }));
 check("draft discovery exposes object input schemas", draftTools.every((tool) => typeof tool.inputSchema === "object"), true);
 check("draft discovery omits project output schemas", draftTools.every((tool) => !("outputSchema" in tool)), true);
+check("tools do not request cross-origin exposure", registered.every((tool) => !("exposedTo" in tool)), true);
 const serializedStatus = JSON.stringify(await byName.get_snapshot_status.execute({}));
 check("draft serialized response stays bounded", new TextEncoder().encode(serializedStatus).byteLength <= 256 * 1024, true);
 

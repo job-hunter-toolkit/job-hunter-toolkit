@@ -156,9 +156,21 @@
           <div class="row">
             <label class="check"><input id="f-remote" type="checkbox" /><span>Remote only</span></label>
             <label class="check"><input id="f-haspay" type="checkbox" /><span>Published pay only</span></label>
-            <label class="check" title="Include postings the corpus believes have closed or whose source has gone quiet">
-              <input id="f-closed" type="checkbox" /><span>Include closed and lapsed</span>
-            </label>
+            <fieldset class="lifecycle">
+              <legend>Availability evidence</legend>
+              <label class="check" title="Present in the source's latest qualifying check within its freshness target">
+                <input id="f-state-open" data-lifecycle-state="open" type="checkbox" checked /><span>Recently checked</span>
+              </label>
+              <label class="check" title="Present at the latest successful source check, but that check is no longer recent">
+                <input id="f-state-stale" data-lifecycle-state="stale" type="checkbox" checked /><span>Last check not recent</span>
+              </label>
+              <label class="check" title="Absent from enough qualifying source checks to be closed in this snapshot">
+                <input id="f-state-closed" data-lifecycle-state="closed" type="checkbox" /><span>Closed in snapshot</span>
+              </label>
+              <label class="check" title="The source has gone too long without a qualifying check to infer closure">
+                <input id="f-state-lapsed" data-lifecycle-state="lapsed" type="checkbox" /><span>Source status unknown</span>
+              </label>
+            </fieldset>
           </div>
         </details>
         <!-- Start with the wide-screen scaffold already expanded, then choose

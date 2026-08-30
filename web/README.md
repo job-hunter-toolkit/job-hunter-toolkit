@@ -55,8 +55,10 @@ ranges are CORS-safelisted request headers that trigger none.
   UTC timestamp available, and updates its age while the page remains open.
   Fresh (≤36 h), delayed (≤8 d), and older states use proportionate copy.
 - A `partial` manifest renders a "PARTIAL CRAWL — counts are a floor" warning.
-- Searches default to rows currently believed open (states `open` + `stale`);
-  closed and lapsed rows appear only behind an explicit checkbox. Open is the
+- Searches default to rows believed available at the latest successful source
+  check (states `open` + `stale`), expose all four lifecycle states as explicit
+  combinable filters, and report the pinned state-derivation instant. Closed
+  and lapsed rows appear only when their filters are selected. Open is the
   quiet default. "Stale" means a source was not recently checked, not that a
   posting is known closed; an older snapshot explains that once globally
   instead of repeating the same badge on every card.

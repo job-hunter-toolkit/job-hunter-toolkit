@@ -5,13 +5,13 @@ Status: first read-only slice implemented. Roadmap owner: [issue #48](https://gi
 ## Decision
 
 Expose the already-loaded browser corpus through four read-only tools under
-browser job API contract `1.0.0`:
+browser job API contract `2.0.0`:
 
 | Tool | Capability | Bound |
 | --- | --- | --- |
 | `get_snapshot_status` | Readiness, generation, digest, freshness, partial status, and count semantics | No corpus scan |
 | `get_search_capabilities` | Version, readiness by operation, exact schemas/defaults, output fields, limits, and known identity/paging limitations | No corpus scan |
-| `search_jobs` | The visible UI's filters and deterministic newest-first paging, with optional fixed-cardinality facets | 8 terms per text field, 120 characters per term, 50 returned rows, offset at most 2,500,000 |
+| `search_jobs` | The visible UI's explicit lifecycle-state filters and deterministic newest-first paging, with optional fixed-cardinality facets | 8 terms per text field, 120 characters per term, 4 unique lifecycle states, 50 returned rows, offset at most 2,500,000 |
 | `get_job_record` | Exact HTTP(S) URL lookup within the current generation, returning the bounded search-card record rather than a description | One 2,048-character locator, one returned row |
 
 The tools call the page's existing `EngineClient`, worker, Wasm bridge, and Go
@@ -19,6 +19,22 @@ The tools call the page's existing `EngineClient`, worker, Wasm bridge, and Go
 Search therefore has the same filtering, lifecycle, ordering, and facet
 semantics as the human interface. Record lookup scans the existing compact URL column
 instead of adding a URL map.
+
+Contract 2.0 replaces the ambiguous `include_closed` browser input with
+`states: [open, stale, closed, lapsed]`. Values in that list have OR semantics.
+The omitted default is `[open, stale]`, meaning rows believed available at the
+latest successful source check, including sources whose last successful check
+is no longer recent. Every search response returns the effective
+`selected_states`, the engine's pinned `as_of` instant, a fixed derivation
+method, exact row counts by state, and each item's state. This is evidence from
+the immutable snapshot and source observations, not a live employer-board
+check. Snapshot age remains a separate fact in the response envelope.
+
+The Go engine temporarily accepts the 1.x `include_closed` field only for
+legacy page and saved-search migration. WebMCP 2.0 rejects it. Saved-search v3
+stores explicit states; v1 and v2 migrate deterministically from absent or
+false to `[open, stale]` and from true to all four states. Unknown, duplicate,
+empty, or mixed legacy/new selections fail closed.
 
 Saved-search export and import are not exposed. Saved searches are private
 localStorage state. The current WebMCP API has no standardized per-invocation
@@ -100,6 +116,12 @@ general stable availability: Chrome's published support remains experimental.
   Search, facet, state, record-match, and corpus totals count rows. Only
   `believed_open_deduplicated` is the generation-wide deduplicated manifest
   count.
+- Search lifecycle selection is explicit and bounded. `open` means present in
+  the source's latest qualifying check within its freshness target; `stale`
+  means present at the latest successful check but that check is not recent;
+  `closed` means enough qualifying checks did not find the row; `lapsed` means
+  source evidence is too old to infer closure. The response's `as_of` pins this
+  derivation for all pages in the opened generation.
 
 ## Resource evidence
 

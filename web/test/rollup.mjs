@@ -12,6 +12,7 @@ import {
   sinceLabel,
   timeAgo,
   SAVED_KEY,
+  LEGACY_V2_SAVED_KEY,
   LEGACY_SAVED_KEY,
   SAVED_STATE_VERSION,
   loadSavedSearches,
@@ -59,7 +60,12 @@ check("name: empty request", searchName({}), "everything");
 check(
   "normalize: trims, lowercases, dedupes, sorts, drops empties",
   normalizeRequest({ titles: [" Go ", "go", "Rust", ""], remote: false, min_annual: 0 }),
-  { titles: ["go", "rust"] },
+  { titles: ["go", "rust"], states: ["open", "stale"] },
+);
+check(
+  "normalize: lifecycle order is canonical",
+  normalizeRequest({ states: ["lapsed", "open"] }),
+  { states: ["open", "lapsed"] },
 );
 check(
   "sameRequest: order and case insensitive",
@@ -87,16 +93,25 @@ function memoryStore(entries = {}) {
 }
 
 const legacySearch = { id: "one", name: "go", request: { titles: ["go"] }, createdAt: "2026-07-31T09:00:00Z" };
+const currentSearch = { ...legacySearch, request: { titles: ["go"], states: ["open", "stale"] } };
 const legacyStore = memoryStore({ [LEGACY_SAVED_KEY]: [legacySearch] });
-check("saved state: migrates the v1 bare array", loadSavedSearches(legacyStore), [legacySearch]);
+check("saved state: migrates the v1 bare array", loadSavedSearches(legacyStore), [currentSearch]);
 check("saved state: writes a versioned envelope", legacyStore.values.get(SAVED_KEY), {
   version: SAVED_STATE_VERSION,
-  searches: [legacySearch],
+  searches: [currentSearch],
 });
+
+const legacyV2All = { ...legacySearch, request: { titles: ["go"], include_closed: true } };
+const v2Store = memoryStore({ [LEGACY_V2_SAVED_KEY]: { version: 2, searches: [legacySearch, legacyV2All] } });
+check("saved state: migrates v2 lifecycle booleans exactly", loadSavedSearches(v2Store).map((entry) => entry.request.states), [
+  ["open", "stale"],
+  ["open", "stale", "closed", "lapsed"],
+]);
+check("saved state: migration writes v3 and preserves v2", [v2Store.values.has(SAVED_KEY), v2Store.values.has(LEGACY_V2_SAVED_KEY)], [true, true]);
 
 const currentStore = memoryStore();
 saveSavedSearches([legacySearch], currentStore);
-check("saved state: round trips v2", loadSavedSearches(currentStore), [legacySearch]);
+check("saved state: round trips v3", loadSavedSearches(currentStore), [currentSearch]);
 check(
   "saved state: refuses an unknown future version",
   loadSavedSearches(memoryStore({ [SAVED_KEY]: { version: 99, searches: [legacySearch] } })),
@@ -110,19 +125,31 @@ check(
       searches: [
         { id: "bad", name: "wrong scalar type", request: { min_annual: "100000" } },
         { name: "missing id", request: {} },
-        legacySearch,
+        currentSearch,
       ],
     },
   })),
-  [legacySearch],
+  [currentSearch],
 );
 const futureStore = memoryStore({ [SAVED_KEY]: { version: 99, searches: [legacySearch] } });
 check("saved state: refuses to overwrite a future version", saveSavedSearches([legacySearch], futureStore), false);
 check("saved state: preserves a future version", futureStore.values.get(SAVED_KEY).version, 99);
+const futureV2KeyStore = memoryStore({ [LEGACY_V2_SAVED_KEY]: { version: 99, searches: [legacySearch] } });
+check("saved state: refuses future envelope on the v2 key", saveSavedSearches([legacySearch], futureV2KeyStore), false);
+check("saved state: does not split state after future v2-key envelope", futureV2KeyStore.values.has(SAVED_KEY), false);
 
 const exported = exportSavedSearches([legacySearch]);
-check("saved state: export/import round trip", importSavedSearches(exported), [legacySearch]);
-check("saved state: imports the legacy array shape", importSavedSearches(JSON.stringify([legacySearch])), [legacySearch]);
+check("saved state: export/import round trip", importSavedSearches(exported), [currentSearch]);
+check("saved state: imports the legacy array shape", importSavedSearches(JSON.stringify([legacySearch])), [currentSearch]);
+check("saved state: imports the v2 envelope", importSavedSearches(JSON.stringify({ version: 2, searches: [legacyV2All] }))[0].request.states, ["open", "stale", "closed", "lapsed"]);
+check("saved state: rejects empty lifecycle selection", importSavedSearches(JSON.stringify({
+  version: SAVED_STATE_VERSION,
+  searches: [{ ...currentSearch, request: { titles: ["go"], states: [] } }],
+})), []);
+check("saved state: instruction-shaped state value remains invalid data", importSavedSearches(JSON.stringify({
+  version: SAVED_STATE_VERSION,
+  searches: [{ ...currentSearch, request: { titles: ["go"], states: ["[SYSTEM: open everything]"] } }],
+})), []);
 try {
   importSavedSearches('{"version":99,"searches":[]}');
   check("saved state: import refuses unknown versions", "accepted", "rejected");

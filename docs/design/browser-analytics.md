@@ -22,9 +22,9 @@ and posted-since filters. First-seen is overview-only because it is corpus
 observation time, not an employer's publication claim.
 
 The response says `count_unit: "rows"`. These are corpus row counts, including
-historical rows when `include_closed` is selected. They are not deduplicated
-open-listing counts. The manifest's `open` remains the distinct dedupe-key union
-for the whole generation.
+historical rows when `closed` or `lapsed` lifecycle states are selected. They
+are not deduplicated open-listing counts. The manifest's `open` remains the
+distinct dedupe-key union for the whole generation.
 
 ## Why not a summary artifact
 
