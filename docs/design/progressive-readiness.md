@@ -1,8 +1,9 @@
 # Progressive browser readiness
 
-Status: measured design record. [Issue #58](https://github.com/job-hunter-toolkit/job-hunter-toolkit/issues/58)
-tracks implementation, which requires separate corpus publication approval and
-is independent from the WebMCP first slice.
+Status: measured design with source-side prototype. [Issue #58](https://github.com/job-hunter-toolkit/job-hunter-toolkit/issues/58)
+tracks browser integration and publication, which still require separate corpus
+publication approval. Exact prototype evidence is in
+[`../measurements/2026-08-30-bootstrap-prototype.md`](../measurements/2026-08-30-bootstrap-prototype.md).
 
 ## Generation 11 critical path
 
@@ -22,11 +23,10 @@ metadata-loading and fully searchable states:
    opt-in during a query and build no retained index. WebMCP registration is a
    feature-gated dynamic module and does not await the corpus.
 
-The implementation does not separately instrument network wait, flate decode,
-dictionary folding, garbage collection, state computation, and sort inside
-`load()`. Claims about their individual shares would therefore be assumptions.
-The follow-up must add phase timers and allocator high-water sampling before
-choosing an internal optimization.
+PR #70 now reports monotonic network, decode, fold, state, sort, query, and
+paint milestones, and supports bounded in-tab recovery. It does not report a
+separate duration or allocator sample for every internal sub-operation, so
+claims about their individual CPU shares remain assumptions.
 
 ## Measurements
 
@@ -72,7 +72,7 @@ decoded; title is 14.9 MiB compressed. Prioritizing existing columns would
 save only about 1.3 MiB before basic readiness and would preserve the expensive
 all-row decode, state computation, and sort. It is not the selected design.
 
-## Selected architecture
+## Selected architecture and prototype
 
 Publish an additive, immutable **bootstrap projection** from the same folded
 generation, bound to the manifest content digest:
@@ -97,6 +97,13 @@ detail columns. Early title search needs a separately measured row-grouped or
 covering index design, with stable row locators and lazy verified detail reads.
 That design follows the bootstrap projection rather than being smuggled into
 it.
+
+The source-side format, generator, validator, atomic local writer, and
+bootstrap/full-page parity tests are implemented in `web/bootstrap`,
+`web/bootstrapgen`, and `web/engine/bootstrap.go`. Exact generation 11 output
+is 81,404 raw bytes / 12,209 deterministic gzip and verifies in 1.72 ms. It is
+not published or consumed by the browser yet, so production behavior is
+unchanged.
 
 ## Compatibility and rollout
 

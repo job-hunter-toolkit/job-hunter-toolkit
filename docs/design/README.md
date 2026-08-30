@@ -15,7 +15,7 @@ feed. Read that first; come here for the "why" behind a specific one.
 | [`browser-analytics.md`](browser-analytics.md) | Fixed-memory filtered facets and browser cancellation | Implemented in [`web/engine`](../../web/engine) |
 | [`posting-date-trust.md`](posting-date-trust.md) | Generation-relative future-date quarantine, effective ordering, and bounded card projection | Implemented in [`web/engine`](../../web/engine) and [`web/card.js`](../../web/card.js) |
 | [`webmcp.md`](webmcp.md) | Read-only browser-local agent tools, trust boundaries, and experimental browser support | First slice implemented in [`web/webmcp.js`](../../web/webmcp.js) |
-| [`progressive-readiness.md`](progressive-readiness.md) | Generation 11 boot measurements and a verified first-page bootstrap projection | Measured proposal; publication change not implemented |
+| [`progressive-readiness.md`](progressive-readiness.md) | Generation 11 boot measurements and a verified first-page bootstrap projection | Source prototype implemented; publication change not implemented |
 | [`pwa-retention-roadmap.md`](pwa-retention-roadmap.md) | PWA audit, local return state, offline truthfulness, and historical-data phases | Small foundation implemented; medium and large phases proposed |
 | [`package-taxonomy.md`](package-taxonomy.md) | Which packages become public, and where they live in the module | Partially done — see `public-api-extraction.md` |
 | [`public-api-extraction.md`](public-api-extraction.md) | Status record for the taxonomy: what's extracted so far | Living status doc |
