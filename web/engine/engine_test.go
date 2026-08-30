@@ -44,6 +44,31 @@ func TestSummaryReportsTheGenerationHonestly(t *testing.T) {
 	must.Eq(t, 6.0, s.AgeHours)
 }
 
+func TestLoadProgressIsGranularAndMonotonic(t *testing.T) {
+	dir := t.TempDir()
+	ctx := t.Context()
+	must.NoError(t, testcorpus.Build(ctx, dir, 1))
+	e, err := engine.Open(ctx, corpus.DirStore{Dir: dir}, testcorpus.Now)
+	must.NoError(t, err)
+
+	var updates []engine.LoadProgress
+	must.NoError(t, e.LoadWithProgress(func(update engine.LoadProgress) {
+		updates = append(updates, update)
+	}))
+	must.Eq(t, 31, len(updates))
+	must.Eq(t, "decode", updates[0].Phase)
+	must.Eq(t, "fold", updates[13].Phase)
+	must.Eq(t, "state", updates[18].Phase)
+	must.Eq(t, "sort", updates[27].Phase)
+	must.Eq(t, 30, updates[len(updates)-1].Completed)
+	for i, update := range updates {
+		must.Eq(t, 30, update.Total)
+		if i > 0 {
+			must.True(t, update.Completed >= updates[i-1].Completed)
+		}
+	}
+}
+
 // search is a helper asserting how many rows a request matches.
 func search(t *testing.T, e *engine.Engine, req engine.SearchRequest) engine.SearchResponse {
 	t.Helper()

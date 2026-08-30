@@ -4,6 +4,7 @@ import vm from "node:vm";
 const handlers = {};
 let navigations = 0;
 let matchOptions;
+const source = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 const context = {
   URL,
   Promise,
@@ -24,7 +25,10 @@ const context = {
     delete: async () => true,
   },
 };
-vm.runInNewContext(readFileSync(new URL("../sw.js", import.meta.url), "utf8"), context);
+vm.runInNewContext(source, context);
+if (!source.includes('"readiness.js"')) {
+  throw new Error("offline shell omitted the readiness and recovery contract");
+}
 
 let intercepted = false;
 handlers.fetch({

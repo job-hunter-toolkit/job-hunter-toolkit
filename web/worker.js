@@ -16,6 +16,7 @@ import { createStore } from "./corpus-store.js";
 
 let store;
 let enginePromise;
+let loadPhase = "network";
 
 async function ensureEngine() {
   enginePromise ??= (async () => {
@@ -51,12 +52,16 @@ const ops = {
   },
 
   async load() {
+    loadPhase = "network";
     const ticker = setInterval(() => {
-      postMessage({ op: "progress", ...store.stats });
+      postMessage({ op: "progress", phase: loadPhase, ...store.stats });
     }, 250);
 
     try {
-      const stats = JSON.parse(await jhtEngine.load());
+      const stats = JSON.parse(await jhtEngine.load((progress) => {
+        loadPhase = progress.phase;
+        postMessage({ op: "progress", ...store.stats, ...progress });
+      }));
 
       return { ...stats, ...store.stats };
     } finally {
@@ -85,6 +90,12 @@ onmessage = async (event) => {
     const value = await ops[op](args ?? {});
     postMessage({ id, ok: true, value });
   } catch (err) {
-    postMessage({ id, ok: false, error: String(err?.message ?? err) });
+    postMessage({
+      id,
+      ok: false,
+      error: String(err?.message ?? err),
+      phase: op === "open" ? "metadata" : (op === "load" ? loadPhase : op),
+      retryable: op === "open" || op === "load",
+    });
   }
 };

@@ -61,7 +61,7 @@
     <main>
       <div id="banner" class="banner" role="status"><span>Reaching the latest snapshot…</span></div>
 
-      <div id="loading" class="loading" role="progressbar" aria-label="Preparing snapshot for search">
+      <div id="loading" class="loading" role="progressbar" aria-label="Preparing snapshot for search" aria-valuemin="0" aria-valuemax="30" aria-valuenow="0">
         <div class="skeleton-bar"><div class="skeleton-fill"></div></div>
       </div>
       <!-- The stage line ticks several times a second while loading; it stays
@@ -89,9 +89,10 @@
             <span id="spin" class="spin" aria-hidden="true"></span>
             <kbd class="key-hint" aria-hidden="true">/</kbd>
           </div>
-          <button type="submit" id="go" disabled>Search</button>
-          <button type="button" id="save" class="secondary" title="Save this search; new matches are summarized next time you open the page" disabled>Save</button>
+          <button type="submit" id="go" disabled hidden>Search</button>
+          <button type="button" id="save" class="secondary" title="Save this search; new matches are summarized next time you open the page" disabled hidden>Save</button>
         </div>
+        <p id="form-readiness" class="form-readiness" role="status">You can set filters now. Search becomes available after the complete snapshot is indexed locally.</p>
 
         <details id="refine" class="refine" open>
           <summary><span>Filters</span><span id="filter-summary" class="filter-summary">Optional</span></summary>

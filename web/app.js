@@ -8,6 +8,7 @@
 import { resolveCorpusBases } from "./config.js";
 import { openSnapshot } from "./snapshot.js";
 import { EngineClient } from "./engine-client.js";
+import { advanceProgress, failureState, sameVerifiedSnapshot } from "./readiness.js";
 import { renderCard } from "./card.js";
 import { resultCountText, snapshotStatus } from "./freshness.js";
 import {
@@ -40,6 +41,7 @@ const els = {
   clear: $("clear"),
   go: $("go"),
   save: $("save"),
+  formReadiness: $("form-readiness"),
   spin: $("spin"),
   results: $("results"),
   count: $("count"),
@@ -51,7 +53,7 @@ const els = {
 // The engine lives in a worker so no scan ever blocks this thread: typing
 // stays instant no matter what a search costs. Constructing the client first
 // thing starts the wasm download before anything else on this page runs.
-const engine = new EngineClient();
+let engine = new EngineClient();
 
 // WebMCP is a progressive enhancement. Unsupported browsers do not even fetch
 // its module; supported browsers reuse this exact client and resident engine.
@@ -76,6 +78,8 @@ let searchSeq = 0; // stale async results must never paint over newer ones
 let searchController = null; // a superseded scan should stop, not merely lose its paint race
 let summary = null;
 let freshnessTimer = null;
+let preparing = false;
+let progress = null;
 
 // The service worker makes the shell installable and offline-capable. Its
 // failure is never the page's problem.
@@ -83,27 +87,53 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
 }
 
+wireForm();
 boot();
 
-async function boot() {
+async function boot({ retry = false } = {}) {
+  if (preparing) return;
+  preparing = true;
+  rowsLoaded = false;
+  els.error.hidden = true;
+  els.loading.hidden = false;
+  els.list.setAttribute("aria-busy", "true");
+  setSearchAvailable(false);
+
+  if (retry) {
+    engine.terminate();
+    engine = new EngineClient();
+  }
+
   try {
     // The scaffold — form, skeleton results, placeholder banner — is static
     // HTML, painted from the first frame; scripts only replace content inside
     // boxes that already exist. Only the saved chips render here, because
     // localStorage is script territory.
     setStage("Fetching snapshot metadata…");
-    wireForm();
-    renderSavedChips();
 
-    const candidates = await resolveCorpusBases();
-    const opened = await openSnapshot(
-      candidates,
-      (candidate) => timedEngineCall((signal) => engine.open(candidate, { signal }), 30_000),
-      () => setStage("The pinned snapshot moved before it opened. Checking the published snapshot…"),
-    );
-    corpusURL = opened.base;
-    summary = opened.summary;
-    webMCPState = { phase: "indexing", summary };
+    if (retry && summary && corpusURL) {
+      const reopened = await timedEngineCall((signal) => engine.open(corpusURL, { signal }), 30_000);
+      if (!sameVerifiedSnapshot(summary, reopened)) {
+        const err = new Error("The verified snapshot changed before recovery could start");
+        err.phase = "metadata";
+        err.retryable = false;
+        throw err;
+      }
+    } else {
+      const candidates = await resolveCorpusBases();
+      const opened = await openSnapshot(
+        candidates,
+        (candidate) => timedEngineCall((signal) => engine.open(candidate, { signal }), 30_000),
+        () => setStage("The pinned snapshot moved before it opened. Checking the published snapshot…"),
+      );
+      corpusURL = opened.base;
+      summary = opened.summary;
+    }
+
+    progress = advanceProgress(null, {
+      phase: "network", label: "Downloading verified snapshot columns", completed: 0, total: 30,
+    });
+    webMCPState = { phase: "indexing", summary, progress };
     renderBanner(summary);
     els.count.textContent = "Preparing the snapshot for search…";
     els.list.setAttribute("aria-busy", "true");
@@ -111,13 +141,24 @@ async function boot() {
     let bytesFetched = 0;
     engine.onProgress = (stats) => {
       bytesFetched = stats.bytesFetched;
+      progress = advanceProgress(progress, { ...stats, label: progressLabel(stats) });
+      webMCPState = { phase: "indexing", summary, progress };
+      reportProgress();
     };
 
     const reportProgress = () => {
       const transferred = bytesFetched > 0
         ? ` · ${(bytesFetched / (1024 * 1024)).toFixed(1)} MiB transferred`
         : "";
-      setStage(`Preparing ${summary.rows.toLocaleString()} listings for fast local search${transferred}`);
+      const percent = progress?.total > 0
+        ? ` · ${Math.floor((progress.completed / progress.total) * 100)}%`
+        : "";
+      const label = progress?.label || "Downloading verified snapshot columns";
+      setStage(`${label}${percent}${transferred}`);
+      if (progress?.total > 0) {
+        els.loading.setAttribute("aria-valuenow", String(progress.completed));
+        els.loading.setAttribute("aria-valuemax", String(progress.total));
+      }
     };
     reportProgress();
     const ticker = setInterval(reportProgress, 600);
@@ -130,22 +171,38 @@ async function boot() {
     }
 
     rowsLoaded = true;
-    webMCPState = { phase: "ready", summary };
-    els.go.disabled = false;
-    els.save.disabled = false;
-    els.list.setAttribute("aria-busy", "false");
     const elapsed = stats.elapsed_ms < 100 ? "under 0.1 s" : `${(stats.elapsed_ms / 1000).toFixed(1)} s`;
+    progress = advanceProgress(progress, { phase: "query", label: "Running the first complete search", completed: 30, total: 32 });
+    webMCPState = { phase: "indexing", summary, progress };
+    els.loading.setAttribute("aria-valuenow", "30");
+    els.loading.setAttribute("aria-valuemax", "32");
+    setStage(progress.label);
+
+    try {
+      await search(true);
+    } catch (err) {
+      err.phase ??= "query";
+      err.retryable = true;
+      throw err;
+    }
+    progress = advanceProgress(progress, { phase: "paint", label: "Painting verified results", completed: 31, total: 32 });
+    els.loading.setAttribute("aria-valuenow", "31");
+    progress = advanceProgress(progress, { phase: "ready", label: "Search ready", completed: 32, total: 32 });
+    els.loading.setAttribute("aria-valuenow", "32");
+    els.list.setAttribute("aria-busy", "false");
+    webMCPState = { phase: "ready", summary, progress };
+    setSearchAvailable(true);
     setStage(`Ready · ${stats.rows.toLocaleString()} listings indexed locally in ${elapsed}`);
     els.loading.hidden = true;
-
-    await search(true);
+    renderSavedChips();
 
     // The rollup runs after the first results paint: it re-queries the corpus
     // once per saved search, and nothing about it should delay first light.
     renderRollup().catch(() => {});
   } catch (err) {
-    webMCPState = { phase: "error", summary };
     showError(err);
+  } finally {
+    preparing = false;
   }
 }
 
@@ -548,29 +605,35 @@ async function search(reset) {
     return;
   }
 
-  // Entrance stagger belongs to fresh arrivals, not to every keystroke: the
-  // first real paint of the list gets rhythm, retyping gets immediacy.
-  const firstPaint = els.list.querySelector(".card:not(.skeleton)") === null;
+  try {
+    // Entrance stagger belongs to fresh arrivals, not to every keystroke: the
+    // first real paint of the list gets rhythm, retyping gets immediacy.
+    const firstPaint = els.list.querySelector(".card:not(.skeleton)") === null;
 
-  if (reset) {
-    els.list.replaceChildren();
-  }
+    if (reset) {
+      els.list.replaceChildren();
+    }
 
-  els.list.classList.toggle("instant", !firstPaint);
+    els.list.classList.toggle("instant", !firstPaint);
 
-  response.items.forEach((item, i) => {
-    const card = renderCard(document, item, {
-      snapshotLevel: snapshotStatus(summary, new Date()).level,
-      nowISO: new Date().toISOString(),
-      timeAgo,
+    response.items.forEach((item, i) => {
+      const card = renderCard(document, item, {
+        snapshotLevel: snapshotStatus(summary, new Date()).level,
+        nowISO: new Date().toISOString(),
+        timeAgo,
+      });
+      card.style.setProperty("--stagger", `${Math.min(i, 12) * 25}ms`);
+      els.list.append(card);
     });
-    card.style.setProperty("--stagger", `${Math.min(i, 12) * 25}ms`);
-    els.list.append(card);
-  });
 
-  offset += response.items.length;
-  renderCount(response);
-  els.more.hidden = offset >= response.matched;
+    offset += response.items.length;
+    renderCount(response);
+    els.more.hidden = offset >= response.matched;
+  } catch (err) {
+    err.phase = "paint";
+    err.retryable = true;
+    throw err;
+  }
 }
 
 function renderCount(response) {
@@ -632,6 +695,33 @@ function setStage(text) {
   els.loading.setAttribute("aria-valuetext", text);
 }
 
+function progressLabel(update) {
+  if (update.phase === "decode") {
+    if (update.completed >= 12) return "Decoding compensation";
+    if (update.completed >= 11) return "Decoding dates and remote state";
+    if (update.completed >= 10) return "Decoding listing links";
+    return "Decoding search columns";
+  }
+  return {
+    network: "Downloading verified snapshot columns",
+    fold: "Folding text for case-insensitive search",
+    state: update.completed >= 23 ? "Computing lifecycle state" : "Computing date and remote state",
+    sort: update.completed >= 30 ? "Search index built" : "Building newest-first order",
+  }[update.phase] ?? "Preparing complete local search";
+}
+
+function setSearchAvailable(available) {
+  els.go.hidden = !available;
+  els.save.hidden = !available;
+  els.go.disabled = !available;
+  els.save.disabled = !available;
+  els.formReadiness.hidden = available;
+  if (!available) {
+    els.saved.hidden = true;
+    els.formReadiness.textContent = "You can set filters now. Search becomes available after the complete snapshot is indexed locally.";
+  }
+}
+
 async function timedEngineCall(call, timeoutMS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMS);
@@ -646,6 +736,9 @@ function showError(err) {
   console.error(err);
   els.loading.hidden = true;
 
+  const failure = failureState(err, progress?.phase ?? "metadata");
+  webMCPState = { phase: "error", summary, progress, error: failure };
+
   // Skeletons promise results; an error must not leave that promise shimmering.
   if (els.list.querySelector(".skeleton")) {
     els.list.replaceChildren();
@@ -658,24 +751,42 @@ function showError(err) {
 
   els.error.replaceChildren();
   const message = document.createElement("p");
-  let detail = "The snapshot could not be prepared. Retry in a moment.";
+  const phaseLabel = {
+    metadata: "snapshot metadata verification",
+    network: "snapshot download",
+    decode: "column decoding",
+    fold: "search text folding",
+    state: "listing state calculation",
+    sort: "result ordering",
+    query: "initial complete query",
+    paint: "initial result paint",
+    worker: "search worker",
+  }[failure.phase] ?? "snapshot preparation";
+  let detail = `The ${phaseLabel} phase failed. ${failure.action}.`;
   if (err?.name === "TimeoutError") {
-    detail = "Snapshot preparation took too long and was stopped. Retry on a stable connection.";
+    detail = `The ${phaseLabel} phase exceeded its time limit and the worker was stopped. ${failure.action} on a stable connection.`;
   } else if (/HTTP 404/.test(String(err?.message ?? err))) {
-    detail = "The published snapshot changed while loading. Retry to use the current snapshot.";
+    detail = `The ${phaseLabel} phase found that the published snapshot changed while loading. ${failure.action}.`;
   }
   message.textContent = offline + detail;
   const retry = document.createElement("button");
   retry.type = "button";
   retry.className = "secondary";
-  retry.textContent = "Retry";
-  retry.addEventListener("click", () => globalThis.location.reload());
+  retry.textContent = failure.retryable ? "Retry in this tab" : "Reload page";
+  retry.addEventListener("click", () => {
+    retry.disabled = true;
+    if (failure.retryable) void boot({ retry: true });
+    else globalThis.location.reload();
+  });
   els.error.append(message, retry);
   els.error.tabIndex = -1;
   els.error.focus();
   els.go.disabled = true;
   els.list.setAttribute("aria-busy", "false");
-  setStage("Your filters are unchanged. Retry when the connection is available.");
+  els.formReadiness.hidden = false;
+  els.formReadiness.textContent = "Your filters are unchanged. Search will return after recovery succeeds.";
+  const retained = summary ? "Verified metadata and filters were retained." : "Your filters were retained.";
+  setStage(`Stopped during ${phaseLabel}. ${retained}`);
 }
 
 function addSpan(parent, className, text) {

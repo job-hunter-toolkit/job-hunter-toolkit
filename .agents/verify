@@ -70,6 +70,7 @@ run "staticcheck" staticcheck ./...
 run "govulncheck" govulncheck ./...
 run "Node config tests" node web/test/config.mjs
 run "Node snapshot tests" node web/test/snapshot.mjs
+run "Node readiness tests" node web/test/readiness.mjs
 run "Node store tests" node web/test/store.mjs
 run "Node engine client tests" node web/test/engine-client.mjs
 run "Node service worker tests" node web/test/sw.mjs

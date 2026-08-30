@@ -220,10 +220,15 @@ const statusOutputSchema = envelopeSchema({
   type: "object",
   properties: {
     phase: { enum: ["metadata", "indexing", "ready", "error"] },
+    current_phase: outputString(),
+    completed: { type: "integer", minimum: 0 },
+    total: { type: "integer", minimum: 0 },
+    retryable: { type: "boolean" },
+    recovery_action: outputString(),
     ready: { type: "boolean" },
     privacy: outputString(),
   },
-  required: ["phase", "ready", "privacy"],
+  required: ["phase", "current_phase", "completed", "total", "retryable", "recovery_action", "ready", "privacy"],
   additionalProperties: false,
 });
 
@@ -253,6 +258,10 @@ function capabilities(state) {
     webmcp_draft: "2026-08-26-community-group-report",
     readiness: {
       phase: state.phase,
+      current_phase: state.progress?.phase ?? state.phase,
+      completed: state.progress?.completed ?? 0,
+      total: state.progress?.total ?? 0,
+      error: state.error ?? null,
       operations: {
         get_snapshot_status: { available: true, available_phases: ["metadata", "indexing", "ready", "error"] },
         get_search_capabilities: { available: true, available_phases: ["metadata", "indexing", "ready", "error"] },
@@ -473,7 +482,10 @@ export function createWebMCPTools({ getState, search, detail, now = () => new Da
   const requireReady = () => {
     const state = getState();
     if (state.phase === "ready") return null;
-    return failure("not_ready", state.phase === "error" ? "The snapshot could not be prepared." : "The browser-local corpus is still loading.", state.phase !== "error", provenance(state.summary, now));
+    const message = state.phase === "error"
+      ? `The browser-local corpus stopped during ${state.error?.phase ?? "preparation"}. ${state.error?.action ?? "Retry in the page."}`
+      : `The browser-local corpus is still in ${state.progress?.phase ?? state.phase}.`;
+    return failure("not_ready", message, state.phase !== "error" || state.error?.retryable === true, provenance(state.summary, now));
   };
 
   const runSearch = withSupersession(async (input, { signal }) => {
@@ -529,7 +541,16 @@ export function createWebMCPTools({ getState, search, detail, now = () => new Da
         if (!isObject(input) || Object.keys(input).length !== 0) return invalid("input must be an empty object", snapshot);
         const state = getState();
         return boundedSuccess(
-          { phase: state.phase, ready: state.phase === "ready", privacy: "All corpus queries execute in this tab. No query, result, saved search, or agent call is sent to Job Hunter Toolkit." },
+          {
+            phase: state.phase,
+            current_phase: state.progress?.phase ?? state.error?.phase ?? state.phase,
+            completed: state.progress?.completed ?? 0,
+            total: state.progress?.total ?? 0,
+            retryable: state.phase !== "ready" && state.error?.retryable !== false,
+            recovery_action: state.error?.action ?? "",
+            ready: state.phase === "ready",
+            privacy: "All corpus queries execute in this tab. No query, result, saved search, or agent call is sent to Job Hunter Toolkit.",
+          },
           snapshot,
           "Snapshot status exceeded the bounded API contract.",
         );
