@@ -52,6 +52,21 @@ const els = {
 // thing starts the wasm download before anything else on this page runs.
 const engine = new EngineClient();
 
+// WebMCP is a progressive enhancement. Unsupported browsers do not even fetch
+// its module; supported browsers reuse this exact client and resident engine.
+// Saved searches are intentionally absent because the current draft has no
+// per-call user-approval primitive for private localStorage data.
+let webMCPState = { phase: "metadata", summary: null };
+if (typeof document.modelContext?.registerTool === "function") {
+  import("./webmcp.js")
+    .then(({ installWebMCP }) => installWebMCP(document.modelContext, {
+      getState: () => webMCPState,
+      search: (request, options) => engine.search(request, options),
+      detail: (url, options) => engine.detail(url, options),
+    }))
+    .catch(() => {});
+}
+
 let corpusURL = "";
 let offset = 0;
 let lastRequest = null;
@@ -87,6 +102,7 @@ async function boot() {
     );
     corpusURL = opened.base;
     summary = opened.summary;
+    webMCPState = { phase: "indexing", summary };
     renderBanner(summary);
     els.count.textContent = "Preparing the snapshot for search…";
     els.list.setAttribute("aria-busy", "true");
@@ -113,6 +129,7 @@ async function boot() {
     }
 
     rowsLoaded = true;
+    webMCPState = { phase: "ready", summary };
     els.go.disabled = false;
     els.save.disabled = false;
     els.list.setAttribute("aria-busy", "false");
@@ -126,6 +143,7 @@ async function boot() {
     // once per saved search, and nothing about it should delay first light.
     renderRollup().catch(() => {});
   } catch (err) {
+    webMCPState = { phase: "error", summary };
     showError(err);
   }
 }

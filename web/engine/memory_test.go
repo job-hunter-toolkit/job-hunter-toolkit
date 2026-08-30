@@ -28,3 +28,12 @@ func TestGeneration11MobileMemoryBudget(t *testing.T) {
 	must.LessEq(t, residentBudget, resident)
 	must.LessEq(t, linearMemoryBudget, peak)
 }
+
+// WebMCP calls the existing Engine methods through the existing worker. This
+// structural budget catches accidentally adding a second URL map, row slice,
+// or other per-generation index to Engine in a future tool implementation.
+func TestWebMCPDoesNotAddASecondGeneration11Index(t *testing.T) {
+	// This is the measured amd64 header before WebMCP. Dynamic column and row
+	// storage is covered by TestGeneration11MobileMemoryBudget above.
+	must.Eq(t, uintptr(1352), unsafe.Sizeof(Engine{}))
+}

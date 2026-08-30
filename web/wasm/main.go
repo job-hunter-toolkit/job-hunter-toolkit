@@ -5,11 +5,12 @@
 //
 // The bridge is deliberately narrow. JavaScript hands Go a *store* — an object
 // with size(name) and readAt(name, off, len), both returning Promises — and Go
-// hands JavaScript three async functions on globalThis.jhtEngine:
+// hands JavaScript four async functions on globalThis.jhtEngine:
 //
 //	open(store)  -> Promise<summaryJSON>  reads manifest + footer, a few KB
 //	load()       -> Promise<statsJSON>    materializes every row, the big fetch
 //	search(json) -> Promise<responseJSON> in-memory scan, milliseconds
+//	detail(url)  -> Promise<responseJSON> exact URL scan over the same rows
 //
 // Everything that can be tested without a browser lives in web/engine; this
 // file is only the syscall/js plumbing, and it is exercised end to end under
@@ -40,6 +41,7 @@ func main() {
 		"open":   promiseFunc(bridge.open),
 		"load":   promiseFunc(bridge.load),
 		"search": promiseFunc(bridge.search),
+		"detail": promiseFunc(bridge.detail),
 		"cancel": promiseFunc(bridge.cancel),
 	}))
 
@@ -125,6 +127,45 @@ func (b *bridge) search(args []js.Value) (any, error) {
 	}
 
 	out, err := b.engine.SearchJSONYielding(ctx, []byte(args[0].String()), yieldToEvents)
+	if err != nil {
+		return nil, err
+	}
+
+	return string(out), nil
+}
+
+// detail resolves a posting by exact snapshot URL over the existing compact
+// projection. It deliberately shares search cancellation tokens and allocates
+// no URL index.
+func (b *bridge) detail(args []js.Value) (any, error) {
+	if b.engine == nil || !b.engine.Loaded() {
+		return nil, errors.New("detail: load() first")
+	}
+	if len(args) < 1 || args[0].Type() != js.TypeString {
+		return nil, errors.New("detail: expected a URL string")
+	}
+
+	ctx := context.Background()
+	token := 0
+	if len(args) > 1 && args[1].Type() == js.TypeNumber {
+		token = args[1].Int()
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		b.mu.Lock()
+		if b.searches == nil {
+			b.searches = make(map[int]context.CancelFunc)
+		}
+		b.searches[token] = cancel
+		b.mu.Unlock()
+		defer func() {
+			b.mu.Lock()
+			delete(b.searches, token)
+			b.mu.Unlock()
+			cancel()
+		}()
+	}
+
+	out, err := b.engine.DetailJSONYielding(ctx, args[0].String(), yieldToEvents)
 	if err != nil {
 		return nil, err
 	}

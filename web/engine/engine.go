@@ -227,6 +227,17 @@ type SearchResponse struct {
 	Facets *Facets `json:"facets,omitempty"`
 }
 
+// DetailResponse resolves an exact posting URL inside the opened snapshot.
+// URLs are stable locators only within one generation. Matches is a row count:
+// historical rows can legitimately repeat a URL, and the first item follows
+// the same deterministic newest-first order as Search.
+type DetailResponse struct {
+	Found     bool   `json:"found"`
+	Matches   int    `json:"matches"`
+	CountUnit string `json:"count_unit"`
+	Item      *Item  `json:"item,omitempty"`
+}
+
 // Facet is one stable machine value and its exact matching row count.
 type Facet struct {
 	Value string `json:"value"`
@@ -625,6 +636,47 @@ func (e *Engine) SearchYielding(ctx context.Context, req SearchRequest, yield fu
 	return e.searchContext(ctx, req, yield)
 }
 
+// DetailYielding resolves an exact URL without building a second index. It
+// scans the same compact URL column Search renders and yields on the same
+// cadence so browser cancellation stays prompt.
+func (e *Engine) DetailYielding(ctx context.Context, url string, yield func() error) (DetailResponse, error) {
+	if e.rows == nil {
+		return DetailResponse{}, fmt.Errorf("engine: Detail before Load")
+	}
+
+	resp := DetailResponse{CountUnit: "rows"}
+	for n, rawIndex := range e.order {
+		if n&1023 == 0 {
+			select {
+			case <-ctx.Done():
+				return DetailResponse{}, ctx.Err()
+			default:
+			}
+		}
+		if yield != nil && n > 0 && n&32767 == 0 {
+			if err := yield(); err != nil {
+				return DetailResponse{}, err
+			}
+			if err := ctx.Err(); err != nil {
+				return DetailResponse{}, err
+			}
+		}
+
+		i := int(rawIndex)
+		if e.url.at(i) != url {
+			continue
+		}
+		resp.Matches++
+		if resp.Item == nil {
+			item := e.item(i)
+			resp.Item = &item
+		}
+	}
+	resp.Found = resp.Item != nil
+
+	return resp, nil
+}
+
 func (e *Engine) searchContext(ctx context.Context, req SearchRequest, yield func() error) (SearchResponse, error) {
 	if e.rows == nil {
 		return SearchResponse{}, fmt.Errorf("engine: Search before Load")
@@ -954,6 +1006,16 @@ func (e *Engine) SearchJSONContext(ctx context.Context, data []byte) ([]byte, er
 // SearchJSONYielding is SearchJSONContext with bounded yielding for Wasm.
 func (e *Engine) SearchJSONYielding(ctx context.Context, data []byte, yield func() error) ([]byte, error) {
 	return e.searchJSON(ctx, data, yield)
+}
+
+// DetailJSONYielding is the Wasm wire shape for DetailYielding.
+func (e *Engine) DetailJSONYielding(ctx context.Context, url string, yield func() error) ([]byte, error) {
+	resp, err := e.DetailYielding(ctx, url, yield)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(resp)
 }
 
 func (e *Engine) searchJSON(ctx context.Context, data []byte, yield func() error) ([]byte, error) {

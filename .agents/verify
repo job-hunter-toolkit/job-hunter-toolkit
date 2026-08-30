@@ -74,6 +74,7 @@ run "Node store tests" node web/test/store.mjs
 run "Node engine client tests" node web/test/engine-client.mjs
 run "Node service worker tests" node web/test/sw.mjs
 run "Node rollup tests" node web/test/rollup.mjs
+run "Node WebMCP tests" node web/test/webmcp.mjs
 
 site="$temporary/site"
 corpus="$temporary/corpus"

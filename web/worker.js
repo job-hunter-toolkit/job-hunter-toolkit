@@ -67,6 +67,10 @@ const ops = {
   async search({ request, token }) {
     return JSON.parse(await jhtEngine.search(JSON.stringify(request), token));
   },
+
+  async detail({ url, token }) {
+    return JSON.parse(await jhtEngine.detail(url, token));
+  },
 };
 
 onmessage = async (event) => {

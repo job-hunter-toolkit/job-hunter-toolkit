@@ -80,6 +80,29 @@ func TestSearchYieldingLetsCancellationRunBetweenChunks(t *testing.T) {
 	must.Eq(t, 1, yields)
 }
 
+func TestDetailYieldingLetsCancellationRunBetweenChunks(t *testing.T) {
+	const rows = 32769
+	e := &Engine{
+		rows:  make([]record, rows),
+		order: make([]uint32, rows),
+		url:   stringColumn{direct: make([]string, rows)},
+	}
+	for i := range e.order {
+		e.order[i] = uint32(i)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	yields := 0
+	_, err := e.DetailYielding(ctx, "https://example.com/missing", func() error {
+		yields++
+		cancel()
+		return nil
+	})
+
+	must.ErrorIs(t, err, context.Canceled)
+	must.Eq(t, 1, yields)
+}
+
 func testStringColumn(value string) stringColumn {
 	return stringColumn{ids: make([]uint32, 32769), values: []string{value}, folded: []string{value}}
 }
