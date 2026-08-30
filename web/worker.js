@@ -90,11 +90,15 @@ onmessage = async (event) => {
     const value = await ops[op](args ?? {});
     postMessage({ id, ok: true, value });
   } catch (err) {
+    const error = String(err?.message ?? err);
+    const failedLoadPhase = /Failed to fetch|HTTP \d{3}|network error/i.test(error)
+      ? "network"
+      : loadPhase;
     postMessage({
       id,
       ok: false,
-      error: String(err?.message ?? err),
-      phase: op === "open" ? "metadata" : (op === "load" ? loadPhase : op),
+      error,
+      phase: op === "open" ? "metadata" : (op === "load" ? failedLoadPhase : op),
       retryable: op === "open" || op === "load",
     });
   }
