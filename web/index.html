@@ -33,19 +33,20 @@
     <link rel="modulepreload" href="config.js" />
     <link rel="modulepreload" href="freshness.js" />
     <link rel="modulepreload" href="rollup.js" />
+    <link rel="modulepreload" href="query-state.js" />
     <link rel="modulepreload" href="engine-client.js" />
     <script type="module" src="app.js"></script>
   </head>
   <body>
     <header class="site-header">
-      <div class="wordmark">
+      <h1 class="wordmark">
         <svg class="mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
           <rect x="3" y="7" width="18" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8" />
           <path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7" fill="none" stroke="currentColor" stroke-width="1.8" />
           <path d="M3 12.5h18" stroke="currentColor" stroke-width="1.8" />
         </svg>
         <span>Job Hunter Toolkit</span>
-      </div>
+      </h1>
       <p class="tagline">
         Search a nightly snapshot of postings crawled from thousands of company
         job boards. The query engine runs entirely in your browser: no backend,
@@ -75,26 +76,30 @@
       </section>
       <div id="saved" class="saved" aria-label="Saved searches" hidden></div>
 
-      <form id="filters">
+      <form id="filters" method="get">
+        <input type="hidden" name="qv" value="1" />
         <div class="search-row">
           <div class="search-box">
             <input
               id="f-title"
+              name="title"
               type="text"
               class="search-input"
               placeholder="Job title or keywords"
               autocomplete="off"
               aria-label="Title contains"
+              aria-describedby="shortcut-help"
             />
             <span id="spin" class="spin" aria-hidden="true"></span>
             <kbd class="key-hint" aria-hidden="true">/</kbd>
+            <span id="shortcut-help" class="sr-only">Press slash to focus title search. Press Escape there to clear it.</span>
           </div>
           <button type="submit" id="go" disabled hidden>Search</button>
           <button type="button" id="save" class="secondary" title="Save this search; new matches are summarized next time you open the page" disabled hidden>Save</button>
         </div>
         <p id="form-readiness" class="form-readiness" role="status">You can set filters now. Search becomes available after the complete snapshot is indexed locally.</p>
 
-        <details id="refine" class="refine" open>
+        <details id="refine" class="refine">
           <summary><span>Filters</span><span id="filter-summary" class="filter-summary">Optional</span></summary>
           <div class="refine-head">
             <p>Combine any of these with the title search.</p>
@@ -103,27 +108,27 @@
           <div class="grid">
             <label
               >Title excludes
-              <input id="f-exclude" type="text" placeholder="manager, staffing" autocomplete="off" />
+              <input id="f-exclude" name="exclude" type="text" placeholder="manager, staffing" autocomplete="off" />
             </label>
             <label
               >Location contains
-              <input id="f-location" type="text" placeholder="remote, berlin" autocomplete="off" />
+              <input id="f-location" name="location" type="text" placeholder="remote, berlin" autocomplete="off" />
             </label>
             <label
               >Company contains
-              <input id="f-company" type="text" autocomplete="off" />
+              <input id="f-company" name="company" type="text" autocomplete="off" />
             </label>
             <label
               >Department or team
-              <input id="f-department" type="text" placeholder="engineering, security" autocomplete="off" />
+              <input id="f-department" name="department" type="text" placeholder="engineering, security" autocomplete="off" />
             </label>
             <label
-              >Minimum annual pay
-              <input id="f-minpay" type="number" min="0" step="1000" placeholder="150000" />
+              >Published range reaches
+              <input id="f-minpay" name="min_annual" type="number" min="0" step="1000" placeholder="150000" />
             </label>
             <label
               >Employment type
-              <select id="f-employment">
+              <select id="f-employment" name="employment">
                 <option value="">Any</option>
                 <option value="full_time">Full-time</option>
                 <option value="part_time">Part-time</option>
@@ -135,7 +140,7 @@
             </label>
             <label
               >Workplace type
-              <select id="f-workplace">
+              <select id="f-workplace" name="workplace">
                 <option value="">Any</option>
                 <option value="remote">Remote</option>
                 <option value="hybrid">Hybrid</option>
@@ -144,7 +149,7 @@
             </label>
             <label
               >Posted since
-              <select id="f-since">
+              <select id="f-since" name="since">
                 <option value="">Any time</option>
                 <option value="1">Last day</option>
                 <option value="7">Last week</option>
@@ -154,44 +159,51 @@
             </label>
           </div>
           <div class="row">
-            <label class="check"><input id="f-remote" type="checkbox" /><span>Remote only</span></label>
+            <label class="check"><input id="f-remote" name="remote" value="1" type="checkbox" /><span>Remote match</span></label>
             <label class="check"><input id="f-haspay" type="checkbox" /><span>Published pay only</span></label>
             <fieldset class="lifecycle">
               <legend>Availability evidence</legend>
               <label class="check" title="Present in the source's latest qualifying check within its freshness target">
-                <input id="f-state-open" data-lifecycle-state="open" type="checkbox" checked /><span>Recently checked</span>
+                <input id="f-state-open" name="state" value="open" data-lifecycle-state="open" type="checkbox" checked /><span>Recently checked</span>
               </label>
               <label class="check" title="Present at the latest successful source check, but that check is no longer recent">
-                <input id="f-state-stale" data-lifecycle-state="stale" type="checkbox" checked /><span>Last check not recent</span>
+                <input id="f-state-stale" name="state" value="stale" data-lifecycle-state="stale" type="checkbox" checked /><span>Last check not recent</span>
               </label>
               <label class="check" title="Absent from enough qualifying source checks to be closed in this snapshot">
-                <input id="f-state-closed" data-lifecycle-state="closed" type="checkbox" /><span>Closed in snapshot</span>
+                <input id="f-state-closed" name="state" value="closed" data-lifecycle-state="closed" type="checkbox" /><span>Closed in snapshot</span>
               </label>
               <label class="check" title="The source has gone too long without a qualifying check to infer closure">
-                <input id="f-state-lapsed" data-lifecycle-state="lapsed" type="checkbox" /><span>Source status unknown</span>
+                <input id="f-state-lapsed" name="state" value="lapsed" data-lifecycle-state="lapsed" type="checkbox" /><span>Source status unknown</span>
               </label>
             </fieldset>
           </div>
+          <details class="meaning-note">
+            <summary>What availability, remote, and pay mean</summary>
+            <p>Results are records from the named snapshot, not live availability checks. The default includes recently checked and stale records; Availability evidence lets you choose exact snapshot states.</p>
+            <p>Remote match uses source flags plus broad title and location clues. Workplace type uses the board's classification. The pay filter matches when a published range reaches the annual amount; currencies are not converted.</p>
+          </details>
         </details>
-        <!-- Start with the wide-screen scaffold already expanded, then choose
-             the narrow-screen disclosure state while the parser is still in
-             the form. Doing this in the deferred module causes a visible
-             layout shift after first paint. -->
-        <script>
-          if (!globalThis.matchMedia("(min-width: 48rem)").matches) {
-            document.getElementById("refine").open = false;
-          }
-        </script>
       </form>
+      <p id="url-note" class="url-note">Filters are kept in this page's URL for reload, Back, and sharing. Shared URLs can reveal search terms; saved searches and visit history stay on this device.</p>
 
       <section id="results">
-        <p id="count" class="count" role="status" aria-live="polite"></p>
+        <p id="count" class="count" role="status" aria-live="polite" tabindex="-1"></p>
         <ul id="list" class="list" aria-busy="true" aria-label="Job search results">
           <li class="card skeleton" style="--stagger: 0ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
           <li class="card skeleton" style="--stagger: 60ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
           <li class="card skeleton" style="--stagger: 120ms"><div class="bone title-bone"></div><div class="bone where-bone"></div><div class="bone meta-bone"></div></li>
         </ul>
-        <button id="more" type="button" hidden>Load more</button>
+        <nav id="pagination" class="pagination" aria-label="Result pages" hidden>
+          <button id="previous" type="button" class="secondary">Previous</button>
+          <form id="page-jump" class="page-jump">
+            <label for="page-number">Page</label>
+            <input id="page-number" name="page" type="number" min="1" step="1" inputmode="numeric" />
+            <span id="page-total"></span>
+            <button type="submit" class="secondary">Go</button>
+          </form>
+          <button id="next" type="button" class="secondary">Next</button>
+          <span class="page-shortcuts">Use <kbd>[</kbd> and <kbd>]</kbd> to move between pages.</span>
+        </nav>
       </section>
 
       <noscript>

@@ -103,6 +103,8 @@ jobs:
 
     - name: Test and build the browser app
       run: |
+        npm ci --prefix web
+        web/node_modules/.bin/playwright install --with-deps chromium
         node web/test/config.mjs
         node web/test/snapshot.mjs
         node web/test/readiness.mjs
@@ -112,10 +114,13 @@ jobs:
         node web/test/rollup.mjs
         node web/test/freshness.mjs
         node web/test/card.mjs
+        node web/test/query-state.mjs
         node web/test/webmcp.mjs
         go run ./web/fixture -dir "$RUNNER_TEMP/corpus"
         ./web/build.sh "$RUNNER_TEMP/site"
         node web/test/smoke.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/corpus"
+        go run ./web/fixture -dir "$RUNNER_TEMP/browser-corpus" -scale 30
+        node web/test/browser.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/browser-corpus"
 
   portability:
     name: Portable build

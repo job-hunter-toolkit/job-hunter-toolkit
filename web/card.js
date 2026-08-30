@@ -30,8 +30,28 @@ export function renderCard(document, item, { snapshotLevel, nowISO, timeAgo }) {
   const where = document.createElement("div");
   where.className = "where";
   addText(document, where, "company", view.company || "Unknown employer");
-  if (view.location) addText(document, where, "location", view.location);
+  const location = locationPresentation(item.location || view.location || "");
+  if (location.summary) addText(document, where, "location", location.summary);
   li.append(where);
+
+  if (location.disclose) {
+    const details = document.createElement("details");
+    details.className = "location-details";
+    const summary = document.createElement("summary");
+    summary.textContent = "View location details";
+    const full = document.createElement("p");
+    full.textContent = location.full;
+    details.append(summary, full);
+    if (location.truncated) {
+      const note = document.createElement("p");
+      note.className = "location-note";
+      note.textContent = url
+        ? "The browser result is bounded. Open the posting title for the complete source list."
+        : "The browser result is bounded; the complete source list is unavailable here.";
+      details.append(note);
+    }
+    li.append(details);
+  }
 
   const facts = document.createElement("div");
   facts.className = "card-facts";
@@ -102,9 +122,12 @@ function addDate(document, parent, label, value, relative = "") {
   fact.append(`${label} `);
   const time = document.createElement("time");
   time.dateTime = value;
+  time.title = value;
   time.textContent = relative || value.slice(0, 10);
-  time.setAttribute("aria-label", `${label}: ${value}`);
-  fact.append(time);
+  const exact = document.createElement("span");
+  exact.className = "sr-only";
+  exact.textContent = ` (${value})`;
+  fact.append(time, exact);
 }
 
 function addText(document, parent, className, text) {
@@ -122,4 +145,51 @@ export function safeHTTPURL(raw) {
   } catch {
     return "";
   }
+}
+
+export function locationPresentation(raw) {
+  const normalized = String(raw).replace(/\s+/gu, " ").trim();
+  if (!normalized) return { summary: "", full: "", disclose: false, truncated: false };
+
+  const sourceTruncated = normalized.endsWith("…");
+  const split = normalized.split(/\s*(?:\|+|;+|\n+)\s*/u).map((part) => part.trim()).filter(Boolean);
+  const unique = [];
+  const seen = new Set();
+  for (const part of split.slice(0, 500)) {
+    const key = part.toLocaleLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(part);
+    }
+  }
+  const countTruncated = split.length > 500;
+  const fullTruncated = [...normalized].length > 4096;
+  const truncated = sourceTruncated || countTruncated || fullTruncated;
+  const full = fullTruncated ? `${[...normalized].slice(0, 4095).join("")}…` : normalized;
+
+  if (unique.length <= 1) {
+    const only = unique[0] || normalized;
+    const long = [...only].length > 180;
+    return {
+      summary: long ? `${[...only].slice(0, 177).join("")}…` : only,
+      full,
+      disclose: long || truncated,
+      truncated: truncated || long,
+    };
+  }
+
+  const exactCount = !sourceTruncated && !countTruncated;
+  const count = exactCount ? String(unique.length) : `${Math.min(unique.length, 500)}+`;
+  const shortList = unique.length <= 3 && unique.join(" · ").length <= 120 && !truncated;
+  return {
+    summary: shortList ? unique.join(" · ") : `${count} locations, including ${bounded(unique[0], 72)}`,
+    full,
+    disclose: !shortList,
+    truncated,
+  };
+}
+
+function bounded(value, limit) {
+  const runes = [...value];
+  return runes.length <= limit ? value : `${runes.slice(0, limit - 1).join("")}…`;
 }

@@ -83,6 +83,18 @@
   box-sizing: border-box;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* The hidden attribute must always win: several elements below set their own
    display, which would otherwise override the UA's [hidden] rule. */
 [hidden] {
@@ -134,13 +146,14 @@ body::before {
 /* --- header ---------------------------------------------------------------- */
 
 .site-header {
-  margin-bottom: clamp(1.25rem, 3vw, 2rem);
+  margin-bottom: clamp(0.85rem, 2vw, 1.35rem);
 }
 
 .wordmark {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  margin: 0;
   font-size: 1.25rem;
   font-weight: 650;
   letter-spacing: -0.02em;
@@ -154,7 +167,7 @@ body::before {
 .tagline {
   margin: 0.5rem 0 0;
   color: var(--muted);
-  max-width: 42rem;
+  max-width: 52rem;
   font-size: 0.9375rem;
   text-wrap: pretty;
 }
@@ -312,7 +325,7 @@ body::before {
 /* --- filters --------------------------------------------------------------- */
 
 form {
-  margin: 1rem 0 1.35rem;
+  margin: 0.8rem 0 1rem;
   animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
@@ -502,6 +515,31 @@ summary:focus-visible {
   font-size: 0.8125rem;
 }
 
+.meaning-note {
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.meaning-note summary {
+  min-height: 2.5rem;
+  width: fit-content;
+  color: var(--accent);
+  font-weight: 550;
+}
+
+.meaning-note p {
+  max-width: 52rem;
+  margin: 0.35rem 0 0;
+}
+
+.url-note {
+  margin: -0.8rem 0 1.3rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-wrap: pretty;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
@@ -592,20 +630,6 @@ button[disabled] {
   opacity: 0.6;
   cursor: default;
   transform: none;
-}
-
-#more {
-  display: block;
-  margin: 1.5rem auto 0;
-  background: var(--surface);
-  color: var(--fg);
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-card);
-}
-
-#more:hover {
-  border-color: var(--faint);
-  background: var(--surface-2);
 }
 
 button.secondary {
@@ -794,8 +818,9 @@ button.quiet[disabled] {
 /* --- results --------------------------------------------------------------- */
 
 .count {
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--fg);
+  font-size: 0.875rem;
+  font-weight: 550;
   font-variant-numeric: tabular-nums;
   margin: 0 0 0.75rem;
   min-height: 1.3em; /* reserved before the first count lands: no shift */
@@ -917,6 +942,37 @@ button.quiet[disabled] {
   overflow-wrap: anywhere;
 }
 
+.location-details {
+  margin: -0.15rem 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.location-details summary {
+  width: fit-content;
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.location-details p {
+  max-width: 100%;
+  margin: 0.3rem 0;
+  padding: 0.45rem 0.55rem;
+  border-left: 2px solid var(--border-strong);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.location-details .location-note {
+  border: 0;
+  padding: 0;
+  font-style: italic;
+}
+
 .card .company {
   color: var(--fg);
   font-weight: 550;
@@ -993,9 +1049,12 @@ button.quiet[disabled] {
   border-radius: 999px;
 }
 
-.badge.unknown,
-.badge.organization {
+.badge.unknown {
   color: var(--faint);
+}
+
+.badge.organization {
+  color: var(--muted);
 }
 
 .card,
@@ -1030,6 +1089,46 @@ button.quiet[disabled] {
   font-weight: 600;
   padding: 0.08rem 0.5rem;
   border-radius: 999px;
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  margin-top: 1.5rem;
+}
+
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  animation: none;
+}
+
+.page-jump label {
+  display: block;
+  color: var(--muted);
+}
+
+.page-jump input {
+  width: 5.5rem;
+}
+
+.page-shortcuts {
+  flex-basis: 100%;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.page-shortcuts kbd {
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+  background: var(--surface-2);
 }
 
 /* --- footer ---------------------------------------------------------------- */
@@ -1118,6 +1217,16 @@ footer a {
   .refine summary {
     min-height: 3rem;
   }
+
+  .pagination > button {
+    flex: 1;
+  }
+
+  .page-jump {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: center;
+  }
 }
 
 /* Touch devices have no "/" key to hint at, and the reserved space is better
@@ -1195,4 +1304,20 @@ footer a {
 .empty strong {
   color: var(--fg);
   font-weight: 600;
+}
+
+@media print {
+  .pagination,
+  .key-hint,
+  .spin {
+    display: none !important;
+  }
+
+  .location-details > summary {
+    display: none;
+  }
+
+  .location-details:not([open]) > * {
+    display: block;
+  }
 }
