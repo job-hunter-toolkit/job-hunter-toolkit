@@ -56,6 +56,9 @@ func TestTableRoundTripsEveryEncoding(t *testing.T) {
 	gotURLs, err := table.Strings("url")
 	must.NoError(t, err)
 	test.Eq(t, urls, gotURLs)
+	_, _, indexed, err := table.StringDictionary("url")
+	must.NoError(t, err)
+	test.False(t, indexed)
 
 	gotPosted, err := table.Ints("posted")
 	must.NoError(t, err)
@@ -82,6 +85,14 @@ func TestTableChoosesDictForRepeatedValuesAndRawForUniqueOnes(t *testing.T) {
 	must.SliceLen(t, 2, columns)
 	test.Eq(t, EncodingDict, columns[0].Encoding)
 	test.Eq(t, EncodingRaw, columns[1].Encoding)
+	dictionary, ids, indexed, err := table.StringDictionary("repeated")
+	must.NoError(t, err)
+	test.True(t, indexed)
+	indexedRepeated := make([]string, len(ids))
+	for i, id := range ids {
+		indexedRepeated[i] = dictionary[id]
+	}
+	test.Eq(t, repeated, indexedRepeated)
 }
 
 func TestTableReadsAMissingColumnAsTheZeroValue(t *testing.T) {

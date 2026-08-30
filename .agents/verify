@@ -69,7 +69,10 @@ run "portable builds" bash -c '
 run "staticcheck" staticcheck ./...
 run "govulncheck" govulncheck ./...
 run "Node config tests" node web/test/config.mjs
+run "Node snapshot tests" node web/test/snapshot.mjs
 run "Node store tests" node web/test/store.mjs
+run "Node engine client tests" node web/test/engine-client.mjs
+run "Node service worker tests" node web/test/sw.mjs
 run "Node rollup tests" node web/test/rollup.mjs
 
 site="$temporary/site"

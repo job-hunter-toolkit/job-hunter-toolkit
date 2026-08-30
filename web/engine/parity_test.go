@@ -60,13 +60,13 @@ func TestSearchMatchesQueryMatch(t *testing.T) {
 		c := compileQuery(q)
 
 		for i := range e.rows {
-			row := &e.rows[i]
-			want := q.Match(&row.posting)
-			got := c.match(row)
+			posting := e.posting(i)
+			want := q.Match(&posting)
+			got := c.match(e, i)
 
 			if got != want {
 				t.Errorf("query %+v, row %d (%q at %q): compiled says %v, query.Match says %v",
-					q, i, row.posting.Title, row.posting.Company, got, want)
+					q, i, posting.Title, posting.Company, got, want)
 			}
 		}
 	}

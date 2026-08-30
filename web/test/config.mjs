@@ -1,7 +1,7 @@
 // config.mjs — unit test of the corpus-location resolution in config.js,
 // under Node with a stubbed fetch. Run with: node web/test/config.mjs
 
-import { resolveCorpusBase, CORPUS_SOURCE } from "../config.js";
+import { resolveCorpusBase, resolveCorpusBases, CORPUS_SOURCE } from "../config.js";
 import { exit } from "node:process";
 
 let failures = 0;
@@ -20,11 +20,17 @@ const { owner, repo, branch } = CORPUS_SOURCE;
 
 // The API answers: reads pin to the commit SHA for an atomic view.
 {
-  const base = await resolveCorpusBase(async () => ({
+  let options;
+  const bases = await resolveCorpusBases(async (_url, requestOptions) => {
+    options = requestOptions;
+    return {
     ok: true,
     json: async () => ({ sha }),
-  }));
-  check("sha-pinned base", base, `https://raw.githubusercontent.com/${owner}/${repo}/${sha}/`);
+    };
+  });
+  check("sha-pinned base", bases[0], `https://raw.githubusercontent.com/${owner}/${repo}/${sha}/`);
+  check("branch recovery candidate", bases[1], `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/`);
+  check("commit discovery bypasses stale HTTP cache", options.cache, "no-store");
 }
 
 // The API is down or rate-limited: fall back to the branch name.

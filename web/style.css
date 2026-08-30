@@ -446,6 +446,12 @@ summary:focus-visible {
   width: 100%;
   padding: 0.25rem 0;
   transition: color 0.15s ease;
+  list-style: none;
+  touch-action: manipulation;
+}
+
+.refine summary::-webkit-details-marker {
+  display: none;
 }
 
 .refine summary::before {
@@ -456,6 +462,7 @@ summary:focus-visible {
   border-bottom: 1.5px solid var(--muted);
   transform: rotate(-45deg);
   transition: transform 0.15s ease;
+  flex: none;
 }
 
 .refine[open] summary::before {
@@ -1027,6 +1034,19 @@ footer a {
 
   .snapshot-details {
     margin-left: 1.25rem;
+  }
+
+  .refine {
+    border-color: var(--border-strong);
+    padding-inline: 0.85rem;
+  }
+
+  .refine[open] {
+    padding-bottom: 0.85rem;
+  }
+
+  .refine summary {
+    min-height: 3rem;
   }
 }
 

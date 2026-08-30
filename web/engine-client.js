@@ -40,8 +40,16 @@ export class EngineClient {
       const id = this.nextID++;
       const abort = () => {
         this.pending.delete(id);
-        this.worker.postMessage({ op: "cancel", args: { token: id } });
-        reject(new DOMException("The search was cancelled", "AbortError"));
+        if (op === "search") {
+          this.worker.postMessage({ op: "cancel", args: { token: id } });
+        } else {
+          this.worker.terminate();
+          for (const entry of this.pending.values()) {
+            entry.reject(new DOMException("Snapshot preparation timed out", "TimeoutError"));
+          }
+          this.pending.clear();
+        }
+        reject(new DOMException(op === "search" ? "The search was cancelled" : "Snapshot preparation timed out", op === "search" ? "AbortError" : "TimeoutError"));
       };
 
       if (signal?.aborted) {
@@ -59,12 +67,12 @@ export class EngineClient {
     });
   }
 
-  open(corpusURL) {
-    return this.call("open", { corpusURL });
+  open(corpusURL, options) {
+    return this.call("open", { corpusURL }, options);
   }
 
-  load() {
-    return this.call("load");
+  load(options) {
+    return this.call("load", {}, options);
   }
 
   search(request, options) {

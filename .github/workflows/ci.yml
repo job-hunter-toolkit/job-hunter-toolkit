@@ -104,8 +104,10 @@ jobs:
     - name: Test and build the browser app
       run: |
         node web/test/config.mjs
+        node web/test/snapshot.mjs
         node web/test/store.mjs
         node web/test/engine-client.mjs
+        node web/test/sw.mjs
         node web/test/rollup.mjs
         node web/test/freshness.mjs
         go run ./web/fixture -dir "$RUNNER_TEMP/corpus"

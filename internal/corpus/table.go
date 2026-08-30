@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"math"
 	"slices"
 	"sort"
 )
@@ -578,6 +579,28 @@ func (t *Table) Strings(name string) ([]string, error) {
 	}
 }
 
+// StringDictionary decodes a dictionary string column without expanding one
+// 16-byte string header per row. It reports false for raw columns, whose
+// values are not dictionary encoded. Browser readers use this to keep large
+// resident projections within mobile memory while preserving the exact values.
+func (t *Table) StringDictionary(name string) ([]string, []uint32, bool, error) {
+	index, ok := t.byName[name]
+	if !ok {
+		return []string{""}, make([]uint32, t.rows), true, nil
+	}
+
+	info := t.columns[index]
+	if info.Encoding != EncodingDict {
+		return nil, nil, false, nil
+	}
+	payload, err := t.payload(info)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	dictionary, ids, err := decodeDictIDs(payload, t.rows, name)
+	return dictionary, ids, true, err
+}
+
 // Ints decodes an int64 column. A missing column decodes to [Table.Rows] zeros.
 func (t *Table) Ints(name string) ([]int64, error) {
 	index, ok := t.byName[name]
@@ -728,52 +751,67 @@ func deflate(payload []byte) ([]byte, error) {
 // --- payload decoders ------------------------------------------------------
 
 func decodeDict(payload []byte, rows int, name string) ([]string, error) {
+	dictionary, ids, err := decodeDictIDs(payload, rows, name)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, rows)
+	for i, id := range ids {
+		out[i] = dictionary[id]
+	}
+	return out, nil
+}
+
+func decodeDictIDs(payload []byte, rows int, name string) ([]string, []uint32, error) {
 	cur := &cursor{buf: payload}
 
 	ndict, err := cur.uvarint("dictionary size")
 	if err != nil {
-		return nil, fmt.Errorf("column %q: %w", name, err)
+		return nil, nil, fmt.Errorf("column %q: %w", name, err)
 	}
 
 	if ndict > uint64(cur.remaining()) {
-		return nil, formatErr("column %q: dictionary of %d entries in %d bytes", name, ndict, cur.remaining())
+		return nil, nil, formatErr("column %q: dictionary of %d entries in %d bytes", name, ndict, cur.remaining())
+	}
+	if ndict > math.MaxUint32 {
+		return nil, nil, formatErr("column %q: dictionary has %d entries", name, ndict)
 	}
 
 	dictionary := make([]string, ndict)
 	for i := range dictionary {
 		if dictionary[i], err = cur.str("dictionary entry"); err != nil {
-			return nil, fmt.Errorf("column %q: %w", name, err)
+			return nil, nil, fmt.Errorf("column %q: %w", name, err)
 		}
 	}
 
 	nrows, err := cur.uvarint("row count")
 	if err != nil {
-		return nil, fmt.Errorf("column %q: %w", name, err)
+		return nil, nil, fmt.Errorf("column %q: %w", name, err)
 	}
 
 	if nrows != uint64(rows) {
-		return nil, formatErr("column %q holds %d rows, table has %d", name, nrows, rows)
+		return nil, nil, formatErr("column %q holds %d rows, table has %d", name, nrows, rows)
 	}
 
-	out := make([]string, rows)
-	for i := range out {
+	ids := make([]uint32, rows)
+	for i := range ids {
 		id, err := cur.uvarint("dictionary id")
 		if err != nil {
-			return nil, fmt.Errorf("column %q: %w", name, err)
+			return nil, nil, fmt.Errorf("column %q: %w", name, err)
 		}
 
 		if id >= ndict {
-			return nil, formatErr("column %q row %d: dictionary id %d of %d", name, i, id, ndict)
+			return nil, nil, formatErr("column %q row %d: dictionary id %d of %d", name, i, id, ndict)
 		}
 
-		out[i] = dictionary[id]
+		ids[i] = uint32(id)
 	}
 
 	if cur.remaining() != 0 {
-		return nil, formatErr("column %q: %d trailing bytes", name, cur.remaining())
+		return nil, nil, formatErr("column %q: %d trailing bytes", name, cur.remaining())
 	}
 
-	return out, nil
+	return dictionary, ids, nil
 }
 
 func decodeRaw(payload []byte, rows int, name string) ([]string, error) {
